@@ -42,40 +42,417 @@ The challenge is further complicated by the dynamic and often unpredictable natu
 
 Modern approaches to this problem increasingly leverage machine learning techniques for workload prediction and resource allocation optimization. For instance, intelligent resource allocation frameworks utilizing Long Short-Term Memory (LSTM) networks for demand prediction and Deep Q-Networks (DQN) for dynamic scheduling have demonstrated substantial improvements, enhancing resource utilization by 32.5%, reducing average response time by 43.3%, and lowering operational costs by 26.6% in production environments (Wang & Yang, 2025).
 
-## Proposed Solution Approach
+## Proposed Solution Architecture
+
+### Overview: Decoupling Bin Packing from Admission Control
+
+Our proposed solution introduces a novel architecture that decouples the traditional VM bin packing problem from node-level admission control decisions. While VM bin packing—the problem of efficiently assigning VMs to physical nodes to optimize resource utilization—remains a critical function of cluster management systems, our research does not focus on the bin packing algorithms themselves. Instead, we recognize that existing cluster managers employ various sophisticated bin packing strategies to determine which node should host a new VM based on factors such as resource availability, network topology, power consumption, and load balancing objectives.
+
+Our contribution centers on a **node-level predictive admission control model** that serves as a consultant to the cluster manager. This model provides intelligent yes/no decisions regarding VM admission based on predicted memory usage patterns and overload risks. By positioning our model as an advisory layer that communicates with the cluster manager's bin packing mechanism, we create a system architecture that is agnostic to the specific bin packing algorithm employed while adding a crucial layer of temporal awareness and overload prevention.
+
+### System Architecture Components
+
+The proposed system architecture consists of three primary components operating in a coordinated workflow:
+
+#### 1. Cluster Manager with Bin Packing
+
+The cluster manager maintains overall responsibility for VM placement decisions across the cluster. When a request arrives to provision a new VM, the cluster manager uses its bin packing algorithm to identify a candidate node that appears suitable based on current resource availability and other placement criteria. The specific bin packing strategy—whether first-fit, best-fit, worst-fit, or more sophisticated algorithms considering multiple dimensions—is not constrained by our approach.
+
+#### 2. Node-Level Predictive Admission Control Model
+
+Each physical node in the cluster hosts an instance of our predictive admission control model. This model maintains two complementary prediction mechanisms:
+
+**Generalized Prediction Model:** This model operates using trend-based forecasting similar to the approach described in the Coach paper (Reidys et al., n.d.), leveraging characteristics such as VM size, resource allocation, and temporal usage patterns observed across similar VM types. The generalized model provides predictions for new VMs where no specific historical data exists. It identifies typical memory usage patterns based on VM configuration parameters and applies learned temporal patterns to forecast when peak demands are likely to occur.
+
+**Curated Prediction Model:** For VMs that have been running on the node for sufficient time to establish a behavioral history, the system develops VM-specific curated models. These models learn the unique memory usage patterns of individual VMs, capturing application-specific behaviors, periodic workload cycles, and response to external triggers (Cortez et al., 2017). The curated model provides more accurate predictions than the generalized model by exploiting the consistency that many VMs exhibit across their lifetimes.
+
+The system employs the generalized model when a VM is newly admitted to a node, then progressively transitions to the curated model as sufficient historical data accumulates. This dual-model approach balances the need for immediate predictive capability with the advantages of personalized forecasting.
+
+#### 3. Communication Protocol Between Components
+
+When the cluster manager selects a candidate node for VM placement, it queries the node's admission control model with the proposed VM's characteristics. The model evaluates whether accepting the new VM would create unacceptable overload risk by analyzing:
+
+- Current memory commitments to existing VMs
+- Predicted peak memory demands of existing VMs over a forecast horizon
+- Predicted memory demand of the candidate VM (using the generalized model)
+- Potential temporal overlap of peak demands that could exceed physical capacity
+- SLA requirements and priorities of all affected VMs
+
+Based on this analysis, the model returns a binary decision: accept or reject. If the model rejects the VM, the cluster manager must consult its bin packing algorithm to identify an alternative node and repeat the consultation process with that node's model. This continues until either a node accepts the VM or no suitable node can be found in the cluster.
+
+### VM Admission Control Workflow
+
+The following diagram illustrates the VM admission control process:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     VM Admission Control Flow                    │
+└─────────────────────────────────────────────────────────────────┘
+
+    ┌─────────────────┐
+    │  New VM Request │
+    └────────┬────────┘
+             │
+             ▼
+    ┌────────────────────────┐
+    │   Cluster Manager      │
+    │   Bin Packing Engine   │
+    │  Selects Candidate     │
+    │        Node            │
+    └────────┬───────────────┘
+             │
+             ▼
+    ┌────────────────────────────────────────────┐
+    │  Query Node's Admission Control Model      │
+    │  - Pass VM characteristics                 │
+    │  - Request admission decision              │
+    └────────┬───────────────────────────────────┘
+             │
+             ▼
+    ┌─────────────────────────────────────────────┐
+    │   Node-Level Prediction & Analysis          │
+    │                                              │
+    │   1. Use Generalized Model for new VM       │
+    │      - Predict memory demand pattern        │
+    │      - Identify likely peak times           │
+    │                                              │
+    │   2. Use Curated Models for existing VMs    │
+    │      - Forecast memory usage timeline       │
+    │      - Identify existing peak periods       │
+    │                                              │
+    │   3. Temporal Conflict Analysis             │
+    │      - Check for overlapping peaks          │
+    │      - Calculate total demand at each time  │
+    │      - Compare against physical capacity    │
+    │                                              │
+    │   4. SLA Impact Assessment                  │
+    │      - Evaluate risk to SLA compliance      │
+    │      - Consider priority levels             │
+    └────────┬────────────────────────────────────┘
+             │
+             ▼
+    ┌────────────────────┐
+    │  Decision:         │
+    │  Accept or Reject? │
+    └────┬───────────┬───┘
+         │           │
+    Accept│           │Reject
+         │           │
+         ▼           ▼
+┌────────────┐   ┌──────────────────────┐
+│  Admit VM  │   │  Return to Cluster   │
+│  to Node   │   │  Manager to Select   │
+│            │   │  Alternative Node    │
+└─────┬──────┘   └──────────┬───────────┘
+      │                     │
+      │                     │
+      ▼                     ▼
+┌────────────────┐   ┌─────────────────┐
+│ Start Curated  │   │  Try Next Node  │
+│ Model Learning │   │  from Bin Pack  │
+│ for New VM     │   │   Candidates    │
+└────────────────┘   └─────────────────┘
+```
+
+### Continuous Monitoring and Overload Management
+
+Beyond the admission control phase, our model continuously monitors the memory usage of all VMs on its node and maintains updated predictions of future demand. This ongoing analysis enables proactive overload management through several mechanisms:
+
+#### Overload Prediction and Early Reclamation
+
+When the model predicts an upcoming overload condition—a period when aggregate memory demand will exceed or approach physical capacity—it initiates early reclamation processes. Reclamation techniques may include:
+
+- **Ballooning:** Requesting guest operating systems to release memory pages they consider less critical (Waldspurger, 2002)
+- **Page sharing:** Identifying and consolidating duplicate memory pages across VMs
+- **Compression:** Applying memory compression techniques to reduce physical memory footprint
+
+These reclamation mechanisms operate transparently and aim to prevent overload without impacting VM performance or requiring drastic interventions.
+
+#### Mitigation Strategies for Impending Overload
+
+If reclamation proves insufficient and the model detects that the system is trending toward an overload state that will violate SLA commitments, more aggressive mitigation strategies become necessary. While our capstone research focuses primarily on the predictive and decision-making framework, we acknowledge that mitigation strategies form an important part of the complete system. These strategies include:
+
+**Memory Swapping** (Future Work): Selectively swapping less-critical memory pages to storage. While swapping degrades performance, strategic application to lower-priority VMs may preserve SLAs for critical workloads. Our current research scope treats swapping mechanisms as future work beyond the core predictive model.
+
+**Selective VM Termination:** When overload cannot be avoided through reclamation or swapping, the system may need to terminate VMs to preserve physical capacity for higher-priority workloads. This decision is governed by SLA priorities, where VMs with lower SLA requirements become candidates for termination before those with stricter guarantees.
+
+#### Termination Policy and Priority Framework
+
+The termination mechanism operates according to a priority-based framework:
+
+**SLA-Based Prioritization:** VMs are classified according to their SLA requirements. Lower-priority VMs (those with more lenient performance guarantees or best-effort service levels) are designated for potential termination before higher-priority VMs (those with strict performance SLAs or guaranteed service levels).
+
+**Termination Granularity:** The system supports multiple levels of termination granularity. While our capstone treats VMs as black boxes, existing research has demonstrated that selective termination of individual processes within a VM can mitigate overload while preserving partial VM functionality (Hu et al., 2025). However, our primary approach focuses on whole-VM termination to maintain architectural simplicity and avoid guest OS introspection requirements.
+
+**Termination Groups:** VMs designated for potential termination are organized into termination groups based on their priority levels. When termination becomes necessary, the system selects from the lowest-priority group first, proceeding to higher-priority groups only if sufficient capacity cannot be reclaimed from lower priorities.
+
+**Cluster Manager Coordination:** When a VM is terminated due to overload prediction, we assume the cluster manager will relaunch the terminated VM on an alternative node within a specified threshold time. This assumption aligns with standard cloud platform behavior where VM failures trigger automatic recovery procedures. The admission control model on the alternative node will evaluate whether it can safely host the relaunched VM based on its own predictive analysis.
+
+### Overload Management Workflow
+
+The following diagram illustrates the continuous monitoring and overload management process:
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│              Continuous Monitoring & Overload Management         │
+└──────────────────────────────────────────────────────────────────┘
+
+         ┌─────────────────────────┐
+         │  Continuous Monitoring  │
+         │  Loop (Per Node)        │
+         └────────┬────────────────┘
+                  │
+                  ▼
+         ┌──────────────────────────────────┐
+         │  Update Predictions for All VMs  │
+         │  - Curated models for existing   │
+         │  - Adjust for observed behavior  │
+         │  - Forecast next N hours         │
+         └────────┬─────────────────────────┘
+                  │
+                  ▼
+         ┌───────────────────────────┐
+         │  Aggregate Memory Demand  │
+         │  Forecast Across All VMs  │
+         └────────┬──────────────────┘
+                  │
+                  ▼
+         ┌───────────────────────┐
+         │  Predict Overload?    │
+         └────┬───────────┬──────┘
+              │           │
+          No  │           │ Yes
+              │           │
+              ▼           ▼
+    ┌──────────────┐  ┌────────────────────────┐
+    │  Continue    │  │  Calculate Time Until  │
+    │  Monitoring  │  │  Predicted Overload    │
+    └──────────────┘  └──────────┬─────────────┘
+                                 │
+                                 ▼
+                      ┌──────────────────────────┐
+                      │  Initiate Early          │
+                      │  Reclamation:            │
+                      │  - Ballooning            │
+                      │  - Page Sharing          │
+                      │  - Compression           │
+                      └──────────┬───────────────┘
+                                 │
+                                 ▼
+                      ┌──────────────────────┐
+                      │  Reclamation         │
+                      │  Sufficient?         │
+                      └────┬──────────┬──────┘
+                           │          │
+                       Yes │          │ No
+                           │          │
+                           ▼          ▼
+                  ┌──────────────┐  ┌────────────────────────┐
+                  │  Continue    │  │  Trending to Overload  │
+                  │  Monitoring  │  │  Despite Reclamation   │
+                  └──────────────┘  └──────────┬─────────────┘
+                                               │
+                                               ▼
+                                    ┌──────────────────────────┐
+                                    │  Evaluate SLA Priorities │
+                                    │  and Termination Options │
+                                    └──────────┬───────────────┘
+                                               │
+                                               ▼
+                                    ┌──────────────────────────┐
+                                    │  Select VMs from Lowest  │
+                                    │  Priority Termination    │
+                                    │  Group                   │
+                                    └──────────┬───────────────┘
+                                               │
+                                               ▼
+                                    ┌──────────────────────────┐
+                                    │  Terminate Selected VMs  │
+                                    └──────────┬───────────────┘
+                                               │
+                                               ▼
+                                    ┌──────────────────────────┐
+                                    │  Notify Cluster Manager  │
+                                    │  - Terminated VM IDs     │
+                                    │  - Request Relaunch      │
+                                    └──────────┬───────────────┘
+                                               │
+                                               ▼
+                                    ┌──────────────────────────┐
+                                    │  Cluster Manager         │
+                                    │  Relaunches VMs on       │
+                                    │  Alternative Nodes       │
+                                    │  (Within Threshold Time) │
+                                    └──────────────────────────┘
+```
+
+### Dual Prediction Model Architecture
+
+The following diagram illustrates how the generalized and curated prediction models work together:
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                  Dual Prediction Model System                     │
+└──────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────┐
+  │                    New VM Arrives at Node                    │
+  └────────────────────────────┬────────────────────────────────┘
+                               │
+                               ▼
+              ┌────────────────────────────────┐
+              │  Initialize Generalized Model  │
+              │                                 │
+              │  Inputs:                        │
+              │  - VM size (CPU, RAM allocated) │
+              │  - VM type/class                │
+              │  - Deployment configuration     │
+              │                                 │
+              │  Based on:                      │
+              │  - Historical patterns from     │
+              │    similar VM profiles          │
+              │  - Temporal usage trends        │
+              │  - Typical peak/trough cycles   │
+              └────────────────┬───────────────┘
+                               │
+                               ▼
+              ┌────────────────────────────────┐
+              │  VM Runs on Node               │
+              │  Collecting Actual Usage Data  │
+              └────────┬───────────────────────┘
+                       │
+                       │ Time passes...
+                       │ Data accumulates...
+                       │
+                       ▼
+              ┌─────────────────────────────────┐
+              │  Sufficient History Collected?  │
+              │  (e.g., 7+ days of data)        │
+              └────────┬────────────────┬───────┘
+                   No  │                │ Yes
+                       │                │
+           ┌───────────┘                └────────────┐
+           │                                         │
+           ▼                                         ▼
+  ┌──────────────────┐                ┌──────────────────────────┐
+  │  Continue Using  │                │  Train Curated Model     │
+  │  Generalized     │                │                          │
+  │  Model           │                │  VM-Specific Features:   │
+  │                  │                │  - Actual usage patterns │
+  │  + Refine with   │                │  - Observed peak times   │
+  │    recent data   │                │  - Response to events    │
+  └────────┬─────────┘                │  - Application cycles    │
+           │                          │  - Seasonal variations   │
+           │                          └────────┬─────────────────┘
+           │                                   │
+           │                                   ▼
+           │                          ┌────────────────────────────┐
+           │                          │  Gradual Transition:       │
+           │                          │  Blend Generalized +       │
+           │                          │  Curated Predictions       │
+           │                          │  (Increase curated weight) │
+           │                          └────────┬───────────────────┘
+           │                                   │
+           │                                   ▼
+           │                          ┌────────────────────────────┐
+           │                          │  Full Switch to Curated    │
+           │                          │  Model for This VM         │
+           │                          │                            │
+           │                          │  - Higher accuracy         │
+           │                          │  - VM-specific insights    │
+           │                          │  - Adaptive to changes     │
+           │                          └────────┬───────────────────┘
+           │                                   │
+           └───────────────┬───────────────────┘
+                           │
+                           ▼
+              ┌─────────────────────────────┐
+              │  Continuous Model Updates   │
+              │                             │
+              │  - Retrain periodically     │
+              │  - Adapt to behavior drift  │
+              │  - Incorporate new patterns │
+              └─────────────────────────────┘
+
+  Legend:
+  ═══════════════════════════════════════════════════════
+  Generalized Model: Uses cross-VM trends & patterns
+  Curated Model: Learns individual VM behavior
+  Hybrid Period: Weighted combination of both models
+```
 
 ### Mathematical Programming Framework
 
-This research will address the memory overcommitment problem through mathematical programming techniques, employing operations research and prescriptive analytical tools to develop an optimization framework. The approach recognizes that optimal memory allocation represents a multi-objective optimization problem requiring careful balancing of competing goals.
+The core of our solution employs mathematical programming techniques to formalize the admission control and overload management decisions. The optimization framework addresses the multi-objective nature of the problem through a set of constraints and objective functions:
 
-The solution framework will integrate several key components:
+**Decision Variables:**
+- Binary admission decision for candidate VM
+- Memory allocation levels for existing VMs
+- Reclamation target amounts per VM
+- Termination decisions for lower-priority VMs
 
-**Workload Characterization and Prediction:** Building on established research demonstrating that VM behavioral patterns exhibit temporal consistency (Cortez et al., 2017), we will develop predictive models to forecast memory demand patterns. These predictions will inform overcommitment decisions by identifying periods when aggressive oversubscription can be safely employed versus periods requiring more conservative allocation strategies.
+**Constraints:**
+- Physical memory capacity limits
+- SLA performance guarantees for each priority tier
+- Minimum memory allocation thresholds
+- Temporal peak demand predictions
+- Fairness requirements across tenant VMs
 
-**Dynamic Memory Balancing:** Drawing from the VMMB (Virtual Machine Memory Balancer) approach (Min et al., 2012), the solution will incorporate mechanisms to dynamically monitor memory demand with low overhead and periodically rebalance memory allocations among VMs based on current demand and QoS requirements. This dynamic adjustment capability is essential for responding to workload variations while maintaining service guarantees.
+**Objective Functions:**
+- Maximize aggregate memory utilization
+- Minimize SLA violation risk
+- Minimize VM terminations
+- Maximize fairness metrics (e.g., Dominant Resource Fairness)
 
-**Fairness-Aware Allocation:** The allocation mechanism will incorporate principles from Dominant Resource Fairness (Ghodsi et al., 2011) to ensure equitable resource distribution among tenants with heterogeneous demands. This framework provides theoretical guarantees on fairness properties while enabling efficient resource utilization.
-
-**SLA-Aware Prioritization:** Following the weight-based collocation management approach (Blagodurov et al., n.d.), the solution will implement priority mechanisms that ensure critical workloads receive preferential access to memory resources during contention scenarios, maintaining SLA compliance even under high utilization levels.
+The mathematical program is solved repeatedly: during admission decisions, during continuous monitoring when reclamation is triggered, and when evaluating termination scenarios. The solution employs prescriptive analytics to recommend specific actions (admit/reject, reclamation amounts, termination candidates) that optimize the multi-objective criteria while respecting all constraints.
 
 ### Integration of Complementary Techniques
 
-The solution will synthesize techniques from multiple domains:
+The solution synthesizes techniques from multiple research domains:
 
 - **Temporal pattern exploitation** for identifying safe oversubscription opportunities across different time periods, as demonstrated in all-resource oversubscription research (Reidys et al., n.d.)
 - **Real-time monitoring and adaptive control** to detect emerging resource pressure and trigger preventive actions before SLA violations occur (Doukha & Ez-zahout, 2025)
 - **Memory management optimizations** such as page sharing and intelligent caching to reduce effective memory pressure while supporting higher degrees of overcommitment (Krishnaiah & Rao, 2025)
+- **Workload characterization** based on Microsoft Azure production studies demonstrating behavioral consistency across VM lifetimes (Cortez et al., 2017)
+- **Fairness-aware allocation** incorporating Dominant Resource Fairness principles to ensure equitable treatment of heterogeneous workloads (Ghodsi et al., 2011)
 
 ### Expected Outcomes and Contributions
 
 The proposed research aims to develop a comprehensive framework for memory overcommitment that demonstrably improves upon current practices by:
 
-1. Achieving higher average memory utilization rates while maintaining strict SLA compliance
-2. Providing provable fairness guarantees for resource allocation among heterogeneous tenants
-3. Reducing the frequency and severity of performance degradation incidents due to memory contention
-4. Enabling more cost-effective cloud infrastructure operation through improved resource efficiency
+1. **Improving Admission Decisions:** Providing the cluster manager with informed guidance on VM placement that accounts for temporal demand patterns rather than merely instantaneous resource availability.
 
-By addressing this multi-faceted problem through rigorous mathematical programming techniques informed by empirical workload studies and established theoretical frameworks, this research will contribute practical tools for CSPs navigating the challenging economic environment created by rising DRAM costs while maintaining competitive service quality.
+2. **Reducing SLA Violations:** Proactively detecting and mitigating overload conditions before they impact performance, maintaining higher SLA compliance rates even under aggressive overcommitment policies.
+
+3. **Increasing Utilization Efficiency:** Enabling safer overcommitment through accurate prediction, allowing CSPs to extract more value from existing DRAM infrastructure without proportional increases in violation risk.
+
+4. **Providing Fairness Guarantees:** Ensuring that resource allocation and termination decisions respect fairness principles, preventing systematic disadvantage to particular tenant workloads.
+
+5. **Enabling Autonomous Operation:** Operating as a largely autonomous system that requires minimal manual intervention, relying on learned models and mathematical optimization to make real-time decisions.
+
+By addressing this multi-faceted problem through rigorous mathematical programming techniques informed by empirical workload studies and established theoretical frameworks, this research will contribute practical tools for CSPs navigating the challenging economic environment created by rising DRAM costs while maintaining competitive service quality. The decoupled architecture—separating bin packing from admission control—ensures that our contributions can integrate with diverse cluster management platforms without requiring fundamental changes to their placement algorithms.
+
+## Research Scope and Limitations
+
+To maintain focused scope, our capstone research explicitly defines several boundaries:
+
+**In Scope:**
+- Node-level predictive admission control model
+- Dual prediction models (generalized and curated)
+- VM admission decision framework
+- Overload prediction and early reclamation triggering
+- SLA-based termination prioritization framework
+- Communication protocol between cluster manager and node models
+
+**Out of Scope (Future Work):**
+- Specific bin packing algorithm design or optimization
+- Detailed swap management strategies
+- Process-level termination within VMs (treated as black boxes)
+- Multi-node coordination and VM migration
+- Network and I/O resource management
+- Cross-datacenter resource optimization
+
+This scoping ensures that our research delivers depth in the critical area of predictive memory overcommitment while acknowledging complementary problems that merit separate investigation.
 
 ## References
 
@@ -87,7 +464,9 @@ Doukha, R., & Ez-zahout, A. (2025). Enhanced virtual machine resource optimizati
 
 Ghodsi, A., Zaharia, M., Hindman, B., Konwinski, A., Shenker, S., & Stoica, I. (2011). Dominant resource fairness: Fair allocation of multiple resource types. In *Proceedings of the 8th USENIX Symposium on Networked Systems Design and Implementation* (NSDI '11). USENIX Association.
 
-Krishnaiah, V. V. J. R., & Rao, B. S. (2025). Optimizing server and memory utilization in cloud computing through virtualization and caching. Koneru Lakshmaiah Education Foundation.
+Hu, Y., Zhang, Z., Liu, Y., Gu, Y., Lei, S., Kasikci, B., & Huang, P. (2025). Mitigating application resource overload with targeted task cancellation. In *Proceedings of the 31st ACM SIGOPS Symposium on Operating Systems Principles* (SOSP '25). Association for Computing Machinery.
+
+Krishnaiah, V. V. J. R., & Rao, B. S. (2025). Optimizing server and memory utilization in cloud computing through virtualization and caching. Koneru Lakshmaiah Education Foundation. https://doi.org/10.22541/au.174593665.52735213/v1
 
 Min, C., Kim, I., Kim, T., & Eom, Y. I. (2012). VMMB: Virtual machine memory balancing for unmodified operating systems. *Journal of Grid Computing, 10*(1), 69-84. https://doi.org/10.1007/s10723-012-9209-4
 
