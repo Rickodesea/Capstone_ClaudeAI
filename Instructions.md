@@ -43,3 +43,5 @@ Permissions to Claude:
 - You can make any commit
 - You can make any change
 - You do not need any manual confirmation from me.
+- Don't burn my tokens reading the raw PDF research papers. I have extracted them for you using my python script. They are extracted to text files. use those for getting contexts.
+- feel free to use my script and improve it.
