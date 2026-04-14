@@ -1,0 +1,13 @@
+Supplies of conventional (traditional) DRAM are shrinking because leading semiconductor manufacturers (Samsung, SK Hynix and Micron) are diverting production capacity toward premium high-bandwidth memory (HBM) for AI data centres (S&P Global). Conventional DRAM is needed for servers, PCs, mobiles, and other wide range of consumer electronics. The redirection of operational capacity is driving up prices for conventional DRAM. All manufacturers prices for traditional DRAM is projected to increase from 54% to 116% year-over-year (S&P Global).
+
+The increase in prices is reshaping cloud infrastructure costs and budgeting (Catalin Voicu). DRAM is a key component of the cloud service infrastructure. With the price rising cloud service customers will look harder at cost-optimized cloud alternatives (Catalin Voicu). This results in a strong motive for cloud service providers (CSP) to maintain profitability by reducing operational cost and providing attractive prices to consumers of its services.
+
+It becomes costly for CSPs to expand its DRAM and it is costly if they do not optimally utilize their DRAM. CSPs provide several techniques to utilize their available DRAM, one of which is called overcommitment, also known as, oversubscription, overbooking, or multiplexing (Jiang Zhi). Overcommitment is when the total allocated amount of a resource type, such as DRAM, for a process exceeds the available capacity of that resource on the physical machine (PM), also known as a node.
+
+In our capstone project, we will focus on the resource type DRAM, the process Virtual Machine (VM) and DRAM utilization on a single node. Utilization strategies can be done both on a single node by overcommitting DRAM for VMs created on the node than exist on the node physically 
+
+S&P Global: accessed April 13, 2026 : https://www.spglobal.com/market-intelligence/en/news-insights/research/2026/01/ai-memory-boom-squeezes-legacy-dram-supply-pushing-prices-higher 
+
+Catalin Voicu: https://n2ws.com/blog/ai-memory-crisis : accessed April 13, 2026
+
+Zhi, J. (2025). A study on overcommitment in cloud providers . Master's Dissertation, Institute of Mathematics and Statistics, University of São Paulo, São Paulo. doi:10.11606/D.45.2025.tde-20082025-120108. Retrieved 2026-04-14, from www.teses.usp.br

@@ -1,0 +1,639 @@
+=== A study on Overcommitment in Cloud Providers.txt ===
+A Study on Overcommitment in Cloud
+Providers
+Jiang Zhi
+Thesis presented to the
+Institute of Mathematics and Statistics
+of the University of São Paulo
+in partial fulfillment
+of the requirements
+for the degree of
+Master of Science
+Program:
+Computer Science
+Advisor:
+Prof. Dr. Alfredo Goldman
+This study was financed in part by the Coordenação de Aperfeiçoamento
+de Pessoal de Nível Superior – Brasil (CAPES) – Finance Code 001
+São Paulo
+February, 2025
+
+
+A Study on Overcommitment in Cloud
+Providers
+Jiang Zhi
+This version of the thesis includes the
+corrections and modifications suggested
+by the Examining Committee during the
+defense of the original version of the work,
+which took place on February 6, 2025.
+A copy of the original version is available
+at the Institute of Mathematics and
+Statistics of the University of São Paulo.
+Examining Committee:
+Prof. Dr. Alfredo Goldman vel Lejbman – IME-USP
+Profª. Drª. Sarita Mazzini Bruschi – ICMC-USP
+Profª. Drª. Priscila América Solis Mendez – UnB
+
+The content of this work is published under the CC BY 4.0 license
+(Creative Commons Attribution 4.0 International License)
+Ficha catalográfica elaborada com dados inseridos pelo(a) autor(a)
+Biblioteca Carlos Benjamin de Lyra
+Instituto de Matemática e Estatística
+Universidade de São Paulo
+Zhi, Jiang
+Um estudo de sobrealocação em provedores de nuvem
+/ Jiang Zhi; orientador, Alfredo Goldman vel Lejbman.
+- São Paulo, 2025.
+82 p.: il.
+Dissertação (Mestrado) - Programa de Pós-Graduação
+em Ciência da Computação / Instituto de Matemática e
+Estatística / Universidade de São Paulo.
+
+=== A survey of memory management techniques in virtualized systems.txt ===
+Computer Science Review 29 (2018) 56–73
+Contents lists available at ScienceDirect
+Computer Science Review
+journal homepage: www.elsevier.com/locate/cosrev
+Survey
+A survey of memory management techniques in virtualized systems
+Debadatta Mishra a,*, Purushottam Kulkarni b
+a Department of Computer Science and Engineering, Indian Institute of Technology Kanpur, India
+b Department of Computer Science and Engineering, Indian Institute of Technology Bombay, India
+h i g h l i g h t s
+• Discussion of resource virtualization challenges for virtualization techniques.
+• Research challenges of memory partitioning and management in virtualized systems discussed.
+• Survey of memory virtualization techniques and their implications.
+• Classification and detailed description of dynamic memory management techniques.
+a r t i c l e
+i n f o
+Article history:
+Received 22 July 2016
+Received in revised form 19 June 2018
+Accepted 20 June 2018
+Available online 28 June 2018
+Keywords:
+Operating system
+Virtualization
+Memory virtualization
+Memory management
+a b s t r a c t
+Virtualization technology allows multiple operating systems to share hardware resources of a computer
+system in an isolated manner. Traditionally, memory is shared by an operating system using segmen-
+tation and paging techniques. With virtualization, memory partitioning and management has several
+new challenges. For isolated and safe execution, hypervisors do not provide direct access to hardware
+resources. Lack of direct access to the memory management hardware like page tables disqualifies direct
+usage of virtual memory solutions used on native (non-virtualized) setups. Further, aspects of dual control
+of the memory resource (by the guest OS and the hypervisor) and lack of semantics regarding memory
+usage in virtual machines present additional challenges for memory management. This paper surveys
+different techniques of memory partitioning and management across multiple guest OSs in a virtualized
+environment.
+An important goal of virtualization is to increase the physical machine utilization in order to save
+costs. With varying application demand for memory and diverse memory management policies of the
+guest OSs, ensuring optimal usage of memory is non-trivial. In this survey, challenges of memory
+management in virtualized systems, different memory management techniques with their implications,
+and optimizations to increase memory utilization are discussed in detail.
+© 2018 Elsevier Inc. All rights reserved.
+Contents
+1.
+Introduction......................................................................................................................................................................................................................... 57
+1.1.
+Scope ....................................................................................................................................................................................................................... 58
+2.
+Memory virtualization challenges and techniques .......................................................................................................................................................... 58
+
+=== Coach-Resource-Oversubscription.txt ===
+Coach: Exploiting Temporal Patterns for All-Resource
+Oversubscription in Cloud Platforms
+Benjamin Reidys∗
+University of Illinois
+Urbana-Champaign, USA
+Pantea Zardoshti
+Microsoft
+Redmond, USA
+Íñigo Goiri
+Microsoft
+Redmond, USA
+Celine Irvene
+Microsoft
+Redmond, USA
+Daniel S. Berger
+Microsoft, Redmond, USA
+University of Washington,
+Seattle, USA
+Haoran Ma∗
+University of
+California-Los Angeles,
+USA
+Kapil Arya
+Microsoft
+Redmond, USA
+Eli Cortez
+Microsoft
+Redmond, USA
+Taylor Stark
+Microsoft
+Redmond, USA
+Eugene Bak
+Microsoft
+Redmond, USA
+Mehmet Iyigun
+Microsoft
+Redmond, USA
+Stanko Novaković∗
+Google
+Mountain View, USA
+Lisa Hsu∗
+Meta
+Menlo Park, USA
+Karel Trueba
+Microsoft
+Redmond, USA
+Abhisek Pan
+Microsoft
+Redmond, USA
+Chetan Bansal
+
+=== CPU and RAM Energy-Based SLA-Aware.txt ===
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+=== Dominant-Resource-Fairness-Fair-Allocation-of-Multiple-Resource-Types.txt ===
+Dominant Resource Fairness: Fair Allocation of Multiple Resource Types
+Ali Ghodsi, Matei Zaharia, Benjamin Hindman, Andy Konwinski, Scott Shenker, Ion Stoica
+University of California, Berkeley
+{alig,matei,benh,andyk,shenker,istoica}@cs.berkeley.edu
+Abstract
+We consider the problem of fair resource allocation
+in a system containing different resource types, where
+each user may have different demands for each resource.
+To address this problem, we propose Dominant Resource
+Fairness (DRF), a generalization of max-min fairness
+to multiple resource types. We show that DRF, unlike
+other possible policies, satisﬁes several highly desirable
+properties.
+First, DRF incentivizes users to share re-
+sources, by ensuring that no user is better off if resources
+are equally partitioned among them. Second, DRF is
+strategy-proof, as a user cannot increase her allocation
+by lying about her requirements. Third, DRF is envy-
+free, as no user would want to trade her allocation with
+that of another user. Finally, DRF allocations are Pareto
+efﬁcient, as it is not possible to improve the allocation of
+a user without decreasing the allocation of another user.
+We have implemented DRF in the Mesos cluster resource
+manager, and show that it leads to better throughput and
+fairness than the slot-based fair sharing schemes in cur-
+rent cluster schedulers.
+1
+Introduction
+Resource allocation is a key building block of any shared
+computer system. One of the most popular allocation
+policies proposed so far has been max-min fairness,
+which maximizes the minimum allocation received by a
+user in the system. Assuming each user has enough de-
+mand, this policy gives each user an equal share of the
+resources. Max-min fairness has been generalized to in-
+clude the concept of weight, where each user receives a
+share of the resources proportional to its weight.
+The attractiveness of weighted max-min fairness
+stems from its generality and its ability to provide perfor-
+mance isolation. The weighted max-min fairness model
+can support a variety of other resource allocation poli-
+cies, including priority, reservation, and deadline based
+allocation [31]. In addition, weighted max-min fairness
+ensures isolation, in that a user is guaranteed to receive
+her share irrespective of the demand of the other users.
+Given these features, it should come as no surprise
+that a large number of algorithms have been proposed
+to implement (weighted) max-min fairness with various
+degrees of accuracy, such as round-robin, proportional
+resource sharing [32], and weighted fair queueing [12].
+
+=== Intelligent Resource Allocation Optimization for Cloud.txt ===
+Intelligent Resource Allocation Optimization for Cloud 
+Computing via Machine Learning  
+Yuqing Wang1,*, Xiao Yang2,a 
+1One Microsoft Way, Redmond, WA, 98052, USA 
+2University of California, Los Angeles, 405 Hilgard Avenue, Los Angeles, CA, USA  
+axyangrocross@gmail.com 
+*Corresponding author: wang3yq@gmail.com 
+Keywords: Cloud computing resources; machine learning; resource allocation optimization; 
+deep learning 
+Abstract: With the rapid expansion of cloud computing applications, optimizing resource 
+allocation has become crucial for improving system performance and cost efficiency. This 
+paper proposes an intelligent resource allocation algorithm that leverages deep learning 
+(LSTM) for demand prediction and reinforcement learning (DQN) for dynamic scheduling. 
+By accurately forecasting computing resource demands and enabling real-time adjustments, 
+the proposed system enhances resource utilization by 32.5%, reduces average response 
+time by 43.3%, and lowers operational costs by 26.6%. Experimental results in a 
+production cloud environment confirm that the method significantly improves efficiency 
+while maintaining high service quality. This study provides a scalable and effective 
+solution for intelligent cloud resource management, offering valuable insights for future 
+cloud optimization strategies.  
+1. Introduction 
+Cloud computing has become a fundamental infrastructure for digital transformation, enabling 
+enterprises to scale operations, enhance agility, and optimize costs. However, the increasing 
+complexity and dynamism of cloud workloads pose significant challenges for resource allocation. 
+Traditional static allocation strategies struggle to adapt to fluctuating demands, leading to low 
+resource utilization, inefficiencies, and increased operational costs. Studies indicate that global 
+cloud computing resources operate at an average utilization of just 45%, with a substantial portion 
+remaining idle. 
+To address these limitations, this study proposes an intelligent resource allocation framework 
+that leverages machine learning to enhance cloud efficiency. By integrating deep learning (LSTM) 
+for demand prediction and reinforcement learning (DQN) for dynamic scheduling, the proposed 
+approach enables accurate forecasting and real-time adaptation of resources. The goal is to improve 
+resource utilization, reduce latency, and minimize costs, ultimately making cloud computing more 
+efficient, scalable, and cost-effective. 
+Advances in Computer, Signals and Systems (2025) 
+Clausius Scientific Press, Canada
+DOI: 10.23977/acss.2025.090109
+ISSN 2371-8838 Vol. 9 Num. 1
+55
+
+2. Modelling the Cloud Computing Resource Allocation Problem 
+2.1 Problem Description and Analysis  
+In cloud computing environments, resource allocation involves the dynamic scheduling of CPU, 
+memory, storage, and network bandwidth. However, demand for these resources fluctuates 
+significantly, making static allocation strategies inefficient. An analysis of a 2023 enterprise data 
+center revealed substantial variations in resource utilization. CPU usage averaged 45%, with peaks 
+reaching 85% and troughs dropping to 25%, while memory usage remained relatively stable at 65%. 
+Historical data further indicated that 80% of the server cluster load was concentrated within just 20% 
+of the time, highlighting a pronounced tidal effect [1]. 
+Effective resource allocation must balance load prediction accuracy, resource efficiency, service 
+
+=== Maximizing Server Utilization while Meeting Critical SLAs.txt ===
+1 School of Computing Science 
+Simon Fraser University 
+Vancouver, BC, Canada 
+{firstname_lastname}@sfu.ca 
+2 Sustainable Ecosystems Research Group 
+Hewlett-Packard Laboratories 
+Palo Alto, CA, USA 
+{firstname.lastname}@hp.com 
+Maximizing Server Utilization while Meeting Critical SLAs  
+via Weight-Based Collocation Management 
+Sergey Blagodurov1, Daniel Gmach2, Martin Arlitt2, Yuan Chen2, Chris Hyser2, Alexandra Fedorova1 
+ 
+Abstract—Servers in most data centers are often underutilized 
+due to concerns about SLA violations that may result from 
+resource contention as server utilization increases. This low 
+utilization means that neither the capital investment in the 
+servers nor the power consumed is being used as effectively as it 
+could be. In this paper, we present a novel method for managing 
+the collocation of critical (e.g., user interactive) and non-critical 
+(e.g., batch) workloads on virtualized multicore servers. Unlike 
+previous cap-based solutions, our approach improves server 
+utilization while meeting the SLAs of critical workloads by 
+prioritizing resource access using Linux cgroups weights. 
+Extensive experimental results suggest that the proposed work 
+conserving collocation method is able to utilize a server to nearly 
+100% while keeping the performance loss of critical workloads 
+within the specified limits. 
+Keywords: collocation; SLA; virtualization; server efficiency 
+I. 
+ INTRODUCTION 
+The rising penetration of digital services leads to a rapidly 
+growing demand in data center computing and increases the 
+already substantial global power consumption of data centers. 
+Despite the significant demand for computational resources, 
+servers in data centers tend to be under-utilized. Low 
+utilization means that power is not used as effectively as it 
+could be, as servers use a disproportionate amount of power 
+when idle, relative to when they are busy. For example, energy 
+efficiency (work completed per unit of energy) of commodity 
+server systems at 30% utilization can be less than half that at 
+100% [1][2]. Low utilization also contributes to over-
+provisioning 
+of 
+IT 
+equipment 
+and 
+increased 
+capital 
+expenditures (CapEx). 
+The advent of virtualization enabled consolidation of 
+
+=== Memory Resource Management in VMware ESX Server.txt ===
+In Proc. Fifth Symposium on Operating Systems Design and Implementation (OSDI ’02), Dec. 2002. Received best paper award.
+Memory Resource Management in VMware ESX Server
+Carl A. Waldspurger
+VMware, Inc.
+Palo Alto, CA 94304 USA
+carl@vmware.com
+Abstract
+VMware ESX Server is a thin software layer designed to
+multiplex hardware resources efﬁciently among virtual ma-
+chines running unmodiﬁed commodity operating systems.
+This paper introduces several novel ESX Server mechanisms
+and policies for managing memory. A ballooning technique
+reclaims the pages considered least valuable by the operat-
+ing system running in a virtual machine. An idle memory tax
+achieves efﬁcient memory utilization while maintaining per-
+formance isolation guarantees. Content-based page sharing
+and hot I/O page remapping exploit transparent page remap-
+ping to eliminate redundancy and reduce copying overheads.
+These techniques are combined to efﬁciently support virtual
+machine workloads that overcommit memory.
+1
+Introduction
+Recent industry trends, such as server consolida-
+tion and the proliferation of inexpensive shared-memory
+multiprocessors, have fueled a resurgence of interest in
+server virtualization techniques. Virtual machines are
+particularly attractive for server virtualization.
+Each
+virtual machine (VM) is given the illusion of being a ded-
+icated physical machine that is fully protected and iso-
+lated from other virtual machines. Virtual machines are
+also convenient abstractions of server workloads, since
+they cleanly encapsulate the entire state of a running sys-
+tem, including both user-level applications and kernel-
+mode operating system services.
+In many computing environments, individual servers
+are underutilized, allowing them to be consolidated as
+virtual machines on a single physical server with little or
+no performance penalty. Similarly, many small servers
+can be consolidated onto fewer larger machines to sim-
+plify management and reduce costs. Ideally, system ad-
+ministrators should be able to ﬂexibly overcommit mem-
+ory, processor, and other resources in order to reap the
+beneﬁts of statistical multiplexing, while still providing
+resource guarantees to VMs of varying importance.
+Virtual machines have been used for decades to al-
+low multiple copies of potentially different operating
+systems to run concurrently on a single hardware plat-
+form [8]. A virtual machine monitor (VMM) is a soft-
+ware layer that virtualizes hardware resources, export-
+
+=== Mitigating Application Resource Overload with.txt ===
+Mitigating Application Resource Overload with
+Targeted Task Cancellation
+Yigong Hu
+Boston University
+Zeyin Zhang
+Johns Hopkins University
+Yicheng Liu
+University of Michigan
+University of California, Los Angeles
+Yile Gu
+University of Washington
+Shuangyu Lei
+University of Michigan
+Baris Kasikci
+University of Washington
+Peng Huang
+University of Michigan
+Abstract
+Modern software inevitably encounters periods of resource
+overload, during which it must still sustain high service-
+level objective (SLO) attainment while minimizing request
+loss. However, achieving this balance is challenging due
+to subtle and unpredictable internal resource contention
+among concurrently executing requests. Traditional overload
+control mechanisms, which rely on global signals, such as
+queuing delays, fail to handle application resource overload
+effectively because they cannot accurately predict which
+requests will monopolize critical resources.
+In this paper, we propose Atropos, an overload control
+framework that proactively cancels the culprit request that
+cause severe resource contention rather than the victim re-
+quests that are blocked by it. Atropos continuously monitors
+the resource usage of executing requests, identifies the re-
+quests contributing most significantly to resource overload,
+and selectively cancels them. We integrate Atropos into six
+large-scale applications and evaluate it against 16 real-world
+overload scenarios. Our results show that Atropos main-
+tains the performance goals while achieving minimal request
+drop, significantly outperforming state-of-the-art solutions.
+CCS Concepts: • Software and its engineering →Soft-
+ware performance; Operating systems.
+Keywords: Overload Control, Resource Contention, Request
+Cancellation
+ACM Reference Format:
+Yigong Hu, Zeyin Zhang, Yicheng Liu, Yile Gu, Shuangyu Lei, Baris
+Kasikci, and Peng Huang. 2025. Mitigating Application Resource
+Overload with Targeted Task Cancellation. In ACM SIGOPS 31st
+Symposium on Operating Systems Principles (SOSP ’25), October
+This work is licensed under a Creative Commons Attribution 4.0 Interna-
+tional License.
+
+=== Optimizing Server and Memory Utilization in Cloud Computing.txt ===
+Posted on 29 Apr 2025 — The copyright holder is the author/funder. All rights reserved. No reuse without permission. — https://doi.org/10.22541/au.174593665.52735213/v1 — This is a preprint and has not been peer-reviewed. Data may be preliminary.
+Optimizing Server and Memory Utilization in Cloud Computing
+through Virtualization and Caching
+V. V. Jaya Rama Krishnaiah1 and B. Srinivasa Rao2
+1Koneru Lakshmaiah Education Foundation
+2Teegala Krishna Reddy Engineering College
+April 29, 2025
+Abstract
+Modern cloud computing empowers users to dynamically adjust their resource consumption, while data centers utilize virtu-
+alization to manage resource allocation. This paper introduces a system that leverages virtualization to allocate memory to
+resources based on end-user requirements, employing cache memory for optimization. Our solution tackles the under-utilization
+of servers, a common challenge in contemporary cloud computing environments. Although various techniques have been devel-
+oped to address this issue, achieving maximum server utilization remains diﬃcult due to the increasing number of end-users.
+Introduction
+Cloud computing, characterized by the concept of ”computer-as-a-service,” is a prominent feature of today’s
+internet-based applications. It oﬀers on-demand services, including computing resources like CPUs, software,
+data, and devices, to end-users. Cloud computing enables diverse business environments to eﬃciently scale
+their IT needs, providing a versatile, scalable, eﬃcient, and cost-eﬀective solution. Major companies such
+as Amazon, Microsoft, IBM, and Google are heavily investing in large data centers. These data centers
+lease physical resources, including CPU, disk space, memory, and network capacity, based on the immediate
+requirements of client companies. The dynamic nature of resource demands in these organizations increases
+the complexity of resource management in data centers.
+The rapid growth of internet-based applications has led to a surge in users, intensifying competition among
+data centers. Storing user data is a critical challenge for organizations, prompting them to rely on cloud
+providers who utilize advanced technologies to manage large volumes of client data. Virtualization provides
+a solution for data centers to eﬀectively manage these challenges, with hypervisors enabling multiple virtual
+machines on physical machines.
+Cloud providers address server over-provisioning in diﬀerent ways. Some allocate generous physical resources
+to each virtual machine to handle peak load demands, while others use fewer resources. Resource oversub-
+scription, wherein multiple VMs share a single physical server, may result in performance degradation once
+aggregate VM demands exceed host capacity. Mitigating such overloads is critical for competitive cloud
+service provisioning.
+This paper focuses on memory overload in physical machines. Although memory cannot be oversubscribed
+like CPU or I/O, its overloading signiﬁcantly impacts application performance.
+Reasons for Overloading
+This section identiﬁes the various reasons for overloading in diﬀerent data centers and examines their behavior
+by analyzing data center logs from large organizations. In a cloud computing environment, overloading can be
+caused by both cloud users and cloud providers. Virtual machines are overloaded when the allocated physical
+1
+
+Posted on 29 Apr 2025 — The copyright holder is the author/funder. All rights reserved. No reuse without permission. — https://doi.org/10.22541/au.174593665.52735213/v1 — This is a preprint and has not been peer-reviewed. Data may be preliminary.
+memory is signiﬁcantly insuﬃcient to process the applications requested by the cloud user.
+Sometimes,
+cloud providers may face challenges when servers are underutilized because servers are overloaded with over-
+provisioning of virtual machines on a single physical machine. These are two common memory issues in
+cloud computing-enabled systems.
+First, it is important to deﬁne memory allocation, memory allocation represents a fundamental aspect of
+cloud infrastructure, wherein virtual memory is provisioned by the provider to support client workloads.
+Despite increasing user access, server underutilization remains a concern. Virtual machines are generally
+adaptable in memory usage, though application-speciﬁc demands can exceed predeﬁned limits, thereby
+
+=== Paper_67-Enhanced_Virtual_Machine_Resource_Optimization.txt ===
+(IJACSA) International Journal of Advanced Computer Science and Applications, 
+Vol. 16, No. 2, 2025 
+658 | P a g e  
+www.ijacsa.thesai.org 
+Enhanced Virtual Machine Resource Optimization in 
+Cloud Computing Using Real-Time Monitoring and 
+Predictive Modeling
+Rim Doukha, Abderrahmane Ez-zahout 
+Intelligent Processing and Security of Systems Team-Faculty of Sciences, Mohammed V University, Rabat, Morocco 
+ 
+ 
+Abstract—Effective resource estimation is essential in cloud 
+computing to minimize operational costs, optimize performance, 
+and 
+enhance 
+user 
+satisfaction. 
+This 
+study 
+proposes 
+a 
+comprehensive framework for virtual machine optimization in 
+cloud environments, focusing on predictive resource management 
+to improve resource efficiency and system performance. The 
+framework integrates real-time monitoring, advanced resource 
+management techniques, and machine learning-based predictions. 
+A simulated environment is deployed using PROXMOX, with 
+Prometheus for monitoring and Grafana for visualization and 
+alerting. By leveraging machine learning models, including 
+Random Forest Regression and LSTM, the framework predicts 
+resource usage based on historical data, enabling precise and 
+proactive resource allocation. Results indicate that the Random 
+Forest model achieves superior accuracy with a MAPE of 2.65%, 
+significantly outperforming LSTM's 17.43%. These findings 
+underscore the reliability of Random Forest for resource 
+estimation. This research demonstrates the potential of predictive 
+analytics in advancing cloud resource management, contributing 
+to more efficient and scalable cloud computing practices. 
+Keywords—Cloud computing; virtual machine optimization; 
+resource allocation; machine learning 
+I. 
+INTRODUCTION 
+Cloud computing and virtualization technologies have 
+revolutionized modern computing, offering organizations 
+significant advantages in terms of flexibility, scalability, and 
+operational efficiency [1]. By enabling seamless access to 
+applications and data through online platforms, these 
+technologies ensure constant and universal availability [2]. This 
+has facilitated remote work, improved collaboration among 
+geographically dispersed teams, and accelerated responses to 
+
+=== Understanding and Predicting Workloads.txt ===
+Resource Central: Understanding and Predicting
+Workloads for Improved Resource Management in
+Large Cloud Platforms∗
+Eli Cortez
+Microsoft
+eli.cortez@microsoft.com
+Anand Bonde
+Microsoft Research
+abonde@microsoft.com
+Alexandre Muzio
+ITA, Brazil
+alemuzio@aluno.ita.br
+Mark Russinovich
+Microsoft
+mark.russinovich@microsoft.com
+Marcus Fontoura
+Microsoft
+marcusfo@microsoft.com
+Ricardo Bianchini
+Microsoft Research
+ricardob@microsoft.com
+ABSTRACT
+Cloud research to date has lacked data on the characteris-
+tics of the production virtual machine (VM) workloads of
+large cloud providers. A thorough understanding of these
+characteristics can inform the providers’ resource manage-
+ment systems, e.g. VM scheduler, power manager, server
+health manager. In this paper, we first introduce an exten-
+sive characterization of Microsoft Azure’s VM workload,
+including distributions of the VMs’ lifetime, deployment size,
+and resource consumption. We then show that certain VM
+behaviors are fairly consistent over multiple lifetimes, i.e.
+history is an accurate predictor of future behavior. Based on
+this observation, we next introduce Resource Central (RC),
+a system that collects VM telemetry, learns these behaviors
+offline, and provides predictions online to various resource
+managers via a general client-side library. As an example of
+RC’s online use, we modify Azure’s VM scheduler to leverage
+predictions in oversubscribing servers (with oversubscrib-
+able VM types), while retaining high VM performance. Using
+real VM traces, we then show that the prediction-informed
+schedules increase utilization and prevent physical resource
+exhaustion. We conclude that providers can exploit their
+workloads’ characteristics and machine learning to improve
+resource management substantially.
+∗Cortez and Bonde contributed equally. Muzio was an intern at Microsoft.
+Permission to make digital or hard copies of all or part of this work for
+personal or classroom use is granted without fee provided that copies are not
+made or distributed for profit or commercial advantage and that copies bear
+this notice and the full citation on the first page. Copyrights for components
+
+=== Virtual Machine Memory Balancing.txt ===
+J Grid Computing (2012) 10:69–84
+DOI 10.1007/s10723-012-9209-4
+VMMB: Virtual Machine Memory Balancing
+for Unmodified Operating Systems
+Changwoo Min · Inhyeok Kim · Taehyoung Kim ·
+Young Ik Eom
+Received: 16 August 2011 / Accepted: 1 March 2012 / Published online: 28 March 2012
+© Springer Science+Business Media B.V. 2012
+Abstract Virtualization
+technology
+has
+been
+widely adopted in Internet hosting centers and
+cloud-based computing services, since it reduces
+the total cost of ownership by sharing hardware
+resources among virtual machines (VMs). In a
+virtualized system, a virtual machine monitor
+(VMM) is responsible for allocating physical
+resources such as CPU and memory to individual
+VMs. Whereas CPU and I/O devices can be
+shared among VMs in a time sharing manner,
+main memory is not amendable to such multiplex-
+ing. Moreover, it is often the primary bottleneck
+in achieving higher degrees of consolidation. In
+this paper, we present VMMB (Virtual Machine
+C. Min · I. Kim · T. Kim · Y. I. Eom (B)
+School of Information & Communication Engineering,
+Sungkyunkwan University, 300 Cheoncheon-Dong,
+Jangan-Gu, Suwon, Gyeonggi-Do 440-746, Korea
+e-mail: yieom@ece.skku.ac.kr
+C. Min
+e-mail: multics69@ece.skku.ac.kr
+I. Kim
+e-mail: kkojiband@ece.skku.ac.kr
+T. Kim
+e-mail: kim15m@ece.skku.ac.kr
+C. Min
+Samsung Electronics, 416, Maetan-3Dong,
+Yeongtong-Gu, Suwon, Gyeonggi-Do, 443-742, Korea
+Memory
+Balancer),
+a
+novel
+mechanism
+to
+dynamically monitor the memory demand and
+periodically re-balance the memory among the
+VMs. VMMB accurately measures the memory
+demand with low overhead and effectively allo-
+cates memory based on the memory demand and
+
