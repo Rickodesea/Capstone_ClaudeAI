@@ -178,23 +178,35 @@ These reclamation mechanisms operate transparently and aim to prevent overload w
 
 #### Mitigation Strategies for Impending Overload
 
-If reclamation proves insufficient and the model detects that the system is trending toward an overload state that will violate SLA commitments, more aggressive mitigation strategies become necessary. While our capstone research focuses primarily on the predictive and decision-making framework, we acknowledge that mitigation strategies form an important part of the complete system. These strategies include:
+If reclamation proves insufficient and the model detects that the system is trending toward an overload state that will violate SLA commitments, more aggressive mitigation strategies become necessary. While our capstone research focuses primarily on the predictive and decision-making framework, we acknowledge that mitigation strategies form an important part of the complete system.
 
-**Memory Swapping** (Future Work): Selectively swapping less-critical memory pages to storage. While swapping degrades performance, strategic application to lower-priority VMs may preserve SLAs for critical workloads. Our current research scope treats swapping mechanisms as future work beyond the core predictive model.
+**Memory Swapping** is explicitly excluded from our model. Modern cloud service providers, including Akamai (formerly Linode), Amazon Web Services, and Google Cloud, do not rely on swap in production VM workloads due to the severe latency penalty it imposes (Akamai, 2026; Mishra & Kulkarni, 2018). Our decision to exclude swap is therefore an accurate reflection of production practice, not a simplification that detracts from the model's applicability.
 
-**Selective VM Termination:** When overload cannot be avoided through reclamation or swapping, the system may need to terminate VMs to preserve physical capacity for higher-priority workloads. This decision is governed by SLA priorities, where VMs with lower SLA requirements become candidates for termination before those with stricter guarantees.
+**Selective VM Termination:** When overload cannot be avoided through reclamation, the system terminates VMs to reclaim physical memory. Termination candidates are selected according to the SLA downtime budget framework described below.
 
-#### Termination Policy and Priority Framework
+#### Termination Policy: SLA Downtime Budget Framework
 
-The termination mechanism operates according to a priority-based framework:
+All VMs in our model are governed by a single configurable SLA uptime parameter α (e.g., α = 99.99%, consistent with Akamai's compute SLA for all VM types including shared and dedicated instances). This single-parameter design is grounded in how real cloud providers actually structure SLAs: Akamai, for example, applies the same 99.99% monthly uptime guarantee across all compute VM categories without differentiation by VM type (Akamai, 2026). The use of a uniform α simplifies the model while remaining faithful to production practice. In future extensions, α may be made per-VM to model heterogeneous SLA contracts.
 
-**SLA-Based Prioritization:** VMs are classified according to their SLA requirements. Lower-priority VMs (those with more lenient performance guarantees or best-effort service levels) are designated for potential termination before higher-priority VMs (those with strict performance SLAs or guaranteed service levels).
+The model derives an **allowed monthly downtime budget** from α as follows. Let T_month denote the total number of minutes in a billing month (typically 43,200 minutes). The maximum permitted downtime for any VM is:
 
-**Termination Granularity:** The system supports multiple levels of termination granularity. While our capstone treats VMs as black boxes, existing research has demonstrated that selective termination of individual processes within a VM can mitigate overload while preserving partial VM functionality (Hu et al., 2025). However, our primary approach focuses on whole-VM termination to maintain architectural simplicity and avoid guest OS introspection requirements.
+> D_max = (1 − α) × T_month
 
-**Termination Groups:** VMs designated for potential termination are organized into termination groups based on their priority levels. When termination becomes necessary, the system selects from the lowest-priority group first, proceeding to higher-priority groups only if sufficient capacity cannot be reclaimed from lower priorities.
+For α = 99.99%, this yields approximately 4.32 minutes of allowed downtime per month—a tight constraint that reinforces the need for accurate prediction over reactive termination. For context, the siliceum.com SLA analysis demonstrates that the difference between 99.9% and 99.99% availability is the difference between 43 minutes and 4 minutes of allowed monthly downtime—a tenfold reduction that has significant implications for how aggressively a model can use termination as a mitigation strategy (Siliceum, 2026).
 
-**Cluster Manager Coordination:** When a VM is terminated due to overload prediction, we assume the cluster manager will relaunch the terminated VM on an alternative node within a specified threshold time. This assumption aligns with standard cloud platform behavior where VM failures trigger automatic recovery procedures. The admission control model on the alternative node will evaluate whether it can safely host the relaunched VM based on its own predictive analysis.
+The model tracks each VM's **accumulated downtime** D_i for the current billing month. The **remaining downtime budget** for VM i is:
+
+> B_i = D_max − D_i
+
+A VM is **eligible for termination** only if its remaining budget exceeds the expected relaunch latency τ (the time required for the cluster manager to relaunch the VM on an alternative node):
+
+> B_i > τ
+
+When multiple VMs are eligible, the model selects candidates in **descending order of remaining budget** (most budget remaining is terminated first), minimizing the risk of pushing any individual VM past its SLA threshold.
+
+**Termination Granularity:** Our capstone treats VMs as black boxes and performs whole-VM termination only. Process-level termination within VMs has been demonstrated in research (Hu et al., 2025) but requires guest OS introspection beyond our scope.
+
+**Cluster Manager Coordination:** When a VM is terminated, the cluster manager is notified and relaunches the VM on an alternative node within the threshold time τ. The admission control model on the receiving node independently evaluates whether it can safely host the relaunched VM.
 
 ### Overload Management Workflow
 
@@ -389,6 +401,84 @@ The following diagram illustrates how the generalized and curated prediction mod
   Hybrid Period: Weighted combination of both models
 ```
 
+### Wave-Based Memory Demand Modeling
+
+#### Motivation and Mathematical Foundation
+
+A central challenge in predictive admission control is representing the future memory demand of multiple co-located VMs in a form that (a) is mathematically tractable, (b) supports reasoning about temporal overlap of peaks, and (c) enables efficient computation of aggregate node-level demand. Our model addresses this through a **wave-based demand representation** grounded in the superposition principle of sinusoidal functions.
+
+Empirical workload studies, including the Microsoft Azure Resource Central analysis (Cortez et al., 2017), demonstrate that VM memory usage exhibits strong periodicity — daily cycles, weekly cycles, and application-specific rhythms. These periodic patterns are naturally represented as superpositions of sinusoidal waves. This observation motivates the following formalization.
+
+#### Per-VM Wave Model
+
+The memory demand of VM i at time t is modeled as:
+
+> **m_i(t) = A_i0 + Σ_k [ A_ik · sin(2π · f_k · t + φ_ik) ]**
+
+Where:
+- **A_i0** is the baseline (mean) memory usage — the "DC component" or flatline level
+- **A_ik** is the amplitude of the k-th harmonic — a large A_ik indicates a high-spike VM
+- **f_k** is the frequency of the k-th component (e.g., f = 1/86400 for a daily cycle, f = 1/3600 for an hourly cycle)
+- **φ_ik** is the phase offset — capturing when within each period the VM tends to peak
+- The summation runs over K dominant frequency components, fitted from historical data by the curated model or estimated from similar VMs by the generalized model
+
+A VM with **low average usage and occasional spikes** is represented by a small A_i0 and large A_ik values — a high-amplitude, high-frequency wave. A VM with **stable, near-constant usage** is represented by a large A_i0 and near-zero A_ik values — a flatline wave. This distinction directly reflects real workload archetypes identified in the literature (Cortez et al., 2017).
+
+#### Aggregate Node Demand via Superposition
+
+The power of the wave representation lies in the **superposition principle**: the aggregate memory demand across all N VMs on the node is simply the sum of their individual waveforms.
+
+> **M(t) = Σ_i m_i(t) = Σ_i A_i0 + Σ_i Σ_k [ A_ik · sin(2π · f_k · t + φ_ik) ]**
+
+This gives:
+
+> **M(t) = M_baseline + Σ_k [ C_k · sin(2π · f_k · t + Ψ_k) ]**
+
+Where M_baseline = Σ_i A_i0 is the sum of all baselines, and C_k and Ψ_k are the combined amplitude and phase of the k-th frequency component across all VMs (computed by standard phasor addition). The result is a **single composite waveform** describing the total memory pressure on the node over time. This waveform is analytically computable — not a simulation — making it efficient to evaluate at any future time point.
+
+#### Evaluating a New VM Admission
+
+When the cluster manager requests admission of a new VM (VM j), the model computes:
+
+> **M_new(t) = M(t) + m_j(t)**
+
+The admission decision is then:
+
+> **Accept if max{ M_new(t) : t ∈ [t_now, t_now + T_horizon] } ≤ RAM_physical**
+
+Where T_horizon is the forecast window. If the combined waveform never exceeds physical RAM within the horizon, the VM is admitted. If it does, the model rejects or defers. This is a direct, closed-form criterion — not a heuristic threshold.
+
+An important nuance: if VM j has a **predicted end-of-life t_j_end** (short-lived workloads) and the predicted peak occurs after t_j_end, the spike will not materialize and no action is required. The model incorporates VM lifetime estimates (from the generalized model) to avoid unnecessary rejections of short-lived VMs.
+
+#### Overload Detection and Lead Time Variable τ_lead
+
+The composite waveform M(t) is continuously updated as VMs are admitted, terminated, or as curated models refine their per-VM wave parameters. The model scans M(t) over the forecast window to detect **future crossings** of the physical RAM threshold:
+
+> **t* = min{ t > t_now : M(t) > RAM_physical }**
+
+When a future crossing t* is detected, the model does not wait until t* to act. Instead, it acts at time:
+
+> **t_act = t* − τ_lead**
+
+Where **τ_lead** is a configurable lead time parameter. τ_lead represents how far in advance the model triggers its response — memory sharing or, if necessary, termination. The choice of τ_lead involves a trade-off:
+
+- **Large τ_lead** (e.g., 60 minutes): more warning time, allows gradual memory sharing, but acts on less certain predictions
+- **Small τ_lead** (e.g., 5 minutes): higher prediction certainty, but less time for memory sharing to complete before the spike arrives
+
+τ_lead must satisfy τ_lead ≥ τ (the VM relaunch threshold) to ensure that if termination is needed, the terminated VM can be relaunched before the spike impacts other VMs. In simulation, τ_lead will be treated as an experimental variable to find the optimal balance between prediction uncertainty and response time.
+
+#### Mathematical Elegance and Novelty
+
+The wave-based formulation provides three key advantages over non-wave approaches:
+
+1. **Additive composability:** Adding a new VM is equivalent to adding a new waveform to M(t). Removing a VM (through termination) removes its waveform. The optimization always operates on a single composite function, not a growing list of individual forecasts.
+
+2. **Phase diversity exploitation:** Two VMs with identical peak amplitudes but opposite phase (φ_i ≠ φ_j) will produce a composite waveform with a lower peak than either alone. This is the mathematical basis for why temporal diversity among co-located workloads enables safe overcommitment — and our model quantifies this precisely rather than approximating it.
+
+3. **Analytical tractability:** Unlike black-box ML predictions that output point estimates, the wave model produces a continuous function over time. The question "will this node exceed physical RAM in the next T hours?" has a closed-form answer.
+
+While Fourier decomposition of time-series data is established in signal processing, its application as an **admission control criterion** for node-level memory overcommitment — combined with a lead-time-triggered response and SLA downtime budget constraints — represents a novel modeling contribution.
+
 ### Mathematical Programming Framework
 
 The core of our solution employs mathematical programming techniques to formalize the admission control and overload management decisions. The optimization framework addresses the multi-objective nature of the problem through a set of constraints and objective functions:
@@ -401,7 +491,7 @@ The core of our solution employs mathematical programming techniques to formaliz
 
 **Constraints:**
 - Physical memory capacity limits
-- SLA performance guarantees for each priority tier
+- Per-VM SLA downtime budget: D_i + termination_duration ≤ D_max for all VMs selected for termination
 - Minimum memory allocation thresholds
 - Temporal peak demand predictions
 - Fairness requirements across tenant VMs
@@ -440,6 +530,50 @@ The proposed research aims to develop a comprehensive framework for memory overc
 
 By addressing this multi-faceted problem through rigorous mathematical programming techniques informed by empirical workload studies and established theoretical frameworks, this research will contribute practical tools for CSPs navigating the challenging economic environment created by rising DRAM costs while maintaining competitive service quality. The decoupled architecture—separating bin packing from admission control—ensures that our contributions can integrate with diverse cluster management platforms without requiring fundamental changes to their placement algorithms.
 
+## Service Level Agreements in Cloud Computing
+
+A Service Level Agreement (SLA) is a contractual commitment between a cloud service provider (CSP) and a cloud service consumer (CSC) that specifies the minimum acceptable quality of service, including availability, performance, and the financial remedies for non-compliance (Terfas, 2019). SLAs are foundational to cloud computing because they formalize the trust relationship between provider and consumer and create accountability mechanisms for service interruptions.
+
+In practice, cloud SLAs are expressed as monthly uptime percentages. Akamai (formerly Linode) guarantees 99.99% monthly uptime for all compute VM categories—dedicated CPU, shared CPU, High Memory, GPU, and Nanode—without differentiation by instance type (Akamai, 2026). This uniformity is relevant to our model: a single SLA parameter α applies to all VMs on a node regardless of their configuration. At 99.99% availability, a VM is permitted approximately 4.32 minutes of downtime per calendar month. As the Siliceum (2026) analysis demonstrates, each additional "nine" of availability reduces permitted downtime by a factor of ten—from 43 minutes at 99.9% to 4 minutes at 99.99%—a distinction with significant consequences for resource management strategies that rely on termination as a fallback.
+
+It is important to note that cloud SLAs typically measure platform-level availability, not application-level performance. SLA credits are not automatically issued; consumers must open a support ticket within a specified window (Akamai, 2026). Scheduled maintenance, user-caused issues, and force majeure events are typically excluded from SLA calculations. Our model adopts the platform availability definition: a VM's downtime is the duration for which it is terminated and not yet relaunched on an alternative node.
+
+## Model Simplifications
+
+To maintain a tractable theoretical scope, the following simplifications are adopted:
+
+1. **Cluster Manager as a Black Box:** We model the cluster manager as an entity that sends VM placement requests to our node model. We do not model the internal bin-packing logic; any bin-packing algorithm is compatible with our approach.
+
+2. **Single SLA Parameter (α):** All VMs on the node share a single configurable monthly uptime threshold α. This mirrors the uniform SLA offered by providers such as Akamai (2026). Per-VM SLA differentiation is reserved for future work.
+
+3. **Memory Sharing Abstraction:** Memory reclamation techniques—ballooning, page sharing, compression—are abstracted as "memory sharing." These techniques are well-established (Waldspurger, 2002; Min et al., 2012) and their mechanics are not re-derived. The model treats them as available mechanisms that can transfer memory from VMs with headroom to VMs approaching their allocation ceiling.
+
+4. **Termination with Fixed Relaunch Threshold:** When a VM is terminated, the cluster manager is assumed to relaunch it on an alternative node within a fixed threshold time τ. The mechanics of live migration, partial migration, and cross-node coordination are out of scope.
+
+5. **No Swap:** Memory swapping is excluded. Modern CSPs do not rely on swap in production VM workloads due to unacceptable latency penalties (Mishra & Kulkarni, 2018).
+
+6. **VMs as Black Boxes:** The model does not introspect into VM internals. Termination is whole-VM only. Process-level cancellation, as explored by Hu et al. (2025), is out of scope.
+
+## Simulation Methodology
+
+The theoretical framework will be validated through a discrete-event simulation of a single node. The simulation design is as follows:
+
+**Real Workload Data:** The primary data source is the Microsoft Azure public VM trace from the Resource Central study (Cortez et al., 2017), which provides VM lifecycle data including creation time, deletion time, allocated resources, and observed CPU/memory utilization at regular intervals. This dataset captures the behavioral diversity and consistency properties that motivate our dual prediction model design.
+
+**Synthetic Data:** Synthetic workloads will be generated to stress-test scenarios underrepresented in the real trace, including simultaneous peak events across all VMs, rapidly changing usage patterns, and adversarial admission sequences designed to probe the model's termination logic against the SLA budget constraint.
+
+**Simulation Components:**
+- *Node model:* Implements the dual prediction engine, admission control decision logic, memory sharing trigger, and SLA-budget-aware termination selector.
+- *Cluster manager stub:* Generates VM admission requests following the empirical arrival distributions observed in the Azure trace.
+- *Ground truth evaluator:* Compares predicted memory demand against actual demand to measure prediction accuracy.
+
+**Evaluation Metrics:**
+- DRAM utilization achieved (target: ~80%, baseline: ~45%)
+- SLA violation rate (downtime budget exceeded per VM per month)
+- Number of terminations per month
+- Admission acceptance rate
+- Prediction accuracy (MAE/RMSE of generalized and curated models)
+
 ## Research Scope and Limitations
 
 To maintain focused scope, our capstone research explicitly defines several boundaries:
@@ -447,22 +581,26 @@ To maintain focused scope, our capstone research explicitly defines several boun
 **In Scope:**
 - Node-level predictive admission control model
 - Dual prediction models (generalized and curated)
-- VM admission decision framework
+- VM admission decision framework with single SLA parameter α
 - Overload prediction and early reclamation triggering
-- SLA-based termination prioritization framework
-- Communication protocol between cluster manager and node models
+- SLA downtime budget-aware termination framework
+- Communication protocol between cluster manager and node model
+- Simulation validation using Azure trace + synthetic data
 
 **Out of Scope (Future Work):**
 - Specific bin packing algorithm design or optimization
-- Detailed swap management strategies
+- Swap management (excluded — not used in modern CSPs)
 - Process-level termination within VMs (treated as black boxes)
 - Multi-node coordination and VM migration
+- Per-VM heterogeneous SLA contracts
 - Network and I/O resource management
 - Cross-datacenter resource optimization
 
 This scoping ensures that our research delivers depth in the critical area of predictive memory overcommitment while acknowledging complementary problems that merit separate investigation.
 
 ## References
+
+Akamai. (2026, February 20). *Compute Service Level Addenda*. Akamai. Retrieved April 15, 2026, from https://www.akamai.com/legal/compliance/compute-sla
 
 Blagodurov, S., Gmach, D., Arlitt, M., Chen, Y., Hyser, C., & Fedorova, A. (n.d.). Maximizing server utilization while meeting critical SLAs via weight-based collocation management. Simon Fraser University & Hewlett-Packard Laboratories.
 
@@ -485,6 +623,10 @@ Reidys, B., Zardoshti, P., Goiri, Í., Irvene, C., Berger, D. S., Ma, H., Arya, 
 S&P Global. (2026, January). AI memory boom squeezes legacy DRAM supply, pushing prices higher. *S&P Global Market Intelligence.* Retrieved April 13, 2026, from https://www.spglobal.com/market-intelligence/en/news-insights/research/2026/01/ai-memory-boom-squeezes-legacy-dram-supply-pushing-prices-higher
 
 Voicu, C. (2026). AI memory crisis: How the HBM boom is reshaping cloud costs. *N2WS Blog.* Retrieved April 13, 2026, from https://n2ws.com/blog/ai-memory-crisis
+
+Siliceum. (2026, February 19). *99.9% uptime: What your cloud provider isn't telling you*. Retrieved April 15, 2026, from https://www.siliceum.com/en/blog/post/sla-engagements/
+
+Terfas, H. (2019). *The analysis of cloud computing service level agreement (SLA) to support cloud service consumers with the SLA creation process* [Master's thesis, École de technologie supérieure, Université du Québec].
 
 Waldspurger, C. A. (2002). Memory resource management in VMware ESX server. In *Proceedings of the Fifth Symposium on Operating Systems Design and Implementation* (OSDI '02). USENIX Association. [Best paper award]
 

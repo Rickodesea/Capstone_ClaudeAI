@@ -1,0 +1,7108 @@
+The Analysis of Cloud Computing Service Level Agreement 
+(SLA) to Support Cloud Service Consumers with the SLA 
+Creation Process 
+ 
+ 
+ 
+ 
+by 
+ 
+ Hebatalla TERFAS  
+ 
+ 
+ 
+ 
+THESIS PRESENTED TO ÉCOLE DE TECHNOLOGIE SUPÉRIEURE 
+IN PARTIAL FULFILLMENT FOR A MASTER’S DEGREE 
+WITH THESIS IN SOFTWARE ENGINEERING 
+M.A.Sc. 
+ 
+ 
+ 
+ 
+MONTREAL, MARCH 1st, 2019 
+ 
+ 
+ 
+ 
+ÉCOLE DE TECHNOLOGIE SUPÉRIEURE 
+UNIVERSITÉ DU QUÉBEC 
+ 
+ 
+ 
+ 
+ Hebatalla Terfas, 2018 
+ 
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+This Creative Commons license allows readers to download this work and share it with others as long as the 
+author is credited. The content of this work can’t be modified in any way or used commercially. 
+ 
+ 
+ 
+ 
+ 
+
+ 
+BOARD OF EXAMINERS  
+ 
+THIS THESIS HAS BEEN EVALUATED 
+ 
+BY THE FOLLOWING BOARD OF EXAMINERS 
+ 
+ 
+ 
+ 
+ 
+ 
+Mr. Witold Suryn, Thesis Director 
+Software Engineering & Information Technology Department 
+École de technologie supérieure 
+ 
+ 
+Mr. Eric Paquette, President of the Board of Examiners 
+Software Engineering & Information Technology Department 
+École de technologie supérieure 
+ 
+ 
+Mr. François Coallier, Member of the jury 
+Software Engineering & Information Technology Department 
+École de technologie supérieure 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+THIS THESIS WAS PRENSENTED AND DEFENDED 
+ 
+IN THE PRESENCE OF A BOARD OF EXAMINERS AND PUBLIC 
+ 
+JANUARY 29TH 2019 
+ 
+AT ÉCOLE DE TECHNOLOGIE SUPÉRIEURE 
+ 
+ 
+ 
+ 
+ 
+
+ 
+ 
+ 
+
+ 
+ACKNOWLEDGMENT  
+ 
+At the beginning, I would like to thank my creator “Allah” who gave me the strength to go 
+through this path and helped me to achieve my goals and dreams. 
+ 
+I would like to express my deep appreciation to my research supervisor, Prof. Witold Suryn. I 
+am very thankful for the opportunity he gave me to work on this research and for his great 
+support and guidance through all the stages of this research.  
+ 
+I also would like to thank my colleagues Jonathan Roy and Sara Moazzezi Eftekhar for their 
+outstanding support and advices. 
+ 
+Very special thanks to my family, my father who believed in me and supported me in every 
+step I took. For my mother who always encouraged me to be the best and do my best to reach 
+my goals, my brothers for their endless support and kindness.     
+ 
+Extraordinary thanks as well to my husband and my children Jude and Zinedine who stayed 
+by my side and supported me proudly through this journey. I am very grateful for the 
+strength and happiness they gave me. I dedicate this thesis to them as a proof of my love and 
+appreciation. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+
+ 
+Les analyses du niveau de service sur l’infonuagique (Cloud computing) pour aider les 
+utilisateurs de services l’infonuagique au processus de création de Contrat de niveau de 
+service 
+ 
+Hebatalla TERFAS   
+ 
+RÉSUMÉ 
+ 
+Le l’infonuagique s'est développé rapidement ces dernières années. Les parties prenantes et 
+plusieurs utilisateurs ont commencé à migrer leurs données vers le l’infonuagique pour tirer 
+parti de son utilisation et de son stockage. La première chose que le fournisseur de services 
+l’infonuagique(CSP) et les clients du service cloud (CSC) doivent traiter est l’accord de 
+niveau de service (SLA). Il s’agit d’un accord conclu entre le fournisseur de service cloud et 
+le client du service cloud, contenant les exigences du consommateur et le niveau de service 
+fourni par le fournisseur de services cloud. Le processus de création d'un contrat de niveau de 
+service est essentiel pour les fournisseurs de service de l’infonuagique et les consommateurs. 
+Cependant, cela pourrait être vague et pas bien défini. Pour améliorer l'utilisation de tous les 
+services de l’infonuagique, le contenu et la création de l'accord de niveau de service doivent 
+être gérés de manière efficace et prudente. 
+ 
+Dans cette thèse, nous avons d’abord effectué une revue de littérature pour vérifier le niveau 
+d’occurrence des paramètres SLA et l’objectif de niveau de service SLO dans le monde 
+universitaire et générer une liste des paramètres SLA et SLO les plus et les moins étudiés. 
+Dans le deuxième chapitre, nous avons confronté cette liste aux trois fournisseurs de services 
+de l’infonuagique les plus populaires du marché moderne (Amazon, Microsoft et Google) 
+afin d’enquêter sur la couverture de leur contrat de niveau de service. 
+ 
+Enfin, dans le dernier chapitre, nous avons proposé un outil SLA qui pourrait aider les 
+fournisseurs de service cloud et les consommateurs dans le processus de création de SLA. 
+Cet outil SLA aiderait les consommateurs tout au long de la phase de négociation et 
+faciliterait le processus de selection, afin de choisir le fournisseur de service le plus adapté. 
+ 
+ 
+ 
+Mots-clés: L’infonuagique, Contrat de niveau de service (SLA), Objectif de niveau de  
+service (SLO), Cycle de vie du SLA, Phase de négociation du SLA. 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+ 
+ 
+
+ 
+The Analysis of Cloud Computing Service Level Agreement (SLA) to Support Cloud 
+Service Consumers with the SLA Creation Process  
+ 
+Hebatalla TERFAS 
+ 
+ABSTRACT 
+ 
+Cloud computing has been developing rapidly in the past few years. Stakeholders and several 
+users started to migrate their data to the cloud to benefit from its usage and storage. The first 
+step cloud service provider (CSP) and cloud service consumers (CSC) deal with is the service 
+level agreement (SLA). It is an agreement issued between the cloud service provider and the 
+cloud service customer that contains the consumer’s service requirements and the service 
+level provided by cloud service providers. The process to create an SLA agreement is very 
+essential for both cloud service providers and consumers. However, it could be vague and not 
+well defined. To enhance the usage of any cloud services, the content and the creation of the 
+SLA agreement should be handled efficiently and carefully.   
+ 
+In this thesis, first we conducted a literature review to check the level of occurrence of SLA 
+and SLO parameters in the academia and generate a list of the most and least studied SLA 
+and SLO parameters. In the second chapter, we confronted this list to the three most popular 
+cloud service providers in the modern market (Amazon, Microsoft and Google) to investigate 
+their SLA agreement coverage. 
+ 
+Finally, in the last chapter, we proposed an SLA toolkit that could assist cloud service 
+providers and consumers in the process of SLA creation. This SLA toolkit would help the 
+consumers through the negation phase and facilitate the selection process to choose the most 
+applicable cloud service providers’ offer. 
+ 
+ 
+ 
+Keywords: Cloud computing, Service level agreement (SLA), Service level objective (SLO),    
+SLA life cycle, SLA Negotiation phase.  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+
+ 
+TABLE OF CONTENTS 
+ 
+Page 
+INTRODUCTION.....................................................................................................................1 
+CHAPTER1 LITERATURE REVIEW…………………………...…………..….…………..3 
+1.1 
+SLA parameters distribution ..........................................................................................3 
+1.1.1 
+Extracted SLA parameters .......................................................................... 3 
+1.1.2 
+Literature review methodology ................................................................... 6 
+1.2 
+SLO parameters distribution ........................................................................................16 
+1.2.1 
+Extracted SLO parameters ........................................................................ 16 
+CHAPTER 2         CONFRONTING CLOUD SLA AND SLO PARAMETERS’ LISTS WITH 
+MOST POPULAR CLOUD SERVICE PROVIDERS IN THE MODREN 
+MARKET…………………………………………………………….......25 
+2.1 
+Introduction ..................................................................................................................25 
+2.2 
+Cloud computing providers’ SLA offers .....................................................................27 
+2.2.1 
+Amazon ..................................................................................................... 27 
+2.2.1.1 Amazon S3 SLA ........................................................................ 28 
+2.2.1.2 AWS customer agreement ......................................................... 29 
+2.2.1.3 AWS service terms .................................................................... 29 
+2.2.2 
+Microsoft ................................................................................................... 30 
+2.2.2.1 SLA for storage .......................................................................... 31 
+2.2.2.2 Microsoft Azure agreement ....................................................... 33 
+2.2.3 
+Google ....................................................................................................... 34 
+2.2.3.1 Google cloud storage SLA ......................................................... 34 
+2.2.3.2 Google cloud platform terms of service ..................................... 35 
+2.2.3.3 Google service specific terms .................................................... 38 
+2.3 
+The comparison between the extracted SLA and SLO lists and modren cloud 
+providers SLA offers....................................................................................................39 
+2.3.1 
+Modern cloud providers SLA offers and the extracted SLA parameters’ 
+list .............................................................................................................. 39 
+2.3.1.1 The criteria used in the comparison between cloud service 
+providers’ SLA offers and the extracted SLA parameters.. ....... 39 
+2.3.2 
+Modern cloud providers’ SLA offers and the extracted SLO parameters’ 
+list .............................................................................................................. 42 
+2.3.2.1 The criteria used in the comparison between cloud service 
+providers’ SLA offers and the extracted SLO parameters. ........ 42 
+2.4 
+Observations and conclusion .......................................................................................45 
+CHAPTER 3        PROPOSED SLA TOOLKIT………………………………………….…49 
+3.1 
+Cloud computing SLA life cycle .................................................................................49 
+3.2 
+SLA toolkit...................................................................................................................50 
+3.2.1 
+How Does it work ..................................................................................... 51 
+3.3 
+Conclusion ...................................................................................................................55 
+
+CONCLUSION……................................................................................................................57 
+ 
+RECOMMENDATIONS.........................................................................................................59 
+ 
+ANNEX I    SLA AND SLO PARAMETERS EXTRACTION.............................................61 
+ 
+ANNEX II   SLA AND SLO OCCURANCES PERCENTAGES..........................................87 
+ 
+BIBLIOGRAPHY..................................................................................................................103 
+ 
+XII 
+
+ 
+LIST OF TABLES 
+ 
+Page 
+Table 2.1  
+Microsoft Storage Extracted SLA Parameters ...........................................32 
+Table 2.2  
+Google Cloud Platform Term Extracted SLA parameters .........................35 
+Table 2.3  
+The Comparison of Most Studied SLA Parameters and Cloud Providers .39 
+Table 2.4  
+The Comparison of Most Studied SLO Parameters and Cloud Providers .43 
+ 
+ 
+
+ 
+ 
+
+ 
+LIST OF FIGURES 
+ 
+Page 
+Figure 1.1 
+SLA Parameter Extraction Process ..............................................................7 
+Figure 1.2  
+SLA Parameters Distributions Chart ...........................................................9 
+Figure 1.3  
+SLA Parameters’ Distribution Part1 ..........................................................11 
+Figure 1.4  
+SLA Parameters’ Distribution Part 2 .........................................................14 
+Figure 1.5  
+SLO Parameters Distribution Chart ...........................................................17 
+Figure 1.6  
+SLO Parameters’ Distribution Part 1 .........................................................19 
+Figure 1.7  
+SLO Parameters’ Distribution Part 2 .........................................................22 
+ 
+Figure 3.1 
+ Classic SLA management Life Cycle …. .................................................49 
+Figure 3.2  
+SLA Parameters Identification Form .........................................................52 
+Figure 3.3  
+SLA Toolkit Work Process ........................................................................53 
+ 
+
+ 
+ 
+
+ 
+ 
+LIST OF ABBREVIATIONS AND ACRONYMS 
+ 
+ 
+AWS         Amazon Web Service 
+ 
+ 
+CC            Cloud Computing 
+ 
+ 
+CSC          Cloud Service Consumer 
+ 
+ 
+CSP           Cloud Service Provider 
+ 
+ 
+IaaS           Infrastructure as a service 
+ 
+ 
+KPIs          Key performance Indicators  
+ 
+ 
+PAYG       Pay As you Go Cloud computing  
+ 
+ 
+PaaS          Platform as a service 
+ 
+ 
+QoS           Quality of Service 
+ 
+ 
+QRs           Quality Requirements 
+ 
+ 
+RTO          Recovery Time Objective 
+ 
+ 
+SLA          Service Level Agreement  
+ 
+ 
+SLO          Service Level Objective 
+ 
+ 
+SL             Service level  
+ 
+ 
+SaaS          Software as a service 
+ 
+ 
+ 
+S3              Amazon Simple Storage Service 
+ 
+ 
+ 
+ 
+
+
+ 
+INTRODUCTION 
+  
+Considering the several advantages cloud computing is providing for users such as reduction 
+in cost and elastic resources, etc., it is rapidly taking over traditional IT infrastructure and 
+many business stockholders, government and academia nowadays are transforming and 
+uploading their work to the cloud.  It is a wide field that researchers keep working on to 
+improve the level of quality provided.  
+ 
+The first step cloud service consumers face when subscribing to a cloud service is Service 
+level agreement (SLA). It is a contract issued between cloud service provider and consumer 
+that should specify the service level requested by cloud service consumers and identifies their 
+requirements (Terfas, Suryn, Roy & Moazzezi Eftekhar, 2018, P.2). Having a well-structured 
+SLA could lead to a better service level and less service violations. However, “One open 
+problem is that service level agreements (SLAs) in the cloud ecosystem are yet to mature to a 
+state where critical applications can be reliably deployed in clouds” (Faniyi & Bahsoon, 
+2015, P.1). Therefore, several researches are conducted to improve the SLA structure and 
+facilitate the creation process. Although many researchers tried to simplify the use and the 
+initiation of an SLA, they didn’t focus enough on SLA and SLO parameters, which could 
+lead us to a poor SLA agreement that contains only useless and impractical words. According 
+to Faniyi, most of the studied papers in their research discussed only one to three SLA 
+parameters rather than the rest of cloud service parameters (Faniyi & Bahsoon, 2015, P.2). In 
+this research, we deeply analysed several papers from the literature to find out the most and 
+least studied SLA and SLO parameters that cloud service consumers would use during the 
+SLA creation.  
+ 
+ Another unsolved problem is that cloud service providers define SLA and SLO parameters 
+in advance so they don’t respect all users’ requirements (Rady, 2012, P.9). Consequently, we 
+deeply investigate three well-known cloud service providers (Amazon, Microsoft and 
+Google) and confront their SLA agreements to the SLA and SLO list extracted from the 
+academia to check the level of coverage they offer in their SLA. 
+ 
+
+2 
+SLA life cycle consists of several stages that start with the negotiation stage. At this stage, 
+cloud service consumers have to choose the most appropriate cloud service provider that 
+adheres to their requested requirements. However, SLA creation process and cloud provider 
+selection could be complicated, difficult to follow and time consuming. In this research we 
+proposed an SLA toolkit that could help both cloud service provider and consumer. This 
+SLA toolkit could facilitate the negation process and help the consumer in the process of 
+cloud provider’s selection. In addition, it could help cloud service consumers gain more 
+controllability over their data to increase the level of trust towards cloud computing 
+environments.  
+ 
+Thesis structure 
+This thesis is structured as the following: the first chapter presents a literature review 
+conducted to show the SLA and SLO parameters distributions in the academia and to identify 
+the most and least studied SLA and SLO parameters. Chapter two illustrates the selected 
+cloud service providers and confronted them to the extracted SLA and SLO parameters’ lists 
+to show the coverage percentage for each cloud service provider. Chapter three presents the 
+proposed SLA toolkit and how it works to assist cloud service providers and consumers 
+thorough the process to create an SLA agreement. Finally, we conclude our thesis and 
+present our future research plan.  
+ 
+ 
+
+ 
+CHAPITRE 1 
+ 
+ 
+LITERATURE REVIEW 
+In this chapter, we present a list of SLA and SLO parameters that were extracted from ISO 
+standards 19086 and the literature. We demonstrate the occurrence percentages for all the 
+presented SLA and SLO parameters to identify the most and the least studied SLA and SLO 
+parameters in the academia. 
+ 
+1.1 
+SLA parameters distribution 
+1.1.1 
+Extracted SLA parameters  
+“Service level agreement (SLA) is a contract signed between the customer and the service 
+provider. It states the terms of the service including the non-functional requirements of the 
+service specified as the quality of service (QoS), obligations, service pricing, and penalties in 
+case of agreement violations” (Emeakaroha, Brandic, Maurer & Dustdar, 2010, P.1). From a 
+quality point of view, SLA consists of several agreements, which are combined into one 
+contract. These agreements are based on different facts such as nature, cost and objectives of 
+the provided service. Additionally, it can contain the number of violations that are allowed 
+during a predefined period of time. (Mirobi & Arockiam, 2015, P.3). 
+ 
+Nowadays, several factors are encouraging stakeholders to migrate their data to the cloud. 
+However, there are many unsolved issues which could slow down the process. One of the 
+issues that cloud service consumers face when they plan to move to the cloud is that cloud 
+computing service level agreement (SLAs) are not reliable enough to support the deployment 
+of their crucial applications (Faniyi & Bahsoon, 2015, P.1), Although, International 
+Organization for standardization (ISO) has developed ISO/IEC19086 cloud computing 
+Service level agreement (SLA) framework, only ISO/IEC 19086 part 1 and 3 are published 
+while ISO/IEC19086 part 2 and 4 are still under development.  
+
+4 
+Also ISO/IEC 20000 series was developed to support IT service management. It identifies 
+different requirements to support service management systems SMS. It consists of 11 parts. 
+ISO/IEC 20000-9 focuses on cloud services and provides a guideline to facilitate the usage of 
+ISO/IEC 20000-1 for cloud services by proposing some scenarios that can help both cloud 
+service providers and consumers. However, service level agreement was only mentioned as a 
+tool to ensure the quality of the service and did not include any SLA or SLO parameters that 
+could be useful in the SLA creation process. Regarding service level agreement SLA, 
+ISO/IEC 20000 defines SLA as a document that includes service requirements and service 
+targets. According to ISO/IEC 20000, one or more service level agreements SLAs could be 
+created for each IT service. In addition, SLAs should be updated according to any 
+requirements change. According to Zitek, “ISO/IEC 20000 defines SLA as a mandatory 
+requirement as one of the service delivery process” (20000Academy, 2015). ISO/IEC20000 
+specified some recommendations and conditions which could apply for service management 
+systems SMS process that includes some SLA contents and conditions which could be 
+considered in an SLA contract. However, no SLA or SLO parameters were suggested or 
+proposed. Therefore, it was not considered in this analysis due to the shortage use and 
+consideration of SLA and SLO parameters. 
+ 
+Meanwhile, information technology infrastructure library ITIL consists of best practices 
+collection that could be used for IT service managements. It can help organizations by 
+improving the delivery of IT services. Service level agreement SLA were discussed in ITIL, 
+only in two core areas service design and continual service improvement to cover any service 
+updates that can affect the SLA. Based on Zitek, ITIL defines SLA in the scope of the service 
+level management process and specifies other types of agreements that could be used besides 
+SLAs such as operational level agreement (OLA) and underpinning contract (UC) 
+(20000Academy, 2015). In addition, it provides guidance that could help providers and 
+consumers in the initiation process of an SLA. For example, the responsibilities of providers 
+and consumers should be well defined in an SLA contract. Also a single SLA could be used 
+by various consumers for several IT services (Morin, Aubert& Gateau, 2012, P.4). ITIL 
+assists organizations to know the value of their IT services to help understanding the 
+
+ 
+importance of this value to define a better SLA. However, ITIL is not totally focusing on 
+obtaining this (Wegmann, Regev, Garret &Maréchal, 2008, P.1). Therefore, ITIL do not 
+provide any SLA or SLO parameters to help in the definition of an SLA. Even though ITIL 
+provided several recommendations regarding the SLA creation, it did not include any SLA 
+and SLO parameters that could be helpful to use in an SLA and in this research analysis.  
+ 
+Cloud computing SLA is still suffering from an obvious lack of standardization. In spite of 
+the fact that there are a wide variety of papers on SLA in the academia, only few of them 
+discuss SLA parameters. As shown by Faniyi & Bahsoon in their systematic survey, they 
+demonstrated that only one to three SLA parameters were mentioned in the greater part of the 
+analysed articles, while only a few articles considered four to five SLA parameters (Faniyi & 
+Bahsoon, 2015, P.7). 
+ 
+We conducted a literature review to extract the most studied SLA parameters in the academia 
+and create a list of the most frequently mentioned SLA parameters. This list would help 
+analysing and verifying the applicability of SLA contracts for (Amazon, Google and 
+Microsoft) in the modern market. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+6 
+1.1.2 
+Literature review methodology 
+In this research, we used several research engines such as Compendex, IEEE Xplore and 
+Google Scholar to look for articles concerning this topic. By using multiple related keywords 
+and some questions, related articles were found and analysed. Some keywords that were used 
+are cloud computing Service level agreement SLA, quality aspects, SLA parameters, SLA 
+challenges, SLA initiation and SLA Frameworks.  
+ 
+The following research questions were investigated: 
+ 
+Q1: What are the SLA parameters that should be covered in cloud computing SLAs?  
+Q2: What is Service Level Agreement?  
+Q3: What is the state of cloud computing SLAs today?  
+ 
+To answer the above mentioned questions, we conducted a literature review and the most 
+relevant articles were investigated. However, only the applicable ones were selected. At the 
+beginning of this research, 40 articles were found in this area. By carefully scanning the 
+abstracts, only 25 were selected and finally after reading all of these articles individually, 
+only 19 included the required information for this research analysis. Many of the considered 
+papers proposed SLA frameworks.  SLA and SLO elements were discussed and used to 
+prove the applicability of their frameworks, while other articles discuss only SLA definition 
+and its importance in the industry. Due to the limited research papers on this area (SLA) a lot 
+of the chosen papers were conference papers. Articles take longer time to be published. 
+Furthermore, conference papers are more up to date. 
+ 
+
+ 
+ 
+Figure 1.1 SLA Parameter Extraction Process 
+ 
+As shown in figure 1.1 stage 3, these are the variables definitions: 
+ 
+ 
+ 
+ 
+ 
+As seen in Figure 1.1 SLA parameters extraction process consists of 4 steps: 
+ 
+Step.1: The literature review was conducted; SLA parameters were extracted from several 
+articles that were found in the academia. 
+ 
+Step.2: A table for each article was created. It includes SLA and SLO parameters that were 
+found in each reference. 
+ 
+• 
+Let (F) be the percentage of the frequency of SLA parameters. 
+• 
+Let M(n) be the number of how many times each parameter was mentioned across all the 
+articles.(when the parameter is mentioned one time or more in each article, it is considered as 1)  
+• 
+Let A(n) be the total number of the analysed articles.  
+• 
+(n): means the total number. For example, A(n) is the total number of the analysed articles 
+ 
+
+8 
+Step.3: After the duplicated parameters were eliminated, the next step was to check the 
+occurrences for each SLA parameter in all the provided references. For further details, please 
+refer to the tables in Appendix I and II. As shown in appendix I and II, M (Mentioned) was 
+chosen when the SLA parameter was mentioned while NM (Not Mentioned) was chosen 
+when the parameter was not mentioned in the reference. 
+ 
+Step.4: After applying the above mentioned steps to all extracted SLA parameters, the 
+occurrence percentage was calculated using the following equation: 
+ 
+F  = M(n) X 100 
+ 
+Where F is the distribution percentage of the SLA parameter in the academia, a percentage 
+for each SLA parameter was identified. Based on this, the list of the most frequently used 
+SLA parameters in the academia was created. In addition, a chart was drawn to show the 
+highest and the lowest percentage of the parameters and to clarify the distribution for the rest 
+of the SLA parameters.  
+ 
+NOTE: This methodology was also used to create the list of the extracted SLO parameters. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+A(n) 
+
+ 
+The following chart (figure 1.2) shows the most studied and least studied SLA parameters 
+found in the academia 
+ 
+ 
+Figure 1.2 SLA Parameters Distributions Chart 
+ 
+After classifying the extracted SLA parameters and identifying the percentage of their 
+distribution, we have indicated that these SLA parameters which are presented in figure 1.2 
+were found in the literature and used or defined by a variety of researchers. After extracting 
+SLA parameters from the literature, we calculated their occurrence percentages as shown 
+previously to find out the frequency percentage for each parameter and how many times it 
+
+10 
+was mentioned. Based on this, the criteria used to identify the most and least used SLA 
+parameters was that parameters with the highest percentages were considered as the most 
+studied SLA parameters in the literature while parameters with the lowest percentages were 
+considered as the least studied SLA parameters. Overall, the bar graph illustrates the 
+percentage of occurrence for the SLA parameters according to their distributions in the 
+academia. 
+ 
+The chart consists of 41 SLA parameters. The highest occurrence percentage is 68% and the 
+lowest is 5%. Looking in closer detail at the chart it can be seen that availability and security 
+are on the top of the graph. They were the most studied SLA parameters in the academia and 
+have the highest percentage among all other extracted parameters, while response time and 
+performance came right after them with a percentage of 57% and 52% respectively. 
+ 
+ On the other hand, some SLA parameters such as (Service Excess Use, Data deletion, 
+Agility and Error rate) have the lowest occurrence percentage. Therefore, they are considered 
+as the least studied SLA parameters.  
+ 
+This list of SLA parameters support cloud service consumers and providers with the most 
+prominent SLA parameters to be analysed and discussed when creating a user-tailored SLA 
+for cloud service consumers. In addition, in the modern market, providing cloud service 
+consumers with longer list of parameters would help to persuade cloud service consumers 
+and encourage them to move to the cloud (Suryn, 2013, P.152). 
+ 
+To simplify this analysis and explanation, we divided the chart in figure 1.2 into two charts 
+and illustrated them individually. 
+ 
+ 
+ 
+ 
+
+ 
+ 
+Figure 1.3 SLA Parameters’ Distribution Part1 
+ 
+As shown in figure.1.3, the bar graph shows the SLA parameters that were derived from 
+several articles in the academia such as (Faniyi & Bahsoon, 2015), (San & Irena, 2016) & 
+(Ghosh & Ghosh, 2012), etc., where they were mentioned as critical SLA parameters to cloud 
+service consumers. By closely observing the graph, it can be seen that availability and 
+security are mentioned frequently often, when comparing them to other the SLA parameters 
+in the reviewed papers, while service violation, storage and role and responsibility got less 
+consideration and were at the bottom of the chart.    
+ 
+ In following paragraphs the definitions of some extracted SLA parameters are presented, 
+addressing the sources, where they were discussed and derived from.  The upcoming SLA 
+parameters were selected based on their order and percentage in the chart in figure 1.3. We 
+illustrated the SLA parameters with different percentages to show the variety among these 
+presented percentages.   
+ 
+
+12 
+SLA parameter 1 (Availability). According to ISO/IEC 17788 cloud computing standard 
+“Availability is the property of being accessible and usable upon demand by an authorized 
+entity”. This SLA parameter clarifies to the user that the requested service is easy to access 
+and usable in a certain period of time. A new SLA framework for E-commerce cloud service 
+with respect to the end user perspectives was proposed by (Busalim, Hussin & Ibrahim, 
+2013, P.1). They provided a list of the most applicable SLA parameters and their objectives. 
+Availability was on the top of this list. “Most of cloud service provider’s focus only on small 
+set of parameters, namely availability, request completion rate and response time”. (Busalim 
+et al., 2013, P.3). In accordance with Frey, to encourage cloud service consumers to move 
+their data to the cloud, an individual SLA agreement should be build according to the 
+requirements of each requested service rather than having a standard SLA for all cloud 
+service consumers neglecting their different needs (Frey, Luthje, Teckelmann& Reich,2013, 
+P.1). They illustrated a machine processed Adaptable Service Level Objective Agreement 
+(A-SLO-A). They also suggested that Availability is one of the critical SLA parameters to be 
+included when creating an SLA agreement to suit the requirements of different cloud service 
+consumers. 
+ 
+SLA parameter 2 (Security). Security is another issue that cloud service consumers and 
+providers have to deal with. It is a vital SLA parameter that is recommended to be considered 
+when creating an SLA contract. ISO/IEC 19086 part 4 discusses security and privacy in 
+cloud computing. As indicated by (Ghosh & Ghosh, 2012, P.3 ), to assure the security of data 
+transitions from and to the cloud, SLAs should consider security as a crucial element. 
+Considering the difficulties cloud service consumers face when choosing the appropriate 
+cloud service provider, (San & Irena, 2016, P.12) precisely explained the most important 
+elements to be considered in an SLA and Security parameters were mentioned. 
+  
+SLA parameter 3 (Service assurance and guarantee).  Based on Garg, “Assurance indicates 
+the likelihood of a Cloud service that it will perform as expected or promised in the SLA.” 
+(Garg, Versteeg & Buyya, 2011, P.2). Therefore, stakeholders consider it as an important 
+element when they move their data to the cloud. According to Ghosh, even though the 
+
+ 
+majority of cloud service providers are focusing on availability rather than other parameters, 
+cloud service consumers still demand more assurance and guarantees to the provided service 
+(Ghosh & Ghosh, 2012, P.1). Therefore, it is specified as an important parameter to discuss 
+when creating cloud computing SLA contract.  
+ 
+SLA parameter 4 (SLA violation). SLA violation is one of the challenges that could affect 
+cloud service providers and consumers. It is the possibility of job failures or not meeting the 
+service levels required by cloud service consumer (Faniyi & Bahsoon, 2015, P.4).  A survey 
+was conducted by (Faniyi & Bahsoon, 2015, P.5) to improve the structure of cloud SLAs and 
+their management. One of the studied SLA violation parameters is allowable violations, 
+which defines the allowed number of violation permitted. (Chana & Singh, 2014, P.4) 
+discussed the relationship between quality of service QoS and cloud computing SLAs. 
+Moreover, they presented the elements each SLA should consist. Service violation was one 
+of the components that were suggested to be included.   
+ 
+SLA parameter 5 (Cost and finance). Since cloud computing is considered as a cost 
+effective service in contrast to the traditional computing, cost is one of the most crucial 
+elements that affects cloud service consumers decision to migrate to the cloud (El-Awadi 
+&Abu-Rizka, 2015, P.2).  Therefore, it is a prominent feature that encourages stakeholders to 
+migrate to the cloud. Based on El-Awadi, finance is one of the parameters that need to be 
+discussed when creating and negotiating the SLA contract (El-Awadi &Abu-Rizka, 2015, 
+P.3). Cost was identified as one of the parameters included in the top level QoS groups by 
+(Garg et al., 2011, P.2). Thus, “Cost is clearly one of the vital attributes for IT and the 
+business”.  According to the systematic analysis conducted by (Faniyi & Bahsoon, 2015, 
+P.7), cost was one of the most studied SLA parameters and used especially in the platform as 
+a service (PaaS). 
+ 
+ 
+
+14 
+ 
+Figure 1.4 SLA Parameters’ Distribution Part 2 
+ 
+As shown in figure.1.4, the bar chart presents the rest of the extracted SLA parameters 
+derived from several articles in the academia such as (Faniyi & Bahsoon, 2015), (San & 
+Irena, 2016) & (Emeakaroha et al., 2010, P.6), etc. Data deletion, agility, service excess use 
+and error rate has the lowest occurrence percentage of 5%. Most of these SLA parameters 
+showed in the graph were mentioned once or twice in the analysed articles. In addition, some 
+of them such as bandwidth and error rate were mentioned as SLA parameters in some papers 
+and as SLO parameters in others.  
+ 
+In following paragraphs the definitions of some extracted SLA parameters are presented, 
+addressing the sources, where they were discussed and derived from.  The approaching SLA 
+parameters were chosen based on their percentage and position in the chart in figure 1.4. We 
+demonstrated the SLA parameters with different percentages to show the variety among these 
+presented percentages. 
+ 
+ 
+
+ 
+SLA parameter 1 (Bandwidth). Based on Faniyi, bandwidth was one of the most studied 
+SLA parameters in the survey they conducted (Faniyi & Bahsoon, 2015, P.7). However, in 
+this research, we found that bandwidth was mentioned as an SLA parameter in some papers 
+and in a few articles as an SLO parameter. Moreover, based on Emeakaroha, bandwidth was 
+divided into incoming bandwidth and outgoing bandwidth (Emeakaroha et al., 2010, P.6). 
+ 
+SLA parameter 2 (Service renewal).  Cloud computing offers many features for users such 
+as pay as you go (PAYG cloud computing), which means cloud service users can pay only 
+when they use the service. However, some SLA contracts include a starting and an ending 
+date (San & Irena, 2016, P.7). According to San & Irena, service renewal is one of the crucial 
+SLA parameters, which helps to identify how consumers could renew their service, and 
+clarifies any available renewal conditions. 
+ 
+SLA parameter 3 (Service credit). When any SLA violations occur or any service 
+guarantees are not met, cloud service providers should compensate cloud service consumers 
+with Service credit. Some companies nowadays such as Amazon and Google offer service 
+credit as money refund or additional service applied to the user’s usage in the future. Based 
+on San & Irena, Service credit is an obvious element when discussing SLA agreements (San 
+& Irena et al., 2016, P.6).  
+ 
+SLA parameter 4 (Data deletion). According to ISO/IEC19086 part-1, “Data deletion is the 
+removal of access to cloud service customer data through the user and administrator 
+capabilities of the cloud service”. In this research, data deletion was one of the least studied 
+SLA parameters in the literature with a 5%.  When any failures occur in the cloud service an 
+automatic action is taken and replicates the data directly to save it in multiple servers. 
+Therefore, when terminating the service there is an issue to secure the deletion of all stored 
+data and that is why ISO/IEC 19086-1 mentioned data deletion as an SLA parameter to 
+consider in cloud SLAs.  
+ 
+
+16 
+SLA parameter 5 (Error rate). Error rate was also one of the least studied SLA parameters, 
+as it was mentioned only in one article. Based on Ghosh, Error rate is one of the important 
+SLA parameters that should be considered when creating an SLA agreement for storage as a 
+service cloud (Ghosh & Ghosh, 2012, P.3 ).   
+ 
+SLA parameter 6 (Service excess use). While cloud computing offers pay as you use 
+features, cloud service consumers can also initiate a contract where they can set and indicate 
+the amount of usage with the cloud service provider. Consequently, the user needs to know 
+the usage and check for any access use. 
+  
+Overall, looking into the aforementioned information, some SLA parameters found in the 
+academia were well defined and precisely explained, while others were defined differently 
+from an article to another. Besides, part of the analysed papers mentioned some SLA 
+parameters as SLO parameters, which indicated the lack of standardization. Although authors 
+in several articles demonstrated in details the definitions of SLA agreements and their 
+importance to cloud service providers and consumers, there was no clear method or 
+recommendations on how to evaluate SLA agreements using these SLA parameters or how 
+cloud service consumers could measure SLA parameters to assess the provided service.  
+ 
+For further information refer to appendix I and appendix II. 
+ 
+1.2 
+SLO parameters distribution 
+1.2.1 
+Extracted SLO parameters 
+According to Frey,  “Service Level Objectives (SLOs) are a central element of every service 
+level agreements (SLA), which include the negotiated service qualities (service level) and the 
+corresponding Key Performance Indicators” (Frey et al,2013, P.3). They are the metrics or 
+measures that could be used to check and evaluate all SLA parameters.  
+ 
+
+ 
+The following chart (figure 1.5) shows the Most studied and least studied SLO parameters 
+found in the academia. 
+ 
+ 
+Figure 1.5 SLO Parameters Distribution Chart 
+
+18 
+The bar chart presented in figure 1.5 demonstrates the percentage of occurrences for the 
+Service level objectives (SLO) in cloud computing based on their distribution in the 
+academia. After extracting SLO parameters from the literature, we calculated their 
+occurrence percentage as shown previously for SLA parameters to find out the frequency 
+percentage for each parameter and how many times it was mentioned. Based on this, 
+parameter with the highest percentages were considered as the most studied SLA parameters 
+in the literature while parameters with the lowest percentages were considered as the least 
+studied SLA parameters. Looking in closer detail at the chart, it can be observed that most of 
+the SLO parameters calculated percentage was 5% to 10 % which shows an obvious poor 
+occurrence for SLO parameters in the academia.  
+ 
+The graph consists of 48 SLO parameters. Response time was on the top of the list with 36%, 
+while throughput and availability came second with 26% each.  The rest of the SLO 
+parameters were ranked between 15% and 5%.   
+ 
+On the other hand, some SLO parameters were also mentioned in the literature as SLA 
+parameters too, such as response time, availability, portability and reliability. Consequently, 
+in this research we faced several limitations regarding cloud computing SLO parameters.  
+ 
+Overall, it can be clearly seen that there is a lack of connection between SLA and SLO 
+parameters in the academia. While SLA parameters were mentioned in some academic 
+articles, there is a scarcity of information regarding the definitions and the usages of SLO 
+parameters.  
+ 
+To clarify this analysis, we divide the chart in figure 1.5 into two charts and demonstrate 
+them individually. 
+ 
+ 
+ 
+
+ 
+ 
+Figure 1.6 SLO Parameters’ Distribution Part 1 
+ 
+As shown in figure 1.6, the bar chart presents the extracted SLO parameters according to the 
+literature. Response time, availability and throughput got the highest occurrence percentage 
+among all other SLO parameters. In addition, as seen in figure 1.5 and based on the 
+conducted literature review, there is a tremendous gap between cloud SLO parameters and 
+their definitions, usage and distributions. It is very obvious that SLO parameters are not well 
+defined and poorly mentioned. Moreover, in some cases they were completely ignored. 
+ 
+In following paragraphs the definitions of some extracted SLO parameters are presented, 
+addressing the sources, where they were discussed and derived from. The upcoming SLO 
+parameters were chosen based on their percentage and order in the chart in figure 1.6. We 
+demonstrated the SLO parameters with different percentages to show the variety among these 
+presented percentages.  
+  
+
+20 
+SLO parameter 1 (Response time). According to Busalim, response time was classified as 
+an SLO parameter for cloud performance. It is a certain period of time when a service request 
+is sent and a response is received by the user (Busalim et al., 2013, P.4).  Although response 
+time was mentioned as an SLA parameter in several articles, it was considered as an SLO 
+parameter in others. A new SLA framework for monitoring and checking SLOs by using a 
+third party was proposed by (Ghosh, Ghosh & Das, 2015, P.4). They considered response 
+time as an SLO parameter example, while they mentioned it as an SLA parameter too.  
+ 
+SLO parameter 2 (Throughput). It is the number of inquiry that the service can deal with in 
+a specific period of time (Busalim et al., 2013, P.4). Throughput was considered as an SLO 
+parameter for performance in several articles such as (ISO SLA standard 19086-1) and 
+(Busalim et al., 2013. P.4). Based on Frey, throughput was also specified as one of the SLO 
+parameters that could be used in cloud computing (Frey et al., 2013, P.4). 
+ 
+SLO parameter 3 (Uptime and Downtime). According to ISO19086-1, uptime and 
+downtime are considered as SLO parameters to check and evaluate the availability of the 
+service. Actually they refer to the time when the service is accessible or not and it is usually 
+calculated over a certain period of time.  
+ 
+SLO parameter 1 (Data encryption). It is a mechanism that helps to control and check 
+whether the sent information or the data which is stored in the cloud storage is encrypted or 
+not. In addition, it checks the percentage of encrypted data which is stored in cloud 
+infrastructure (Rios, Mallouli, Rak, Casola & Ortiz, 2016, P.6). 
+ 
+SLO parameter 4 (Recovery Time objective RTO). Based on Ghosh, “Recovery Time 
+objective (RTO) is the period of time allowed for recovery” (Ghosh & Ghosh, 2012, P.4). 
+Moreover, it was also mentioned in ISO/IEC 19086-1 as a part of the cloud service provider 
+disaster recovery plan. According to ISO/IEC 19086-1, when cloud service provider 
+announces a disaster and a recovery process is initiated, the recovery time objective period 
+
+ 
+starts and ends when cloud service consumer can access and work on the secondary 
+environment provided.   
+ 
+SLO parameter 2 (Reliability). Based on Garg, reliability means that no service failures 
+occur in a predefined period of time (Garg et al., 2011, P.4). Choosing the best and most 
+appropriate cloud service provider is a huge challenge all cloud consumers face when they 
+decide to move their data to the cloud. A framework that allows cloud consumers to evaluate 
+several cloud providers’ offers was proposed by (El-Awadi &Abu-Rizka, 2015, P.3). They 
+indicated that reliability is a key performance indicator (KPI) for assurance.   
+ 
+SLO parameter 3 (Packet loss). Packet loss was defined and considered as one of the SLO 
+parameters that could be used in an SLA. It is the number of lost packets during all the 
+transmissions (Frey et al., 2013, P.4).  
+ 
+ 
+
+22 
+ 
+Figure 1.7 SLO Parameters’ Distribution Part 2 
+ 
+As presented in figure 1.7, the bar graph illustrates the occurrence percentage of the rest of 
+the SLO parameters’ list. By observing the chart, it can be seen that all of the SLO 
+parameters shown in this chart are the least studied SLO parameters in the literature. In 
+addition, all of them have the lowest occurrence percentage, which is 5%. This means that it 
+was mentioned only in one article from the literature.  In general, the poor occurrence for the 
+SLO in the literature showed several gaps concerning the SLOs definition and their 
+connection to SLA parameters.  
+ 
+In following paragraphs the definitions of some extracted SLO parameters are presented, 
+addressing the sources, where they were discussed and derived from. The upcoming SLO 
+parameters were chosen based on their position and percentage in the chart in figure 1.7.  
+ 
+ 
+
+ 
+SLO parameter 1 (Dollars, electricity price). Based on Faniyi, Dollar and electricity price 
+are some of the SLO parameters assigned to the SLA parameter ‘cost’ (Faniyi & Bahsoon, 
+2015, P.6). However, there is no way or method how these SLO parameters can be used to 
+measure the cost of the cloud service.  
+ 
+SLO parameter 2 (Elasticity Speed). Based on ISO 19086-part 1, elasticity could be 
+measured using two SLO parameters, which are elasticity speed and elasticity precision. 
+Elasticity speed is the time that cloud service would take to react to a resource request. There 
+are two types of elasticity which are manual and automatic. Therefore, elasticity speed is the 
+fastest reaction the service would take under these two scenarios.  
+ 
+Overall, looking into the aforementioned information, there was a huge gap regarding SLA 
+and SLO parameters and their usage and definitions. Several investigated articles showed 
+different analyses regarding SLA and SLO parameters. Some SLA parameters were 
+mentioned as SLO parameters and vice versa. Moreover, some SLA parameters were defined 
+differently. Several SLO parameters were not connected to any SLA parameters. This work 
+demonstrated many academic articles and showed cloud computing SLA and SLO 
+parameters statues in the academia. In addition, it indicated that there is a tremendous lack of 
+standardization concerning SLA and SLO parameters. 
+ 
+For more detailed information, refer to appendix I and appendix II. 
+ 
+NOTE: all the above extracted SLA and SLO parameters will be used in the next chapter to 
+analyse and prove the applicability of some popular cloud service providers in the modern 
+market such as Amazon, Google and Microsoft.  
+ 
+ 
+
+
+ 
+CHAPITRE 2 
+ 
+ 
+CONFRONTING CLOUD SLA AND SLO PARAMETERS’S LIST WITH MOST 
+POPULAR CLOUD SERVICE PROVIDERs IN THE MODREN MARKET 
+In this chapter we will illustrate the selected cloud service providers SLA agreements and 
+confront them to the SLA and SLO parameters’ list from the previous chapter to find out the 
+coverage percentage for each cloud service provider.  
+ 
+2.1 
+Introduction 
+Cloud computing has been developing expeditiously over the past few years and impacting 
+our lives in so many different ways. It intends to help cloud service users to store and access 
+an enormous amount of data and facilitates the usage of many software programs. Several 
+companies across industries decide to move their business and their data to the cloud to 
+perform efficiently and more economically. A service level agreement (SLA) is the first stage 
+cloud service provider and consumer start with. “ Service level agreements (SLA) is a 
+contract signed between the customer and the service provider. It states the terms of the 
+service including the non-functional requirements of the service specified as the quality of 
+service (QoS), obligations, service pricing, and penalties in case of agreement violations” 
+(Emeakaroha et al., 2010. P.1). It clarifies the cloud consumers’ requirements and 
+demonstrates cloud providers’ offers to assure the level of service expected by cloud service 
+clients. 
+ 
+Through the past years, cloud computing has helped and increased the productivity in our 
+modern world and provided the users with many advantages that could enhance the usability 
+and the development in different life aspects such as health, Information Technology and 
+education, etc. Nevertheless, in some scenarios that was not the case. Several cloud breaches 
+and incidents have occurred and caused the users a lot of damage, money and data loss. 
+According to (Bradford, 2018), in April 2016 the national Elections in Mexico faced a cloud 
+breach on the data of the voters. As a consequence of the poor database that was used, most 
+
+26 
+of the collected votes were missing or were not protected and became accessible to the 
+public. After investigating in the incident, it was concluded that the data was stored illegally 
+outside of Mexico in an unreliable Amazon cloud server. If the SLA agreement of this cloud 
+service was appropriately negotiated, well reviewed and the SLA parameter data location 
+was properly demonstrated and emphasized that the data is confidential and should be stored 
+in a certain location, all of this would not happen and the National Electoral Institute would 
+have avoided the scandal. Another example that can show the effect of cloud breaches is the 
+incident that happened to Anthem, a healthcare insurance company. Based on (Latouf, 2017) 
+Anthem experienced a huge data breach that costs the company around 80 million dollar loss. 
+The company lost a lot of patients and employees records. After investigating the incidence, 
+it was revealed that the breach was due to a cloud-based file sharing service they used. The 
+above mentioned examples, show how important is the process of creating an SLA 
+agreement and how cloud service providers and consumers should pay more attention and be 
+well prepared when they decide to initiate an SLA agreement for a certain service.  
+ 
+Cloud service providers can give the users so many guarantees related to the level of the 
+service they provide and attract them with the high availability rates or a quick response time 
+rate. But some SLA attributes are neglected and are not discussed enough to protect the users 
+from any service violation that might occur in the future. Therefore, SLA agreements should 
+cover all aspects of the provided service and support the consumers with the appropriate tools 
+or measures to help them gain more controllability on their data.   
+ 
+In reference to the previous chapter, the extracted SLA and SLO lists will be used to check 
+the applicability and the coverage of these cloud service providers SLA offers and analysed, 
+which parameters from chapter 1 applied to the parameters offered by these providers SLAs. 
+The analysis in this research will focus mainly on public cloud offers rather than other cloud 
+deployment models, which will be analysed in future research.   
+ 
+ 
+
+27 
+ 
+Data is considered as a crucial component in cloud service environments. Therefore, Cloud 
+service providers claim that cloud computing could be a helpful solution to protect data 
+especially against potential risks associated with hardware. This would persuade stakeholders 
+to migrate their data to be stored in cloud. In addition, cloud storage service also has a vital 
+role and it is an essential feature of cloud computing, we chose to focus mainly on cloud 
+storage products offered by the most popular cloud service providers in the modern market 
+such as Amazon Web Service (AWS), Microsoft Azure and Google to investigate their SLAs 
+and confront them to the SLA and SLO parameters’ list from the previous chapter.  
+ 
+NOTE: The terms such as parameters, attributes and characteristics are used frequently 
+through this document. Since the term (parameter) is used in cloud SLA agreements, it will 
+be further employed in this work to simplify the representation in this analysis. 
+ 
+2.2 
+Cloud computing providers’ SLA offers 
+2.2.1 
+Amazon 
+Amazon Web Service (AWS) is one of the most popular cloud service providers in the 
+modern world. It provides us with several types of cloud storage services such as Amazon 
+Elastic Block Store (Amazon EBS), Amazon Simple Storage Service (Amazon S3) and 
+Amazon Glacier, Etc. 
+ 
+Amazon simple storage service (amazon S3) is a web service provided by AWS to facilitate 
+the storage and the retrieval of the data stored in cloud. We chose to analyse the SLA of this 
+service due to its features and simplicity. As mentioned above, there are many storage 
+products Amazon provides. However, Amazon S3 is a simple, flexible storage product that 
+any user can use. Hence, it would facilitate and simplify the comparison process with other 
+cloud providers.  
+ 
+ 
+
+28 
+We contacted Amazon customer service through the phone and asked them to provide us 
+with their official storage SLA that they give to all customers.  They sent us an email with 
+the link to their Amazon S3 Service Level Agreement online. We analysed and reviewed the 
+provided SLA document and extracted the SLA parameters that were discussed to show and 
+demonstrate the coverage of Amazon S3 SLA Agreement in comparison with the list we 
+created in the previous chapter.  
+ 
+In the following paragraphs, the Amazon S3 SLA agreement will be demonstrated and 
+analysed. 
+ 
+2.2.1.1 
+Amazon S3 SLA 
+It was lately updated on April 4, 2018. It starts with a brief explanation of the service and the 
+SLA terms including the payment procedures and the SLA exclusions. After analyzing and 
+deeply reviewing the document, the used SLA parameters were identified as the following 
+SLA contents:  
+ 
+• Error Rate  
+• Monthly Uptime Percentage 
+• Service Credit 
+• (Remedy, unavailability, non-performance) 
+• Termination 
+• SLA exclusions 
+ 
+In addition, we investigated other Amazon SLAs that are provided online and could be 
+related to Amazon S3 SLA such as AWS customer agreement and AWS service terms. After 
+analyzing and reviewing the previously mentioned SLAs, we extracted more SLA parameters 
+that could be relevant to Amazon S3 SLA agreement and demonstrated them as the 
+following. 
+ 
+
+29 
+ 
+2.2.1.2 
+AWS customer agreement 
+It is a contract made between Amazon provider and cloud customers. It consists of several 
+terms and conditions that could control the usage and the access of any service offered by 
+Amazon. Each term has several conditions and cases related to it, which explains different 
+situations and the actions that must be taken in case of a service violation. Moreover, it 
+shows the responsibilities and limitations for both Amazon provider and service users. This 
+SLA was lately updated on July 1, 2018. The used SLA parameters (terms) were identified as 
+the following:  
+ 
+• Use of the service  
+• Change of service 
+• Security and data privacy 
+• Consumer’ responsibility 
+• Fees and payment  
+• Temporary suspension 
+• Termination 
+• Proprietary rights 
+• Identification 
+• Disclaimers 
+• Limitations of Liability 
+• Modification to the agreement 
+• Miscellaneous 
+• Definition  
+ 
+2.2.1.3 
+AWS service terms 
+This SLA agreement was lately updated on October 5, 2018. The first part of this agreement 
+is universal and applies to all types of Amazon offered services including Amazon S3. 
+
+30 
+However, most of the terms speak about the extra fees or responsibilities every user has 
+towards using other or additional types of services.  
+ 
+This document mainly contains terms and conditions rather than clear SLA parameters. As 
+the first section of this agreement applies to Amazon S3, the rest of the document discusses 
+conditions related to other provided services. In the first section, Amazon lists several rules 
+to be followed in certain situations. For example, special pricing program, users are allowed 
+to receive only one discount per service when Amazon offers multiple discount offers. 
+Another term mentioned was about service maintenance, Amazon clarifies that they will 
+notify the consumers with any maintenance in advance and users have to cooperate and 
+follow any instructions requested by Amazon. Moreover, technical documentation are 
+updated from time to time, users have to adhere to the current technical documentation that is 
+up to date. 
+ 
+Overall, after reviewing all available SLA documents that could be related to Amazon S3 
+service, we found out that Amazon S3 SLA mainly focuses on service availability and 
+service credit rather than other SLA parameters.  There are other SLA parameters that are 
+mentioned in these SLAs such as security, privacy and response time, etc. However, the main 
+focus was mainly on service up time and down time (availability) and service credit and 
+pricing. 
+ 
+2.2.2 
+Microsoft  
+Microsoft Azure is a cloud computing service that provides software as a service (SaaS), 
+platform as a service (PaaS) and infrastructure as a service (IaaS). It is launched by Microsoft 
+Company and offers several types of services such as virtual machines, Azure database for 
+MySQL and storage, etc. It is considered one of the most well-known cloud services that are 
+available in the current market.  
+ 
+ 
+
+31 
+ 
+Microsoft Azure Storage is a service provided by Microsoft that supports cloud users with a 
+scalable and protected storage to upload their data to. We emailed Microsoft Azure customer 
+service and asked them to send us their official storage SLA that they give to all customers. 
+They called us and we discussed with them about their storage products and asked them to 
+provide us with a simple storage product. They suggested Microsoft Azure Storage, so they 
+sent us an email with the link to their Microsoft Azure Storage Service Level Agreement 
+online. We started looking into the provided SLA document to analyse and extract SLA 
+parameters. In the following paragraphs, Microsoft Azure Storage SLA will be demonstrated 
+and analysed. 
+ 
+2.2.2.1 
+SLA for storage 
+It is a contract made between Microsoft provider and customers. It consists of three parts, 
+which are introduction, general terms and SLA details. It was updated in December, 2017. At 
+the beginning of this document, there are some guarantees Microsoft Azure illustrates to the 
+consumers regarding the cool access tire and read/write data from and to different storages. 
+Afterwards, it starts with a small introduction linked this SLA to another SLA, which is the 
+Microsoft Azure Agreement. It was also mentioned that when service levels are not met as 
+mentioned in the SLA, a service credit towards the monthly fees could be issued. Moreover, 
+when the service subscription is renewed, the current SLA will be automatically applied to 
+the new agreement.   
+ 
+The rest of the SLA document was speaking about general terms and their descriptions, SLA 
+details and some SLA limitations.    
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+32 
+Extracted SLA parameters: 
+ 
+Table 2.1 Microsoft Storage Extracted SLA Parameters 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+We found out that there was another related SLA that is linked to Azure storage SLA. We 
+analysed the document and extracted the mentioned and used SLA parameters in the 
+following paragraph. 
+ 
+Extracted SLA parameters 
+ Service credit 
+ Service renewal 
+ Application monthly period  
+ Application monthly 
+service fees  
+ Downtime  
+ Error code 
+ External connectivity 
+ Incident 
+ Management Portal 
+ Service Level 
+ Service Resource 
+ Success Code 
+ Support Window 
+ Claims 
+ SLA Limitations 
+ Average Error Rate 
+ Blob Storage Account 
+ Cool Access Tier 
+ Hot Access Tier 
+ Excluded Transactions 
+ Error Rate 
+ Failed Storage Transactions 
+ Geo Replication Lag 
+ Geographically Redundant 
+Storage (GRS) Account 
+ Locally Redundant Storage 
+(LRS) Account 
+ Primary Region 
+ Read Access 
+Geographically Redundant 
+Storage (RA-GRS) Account 
+ Secondary Region 
+ Total Storage Transactions 
+ Zone Redundant Storage 
+(ZRS) Account 
+ Monthly Uptime Percentage 
+ 
+
+33 
+ 
+2.2.2.2 
+Microsoft Azure agreement 
+It was updated in January, 2014. It is an agreement that applies to several provided services 
+by Microsoft Azure.  It includes some terms and conditions that should be considered when 
+subscribing to the service.  As was mentioned in the storage SLA agreement, some used 
+terms are not defined in the storage SLA but their definitions could be found in Microsoft 
+Azure Agreement. Therefore, we deeply analysed this agreement and extracted the following 
+terms that could be related to storage SLA. 
+ 
+Extracted SLA Parameters: 
+ 
+• 
+Use of Services 
+• 
+Security, privacy, and data protection 
+• 
+Purchasing Services 
+• 
+Term, termination, and suspension 
+• 
+Warranties 
+• 
+Defense of claims 
+• 
+Limitation of liability 
+• 
+Software 
+• 
+Miscellaneous 
+• 
+Definitions 
+ 
+The aforementioned parameters are identified as the main titles and each of them consists of 
+several conditions and terms that could be followed in certain situations.   
+ 
+To conclude, Microsoft Azure storage SLA was mainly concentrating on service uptime, 
+service downtime credit and storage location. Moreover, it was specified that Consumers can 
+identify the primary region of where their data will be stored. However, they have no control 
+on the secondary region. At the end of the storage agreement document, they provided the 
+
+34 
+users with several service credits according to different uptime percentages. Yet, no tools or 
+coherent way to monitor or check the provided service is clearly provided. 
+ 
+2.2.3 
+Google  
+Google cloud platform offers several types of services and products to help facilitate and 
+simplify the usage of cloud service for a variety of users. In addition, it is one of the most 
+popular cloud service providers nowadays and many well-known companies are using it. 
+From a storage perspective, it provides us with many storage products such as cloud storage, 
+persistent disk and cloud storage for firebase, etc.  
+ 
+Google cloud storage is a storage product provided by Google cloud to help cloud users store 
+and manage their data. We decided to focus on this product since it is very similar to the 
+storage products that we chose from the previous cloud providers. Moreover, there is a 
+comparison between Google storage and Amazon S3 on Google cloud website which could 
+point out the similarity between them. We contacted Google through email and asked them to 
+provide us with their official SLA for this product. They sent us an email with the link, where 
+we started our analysis and extraction of SLA parameters. Three SLA agreements were 
+included when evaluating this service SLA. 
+ 
+2.2.3.1 
+Google cloud storage SLA 
+It is a storage SLA agreement issued between Google provider and consumers when 
+subscribing to the service. It was lately modified in October, 2018, and it is considered as the 
+SLA agreement for Google cloud storage. It consists of term definitions, financial credits and 
+SLA exclusions. We deeply analysed the document and extracted the mentioned and used 
+SLA parameters as the following:  
+ 
+• 
+Monthly up time percentage 
+• 
+Financial credits 
+• 
+Back-off requirements 
+
+35 
+ 
+• 
+Covered service 
+• 
+Error rate 
+• 
+Valid requests 
+• 
+Maximum financial credits 
+• 
+SLA exclusions 
+ 
+2.2.3.2 
+Google cloud platform terms of service 
+It is an agreement that is signed between Google and google cloud consumers. It was recently 
+updated in October, 2018, and it covers most of the service provided by Google and contains 
+some term definitions. We reviewed this document to extract the SLA parameters that were 
+used and are relevant to cloud storage agreement. The followings are the SLA terms with 
+their sub terms.  
+ 
+Extracted SLA parameters: 
+ 
+Table 2.2 Google Cloud Platform Term Extracted SLA parameters 
+Provision of the Services 
+Services Use                     Accounts 
+Console                            New applications and service 
+Facilities                           Modifications 
+Data Location                       Service Specific Terms and Data Processing and Security 
+Terms 
+Payment Terms 
+Free Quota                       
+Invoice disputes and refunds 
+Online billing                      
+Delinquent payments, suspension   
+Taxes                                No purchase order number required 
+ 
+
+36 
+ 
+Customer Obligations 
+Compliance 
+                   Third Party Components 
+Privacy 
+                   Documentation 
+Restrictions 
+                   Copyright Policy 
+Suspension and Removals 
+Suspension/Removals                                   Emergency Security Issues 
+Intellectual Property Rights; Use of Customer Data; Feedback; Benchmarking. 
+Intellectual Property Rights                          Customer Feedback 
+Use of Customer Data 
+                   Benchmarking 
+Technical Support Services 
+By Customer 
+                  By Google 
+Deprecation of Services 
+Discontinuance of Services                           Deprecation Policy 
+Confidential Information 
+Obligations                                                  Required Disclosure 
+Term and Termination 
+Agreement Term                                          Termination for Breach 
+Termination for Inactivity                            Termination for Convenience 
+Effect of Termination 
+Publicity 
+Representations and Warranties 
+Disclaimer 
+Limitation of Liability 
+Limitation on Indirect Liability 
+Limitation on Amount of Liability 
+Exceptions to Limitations  
+Table 2.2 Google Cloud Platform Term Extracted SLA parameters (Continued) 
+ 
+
+37 
+ 
+ 
+Indemnification 
+By consumer                                           By Google 
+Exclusions                                              Conditions  
+Remedies                                                Sole rights and obligations 
+U.S. Federal Agency Users 
+Miscellaneous 
+Notices                                                   Assignment 
+Change of Control                                   Force Majeure 
+No Agency                                              No Waiver 
+Severability                                             No Third-Party Beneficiaries 
+Equitable Relief                                      U.S. Governing Law 
+Amendments                                          Survival 
+Entire Agreement                                    Conflicting Terms 
+Definitions 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Table 2.2 Google Cloud Platform Term Extracted SLA parameters (Continued) 
+ 
+
+38 
+2.2.3.3 
+Google service specific terms 
+This SLA refers to all types of Google products. In addition, any terms that are not defined in 
+the previous SLAs could be found in this document. We analysed the document and 
+extracted the terms that are related to Google cloud storage.  
+ 
+Extracted SLA parameters: 
+ 
+• 
+Data storage 
+• 
+Data location 
+• 
+Transient storage 
+• 
+Data location limitations 
+• 
+Bucket lock 
+ 
+To conclude, Google cloud storage is one of the storage products that supplies cloud users 
+with several services such as storing, managing and moving their data among different 
+storage classes. However, their SLA does not cover the various features they provide. It 
+guarantees the user with different service levels and provides the consumer with expected 
+monthly uptime in different storage classes. However, it does not provide any measuring 
+tools to monitor or check the applicability of these guarantees services. Additionally, it 
+primarily speaks about the financial credits and how consumers should apply to get them. 
+Yet, it is only towards their future payments not direct refunds.  
+ 
+ 
+ 
+ 
+ 
+ 
+
+39 
+ 
+2.3 
+The comparison between the extracted SLA and SLO lists and modern cloud 
+providers SLA offers 
+2.3.1 
+Modern cloud providers SLA offers and the extracted SLA parameters’ list 
+Concerning the above mentioned SLA parameters that were extracted from the chosen cloud 
+providers’ storage SLAs, we investigated these parameters and confronted them to the list of 
+SLA parameters from the previous chapter. The following table contains the first 20 SLA 
+parameters that have the highest occurrence percentage in the academia. 
+  
+2.3.1.1 
+The criteria used in the comparison between cloud service providers’ SLA 
+offers and the extracted SLA parameters: 
+SLA parameters considered mentioned M when:  
+ 
+ 
+The parameter is mentioned as an SLA parameter and discussed in the document. 
+ 
+The parameter is connected or followed by any SLOs, equations or measures. 
+ 
+The parameter is illustrated by one or more terms or conditions. 
+ 
+Otherwise, the SLA parameter is considered not mentioned NM. In addition, any SLA 
+parameter that was only mentioned as an explanation to another SLA parameter is not 
+considered mentioned M.  
+ 
+Table 2. 3 The Comparison of Most Studied SLA Parameters and Cloud Providers 
+Most studied SLA parameters 
+% 
+Amazon Microsoft Google 
+Availability 
+68% 
+M 
+M 
+M 
+Security 
+68% 
+M 
+M 
+M 
+Response time 
+57% 
+NM 
+M 
+NM 
+
+40 
+ 
+Most studied SLA parameters 
+% 
+Amazon Microsoft Google 
+Performance 
+52% 
+NM 
+NM 
+NM 
+Reliability 
+36% 
+NM 
+NM 
+NM 
+Privacy 
+26% 
+M 
+M 
+M 
+Throughput 
+26% 
+NM 
+NM 
+NM 
+Elasticity or Scalability 
+26% 
+NM 
+NM 
+NM 
+Backup and restore 
+26% 
+M 
+M 
+M 
+Portability 
+26% 
+NM 
+NM 
+NM 
+Usability 
+26% 
+M 
+M 
+M 
+Service guarantee/Assurance 
+26% 
+NM 
+M 
+M 
+Termination of service 
+21% 
+M 
+M 
+M 
+Disaster recovery 
+21% 
+NM 
+NM 
+NM 
+Data location 
+21% 
+NM 
+M 
+M 
+Cost and Finance 
+21% 
+M 
+M 
+M 
+Table2. 3 The Comparison of Most Studied SLA Parameters and Cloud 
+Providers (Continued) 
+
+41 
+ 
+ 
+Most studied SLA parameters 
+% 
+Amazon Microsoft Google 
+Governance 
+15% 
+NM 
+NM 
+M 
+Roles & responsibilities 
+15% 
+M 
+M 
+M 
+Service violations 
+15% 
+M 
+M 
+M 
+Storage 
+15% 
+M 
+M 
+M 
+Final percentage for each cloud provider SLA 
+offer 
+ 
+50% 
+65% 
+65% 
+ 
+M: Mentioned  
+ 
+NM: Not Mentioned  
+ 
+As illustrated at the end of the table, the calculated percentages present the average coverage 
+for each cloud provider’s SLA agreement confronted to the SLA parameters’ list from the 
+previous chapter. The percentage was calculated as the following:  
+ 
+• 
+Let (P) be the percentage for the coverage of each cloud Service provider’s SLA offer  
+• 
+Let M(n) be the number of how many SLA parameters were covered.  
+• 
+Let A(n) be the total  number of the used SLA parameters, which is 20 parameters .  
+ 
+P = M(n) X 100   
+ 
+Overall, it can be clearly seen that there is a huge gap between the literature, the ISO 
+standards, and the industry when it comes to the SLA agreement and what should be 
+included. What’s more, Amazon has the lowest percentage among the other cloud service 
+A(n) 
+Table2. 3 The Comparison of Most Studied SLA Parameters and Cloud 
+Providers (Continued) 
+
+42 
+providers although it is considered one of the most popular and most used cloud services. 
+Since the coverage percentage of these cloud providers’ SLA was only 65% and less, cloud 
+service consumers should think cautiously when they subscribe to these services.  
+ 
+2.3.2 
+Modern cloud providers’ SLA offers and the extracted SLO parameters’ list 
+We intensely reviewed and analysed Amazon, Google and Microsoft SLA agreement and the 
+attached documents to extract any SLO parameters that could be helpful to evaluate and 
+monitor the provided service to confront them to the SLO parameters’ list from the previous 
+chapter. The following table contains the first 15 SLO parameters that were listed in the first 
+SLO parameters bar chart number (figure 1.6) from the previous chapter.  
+ 
+2.3.2.1 
+The criteria used in the comparison between cloud service providers’ SLA 
+offers and the extracted SLO parameters: 
+SLO parameters considered mentioned M when:  
+ 
+ 
+The parameter is mentioned as an SLO parameter or as a measuring tool that could be 
+used to measure the service. 
+ 
+ 
+The parameter contains any occasions or measures to monitor or check the provided 
+service. 
+ 
+Otherwise, the SLO parameter is considered not mentioned NM.  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+43 
+ 
+Table 2. 4 The Comparison of Most Studied SLO Parameters and Cloud Providers 
+Most studied SLO parameters 
+% 
+Amazon Microsoft Google 
+Response time 
+36% 
+NM 
+M 
+NM 
+Throughput 
+26% 
+NM 
+NM 
+NM 
+Uptime 
+15% 
+M 
+M 
+M 
+Downtime 
+15% 
+NM 
+NM 
+NM 
+Monitoring Parameters 
+10% 
+NM 
+NM 
+NM 
+Monitoring Mechanisms 
+10% 
+NM 
+NM 
+NM 
+Accessibility Policies 
+10% 
+NM 
+NM 
+NM 
+Maximum Response Time Observation 
+10% 
+NM 
+M 
+NM 
+Response Time Mean 
+5% 
+NM 
+NM 
+NM 
+Response Time Variance 
+5% 
+NM 
+NM 
+NM 
+Cloud Service Bandwidth 
+15% 
+NM 
+NM 
+NM 
+Limit of Available Cloud service 
+5% 
+NM 
+NM 
+NM 
+Limit of Simultaneous Cloud Service 
+5% 
+NM 
+NM 
+NM 
+Elasticity Speed 
+5% 
+NM 
+NM 
+NM 
+Elasticity Precision 
+5% 
+NM 
+NM 
+NM 
+Final percentage for each cloud provider SLA offer 
+ 
+6.6% 
+20% 
+6.6% 
+ 
+M: Mentioned  
+ 
+NM: Not Mentioned  
+
+44 
+As showed at the end of the table, the percentage of the coverage for each cloud service 
+provider’s SLA offer to the provided SLO parameters are calculated. It presents the average 
+coverage for each SLA agreement when we confront it to the SLO parameters’ list from the 
+previous chapter. The percentage was calculated as the following:  
+• 
+Let (P) be the percentage for the coverage of each cloud Service provider’s SLA offer  
+• 
+Let M(n) be the number of how many SLO parameters were covered  
+• 
+Let A(n) be the total  number of the used SLO parameters, which is 15 parameters   
+ 
+P = M(n) X 100   
+ 
+The final percentages for the covered SLO parameters show how poor and incomplete these 
+agreements are. All the documents we investigated and studied have not mentioned any 
+measures or SLOs only in a few points. For example, In Microsoft Azure, there was a 
+formula to help users calculate the amount of monthly uptime percentage. The formula is 
+100% (uptime) - the average error rate, which was also indicated in the SLA details section, 
+how to calculate the average error rate for each month. Nevertheless, there were many SLA 
+parameters mentioned with no connected SLOs or any methods to check or monitor them. 
+Consequently, the percentages show that the agreements are void and these cloud service 
+providers should not be trusted, considering that the provided SLA parameters are not 
+supported by enough measures and users have no control over their data.  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+A(n) 
+
+45 
+ 
+2.4 
+Observations and conclusion 
+In following paragraphs the observations on the previously mentioned cloud service 
+providers is presented, addressing the reviewed SLA agreements and their coverage.  
+ 
+ After reviewing all the above mentioned documents, these cloud service provider’s focus 
+mostly on the finance. Money is an important subject when consumers decide to 
+subscribe to a service. However, it is not as vital as the rest of the parameters.  A huge 
+part of these cloud provider’s SLAs speaks about how cloud service consumers could get 
+service credits and when they are not applicable for it. For Amazon, Microsoft and 
+Google, service credits are paid towards your future monthly bills, so no cash or refund is 
+given, but what if the cloud service consumer was deeply damaged due to the service 
+failure and decided to terminate the service. How could he/she get their service credits?   
+ 
+ Concerning the data location. Microsoft uses two regions to store and replicate the data, 
+which are the primary region and the secondary region. They allow cloud service 
+consumers to specify the primary region and where their data could be stored. However, 
+they don’t have such control on the secondary region. While at Google, consumers can 
+choose the location where they want their data to be stored through data location 
+selection. However, if the location they choose is not covered in the service specific 
+terms, Google have the control to store the data at any of their facilities. In Google’s 
+SLA, they mentioned that when Google controls the data location based on the scenario 
+mentioned above, Google is just a data processor. Yet, they don’t provide any methods or 
+measures cloud service consumers can use to check and insure the credibility and the 
+applicability of their claim.  
+ 
+ Another issue that concerns the data location is Geo replication lag. Microsoft does not 
+give any guarantees regarding the time that will take data to be replicate in the secondary 
+region. Microsoft did not indicate what will happen if any service violations related to 
+data occur and the data is not replicated yet in the secondary region. This could cause the 
+users a lot of trouble.  
+
+46 
+ Based on this research, there is a huge gap between the literature, the ISO standards and 
+the industry regarding the definition, the use and the connections between the SLA and 
+SLO parameters. SLA and SLO parameters have different definitions from an article to 
+another. Some consider parameters as SLA parameters while others consider them as an 
+SLO parameter, so there is a huge confusion between both parameters. This issue should 
+be solved so that cloud service providers and consumers can use the same reference when 
+defining or using cloud service SLA and SLO parameters. 
+ 
+ There are no tools, methods or measures provided for the cloud service users to check the 
+provided service. On each SLA, you can find several SLA parameters that are defined but 
+are not supported or connected to any SLOs or measurements. How the service could be 
+monitored if there are no provided methods to do that? Since consumers have no control 
+over their data and cloud service providers could not be trusted, and due to the lack of 
+measures and the insufficient connections between the SLA parameters and the SLO 
+parameters, these agreements could be considered void.  
+ 
+ Some SLA parameters such as performance, reliability, disaster recovery, etc., were only 
+illustrated as features for Amazon, Microsoft and Google’s provided services. However, 
+these parameters were only mentioned in other SLA parameters definitions. They just 
+indicated them in their SLAs and do not provide the connected SLOs to check them. For 
+example, in Amazon, disaster recovery could be found as a feature of Amazon service but 
+in their SLA they do not include it as an SLA parameter or provide the user with measures 
+such as Recovery Time Objective (RTO), which is the maximum time required to recover 
+the data in case of disaster.  
+ 
+ Azure storage gives guarantees regarding the read and write of data in different storage in 
+cool accesses tire at the very beginning of its SLA document. However, there is no 
+mention of any provided tools or measures to check or assure theses guarantees.   
+ 
+
+47 
+ 
+ During the period when this research was conducted, the studied cloud service providers 
+updated and modified their SLA repeatedly. For example, Google updated their SLA 
+twice or three times a month. Amazon had the same issue too but less frequent. This can 
+show how these clouds service providers are in doubt and not sure of what to put in their 
+SLAs. 
+ 
+ Google specified in their agreements that they have the right to modify their SLA 
+agreements and their prices from time to time. What’s more, if cloud service consumers 
+do not accept these modifications, the only option they have is to stop using the service. 
+How could cloud service consumers trust this cloud provider, when their SLAs or the 
+service prices could be changed any time and they should accept these modifications? 
+ 
+ Another issue that we faced when we were reviewing these cloud providers’ portals and 
+their SLAs is the low usability of these SLA documents. There are too many attached 
+documents to review that users should find. In addition, in some cases, there are no links 
+to these documents. It was very confusing and distracting to study these SLAs and find all 
+their related documents. It would be extremely helpful if all the information users need to 
+review was in the same document, so that cloud service consumers will not get confused 
+going from a document to another.  
+ 
+ Microsoft indicates in their SLA that there is a possibility that other companies could be 
+hired to provide some services on behalf of them. They demonstrate that these companies 
+are not allowed to use the consumers’ data. However, there is no way cloud service 
+consumers could assure their credibility and guarantee that their data is not going to be 
+used by a third party.  
+ 
+In the following chapter, we will introduce a new toolkit that can assist Cloud service users 
+in the process of creating an SLA and allow them to achieve more controllability over their 
+data. 
+ 
+ 
+
+ 
+ 
+
+ 
+CHAPTER 3 
+ 
+ 
+PROPOSED SLA TOOLKIT 
+In this chapter, we will propose an SLA toolkit to enhance the creation process of SLA 
+agreement and help cloud service providers and consumers through the SLA lifecycle 
+negotiation stage.  
+ 
+3.1 
+Cloud computing SLA life cycle 
+There are many proposals in the academia for SLA life cycle, However there is no widely 
+accepted SLA life cycle in the literature (Maarouf, Marzouk & Haqiq, 2015, P.2). Cloud 
+computing SLA life cycle consists of several stages that demonstrate the process of creating 
+an SLA agreement.  
+ 
+ 
+Figure 3.1 Classic SLA management Life Cycle  
+Taken from Faniyi & Bahsoon ( 2015, P.3) 
+ 
+According to Faniyi (Figure.3.1), Service level agreement (SLA) life cycle consists of five 
+phases, which are Negotiation, Establishment, Monitoring, Violation Management and 
+Reporting and Termination (Faniyi & Bahsoon, 2015, P.3). One of the most crucial phases 
+
+50 
+is the negotiation phase. Negotiation is the first stage where cloud service providers and 
+consumers discuss and negotiate the service level required and the SLA contents. “In this 
+phase, cloud service consumers decide which cloud service provider has the best offer that 
+can meet their requirements and discuss the required service level. However, SLA 
+negotiation is usually more complicated than other SLA lifecycle phases” (Terfas et al., 
+2018). This phase could be very ambiguous and confusing for both cloud service provider 
+and consumer. 
+ 
+ According to Venticinque, unsupported dynamic negotiation process could result in a 
+poorly constructed SLA, which can also lead to many other issues that cloud service 
+consumers could face, such as SLA violations (Venticinque, Aversa & Martino, 2010, 
+P.1). SLA violation is one of the challenges cloud computing is facing. However, 
+predefined SLA parameters could be the solution to help in the early detection of these 
+violations (Terfas et al., 2018, P.11). The definition of SLA parameters is very important 
+for both cloud service providers and consumers. Therefore, based on Terfas, “the 
+predefined SLA parameters in early stage of SLA lifecycle can affect the whole SLA 
+lifecycle and influence the level of service required” (Terfas et al., 2018, P.11). This step 
+could be done during the SLA negotiation stage to insure that the service level will be 
+provided as expected. Cloud service consumers should be given the opportunity to prepare 
+the list of SLA parameters required for their service and follow cloud service providers 
+during the negation process to create a well-constructed SLA agreement that covers all the 
+requirements and assist them to choose the best cloud service provider among all the 
+provided offers (Terfas et al., 2018, P.11). In accordance with the previously discussed 
+issues, a toolkit to help cloud service consumers choose the most appropriate cloud service 
+provider and be more prepared and confident during the negotiation and the establishment 
+phases is introduced. 
+ 
+3.2 
+SLA toolkit  
+Cloud service provider selection process could be complicated and difficult to achieve for 
+some cloud service consumers. Moreover, the negotiation stage is also known as a bottleneck 
+
+51 
+ 
+(Dastjerdi & Buyya, 2012, P.1). Based on all these indicated issues, an SLA toolkit to 
+facilitate the negotiation phase process and help in the selection of cloud service provider is 
+proposed. 
+ 
+There are many SLA toolkits available in the modern market that consumers have to 
+purchase in order to use. They provide a pre-defined check list of SLA parameters to be 
+considered in their SLA creation process (Terfas et al., 2018, P.11). The proposed SLA 
+toolkit was developed as the result of the analysis that was conducted on these toolkits and 
+the SLA parameters list from the previous chapter.  
+ 
+The Toolkit is built of three components: 
+ 
+• The SLA parameters list from chapter 1, which contain the most Studied SLA 
+parameters in the academia.  
+• An SLA parameter identification form (Figure 3.2), and  
+• An SLA Toolkit Work Process (Figure 3.3). 
+ 
+3.2.1 
+How does it work 
+As illustrated in the previous section, Figure 3.2 and Figure 3.3, the SLA toolkit could 
+address all the SLA parameters included in the most studied SLA parameters list which was 
+discussed in the chapter 1. This toolkit could be a good start to help end users control their 
+data and assess them in the process of creating SLA agreements. 
+ 
+
+52 
+ 
+Figure 3.2 SLA Parameters Identification Form 
+
+53 
+ 
+ 
+Figure 3.3 SLA Toolkit Work Process 
+ 
+As shown in Figure 3.3, the SLA Toolkit Work Process consists of 4 steps: 
+ 
+Step.1: Using the proposed SLA parameter identification form, cloud service consumer 
+should identify and choose all the required SLA parameters. Step1 should be done before the 
+beginning of the negotiation phase. 
+ 
+Step.2: Once the negotiation process begin, the cloud service consumer has to discuss and 
+review all the chosen SLA parameters with cloud service provider to specify the service level 
+required and the degree of compliance for each cloud service provider. When cloud service 
+provider agrees to a certain requirement of the consumer, the corresponding SLA parameter 
+should be checked as “Yes”, otherwise “No” checkbox is chosen. Moreover, the possible 
+alternative in case of “No” should be discussed and illustrated in Notes section. 
+ 
+Example: The cloud service consumer X identifies the SLA parameter of Data Location as 
+required. Therefore, cloud service provider will note that it is vital for cloud consumer to 
+
+54 
+know where the data is stored. If cloud service provider agrees to provide such information, 
+“Yes” is chosen. On the other hand, if cloud service provider declines to specify the location, 
+then “No” is chosen and the cloud service consumer should write in the Notes section 
+whether the cloud provider proposes any other alternatives, like specifying several locations 
+data could be stored in but not the exact location. These notes will be used in the next step. 
+ 
+Step.3: In this step, cloud service consumers have to evaluate the level of compliance for 
+each cloud service provider by checking which cloud service provider’s offer adheres more 
+to the requested requirements. 
+ 
+NOTE: This evaluation can be easily performed in a rudimentary form by assigning numeric 
+value of “1” to “Yes”, a value of “0” to “No”, a weight scale reflecting the importance of the 
+given parameter (for example 0-5) and calculating the weighted average for all parameters in 
+the form.  
+ 
+The note section will be used in case there are cloud service providers with the same level of 
+compliance. Consumers have to review the note section for any additional information that 
+could help to distinguish between them. 
+ 
+Step.4: Finally, using the aforementioned information, cloud service consumer will be able 
+to choose the most suitable cloud service provider that can cover all the required SLA 
+parameters or provide appropriate alternatives. 
+ 
+ 
+ 
+ 
+ 
+ 
+
+55 
+ 
+3.3 
+Conclusion  
+Service Level Agreement is a contract signed between two parties, which are cloud service 
+consumer and provider. It intends to help cloud service consumers to identify the service 
+level (SL) requested and present their quality requirements (QRs) to cloud service provider. 
+Therefore, it assists cloud service provider to recognize all consumers’ needs. The process of 
+creating an SLA agreement is ambiguous and difficult to follow. In addition, in chapter 2, we 
+found out that cloud service consumers privileges with existing cloud service providers are 
+limited, they cannot find all their required SLA parameters in the offered agreements and the 
+level of controllability on their data is low. Therefore, the proposed SLA toolkit would assist 
+cloud service consumers during this process especially in the negotiation phase. It will help 
+cloud service consumers clearly discuss their requirements and SLA parameters with their 
+cloud providers to achieve a better service level.  Moreover, it can help cloud consumers 
+evaluate the pre- defined SLAs of cloud service providers. It intends to facilitate the Cloud 
+service providers’ selection process and help the consumer to choose the most applicable 
+cloud service provider. This presented SLA toolkit will also insure cloud service consumer 
+gain more controllability on their data to increase the level of trust between these two parties.  
+ 
+The next section concludes this thesis document 
+ 
+ 
+
+ 
+ 
+ 
+
+ 
+CONCLUSION 
+In this thesis, we conducted a literature review to identify the most studied and the least 
+studied SLA and SLO parameters in the academia. To do so, we analysed several articles and 
+extracted the mentioned SLA and SLO parameters. Then, we calculated the percentages of 
+occurrence for each parameter to find out which SLA and SLO parameters have the highest 
+and the lowest occurrence percentages. Finally, we generated a list of the most and least 
+studied SLA and SLO parameters in the literature based on their occurrence percentage. 
+ 
+ After that, we used this list to investigate the coverage of three well known cloud service 
+providers in the modern market. We confronted their SLA agreements to this list and 
+calculated the coverage percentage for each one. Finally, we provided our observations on 
+each cloud service provider’s SLA agreement. 
+ 
+At the end of this thesis, we proposed an SLA toolkit that would help cloud service 
+consumers gain more controllability over their data. It enhances the process of SLA creation 
+for both cloud service provider and consumer. Moreover, it assists them through the stages of 
+an SLA lifecycle and helps cloud service consumers in the selection of the most appropriate 
+cloud service provider that best adheres to their requirements.  
+ 
+Conference Papers 
+Published 
+• Terfas, H., Suryn, W., Roy, J., & Eftekhar, S. M. (2018). Extending ISO/IEC 19086 
+Cloud Computing SLA standards to support cloud service users with the SLA 
+negotiation process. SQM XXVI, 127. 
+ 
+
+
+ 
+RECOMMENDATIONS 
+ 
+Cloud computing is a large field that is developing every day to suit the needs and 
+requirements of various types of users. Several researches are intended to enhance the use of 
+cloud computing services and decrease the incidents that could occur and violate the service 
+level requested. As aforementioned in the previous chapters, in academia and industry SLA 
+and SLO parameters are not well defined and are used differently. Therefore, as a future 
+work, we are planning to develop an extensive list that would cover as many as possible in 
+given market and industry circumstances cloud computing SLA and SLO parameters. This 
+list should involve definitions for all the included SLA and SLO parameters.  After that we 
+will propose a model that should contain all these SLA parameters connected to their SLO 
+parameters and measures to give the end users more controllability over their data and allow 
+them to trust their cloud service providers. 
+ 
+ 
+ 
+
+
+ 
+ANNEX I 
+ 
+ 
+SLA AND SLO PARAMETERS EXTRACTION 
+In this annex I, we will present the tables that contain all the extracted SLA and SLO 
+parameters addressing the sources, where they were discussed and derived from. 
+ 
+Table-A I- 1: ISO Standard 19086 
+Cloud computing ─ Service Level Agreement(SLA) framework and terminology 19086-1— 
+Part 1 
+SLAs 
+SLOs 
+• 
+Covered Service 
+• 
+ 
+• 
+Cloud SLA Definitions 
+• 
+ 
+• 
+Service Monitoring 
+• 
+Monitoring Parameters 
+• 
+Monitoring Mechanisms 
+• 
+Roles and Responsibilities 
+• 
+ 
+• 
+Accessibility 
+• 
+Accessibility Standards 
+• 
+Accessibility  Policies 
+• 
+Availability 
+• 
+Availability(uptime and downtime) 
+• 
+Cloud service performance 
+• 
+Cloud service response time 
+• 
+Cloud Service maximum Response Time 
+Observation 
+• 
+Cloud Service Response Time Mean 
+• 
+Cloud Service Response Time Variance 
+• 
+Cloud service performance 
+• 
+Cloud service capacity 
+• 
+Limited of Simultaneous Cloud Service Connections 
+• 
+Limitation of Available Cloud Service Resources 
+• 
+Cloud Service Throughput 
+• 
+Cloud Service Bandwidth 
+• 
+Cloud service performance 
+• 
+Elasticity 
+• 
+Elasticity Speed 
+• 
+Elasticity Precision 
+• 
+Protection of Personally 
+Identifiable Information (PII) 
+Erasure period for temporary files 
+Log information deletion period (where logs contain PII) 
+Notification period for a data breach 
+Geographical location(s) for PII storage and processing 
+• 
+Check ISO 19086-4 
+ 
+
+62 
+ 
+Cloud computing ─ Service Level Agreement(SLA) framework and terminology 19086-1— 
+Part 1 
+SLAs 
+SLOs 
+Information Security 
+Still under study 
+Termination of service 
+Data retention period 
+Log retention period 
+Notification of Service Termination 
+Return of Assets 
+Cloud Service Support 
+Support Hours 
+Service Incident Support Hours 
+Service Incident Notification Time 
+Maximum First Support Response Time 
+Maximum Incident Resolution Time 
+Support Plans 
+Support Methods 
+Support Contracts  
+Service Incident Reporting  
+Service Incident Notification 
+Governance component 
+Regulation Adherence 
+Standards Adherence 
+Policy Adherence 
+Audit Schedule  
+Changes to the cloud service 
+features and functionality 
+Minimum Service Change Notification Period 
+Minimum Time Before Feature/Function Deprecation 
+Service Change Notification Method 
+Service reliability 
+Service resilience/fault tolerance 
+component 
+Time to Service Recovery (TTSR) 
+Mean Time to Service Recovery 
+Maximum Time to Service Recovery (MTTSR) 
+Number of Service Failures 
+Service resilience/fault tolerance method 
+Service reliability 
+Customer data backup and restore 
+Backup Interval 
+Retention Period for Backup Data 
+Number of Backup Generations 
+Backup Restoration Testing 
+Backup Method 
+Backup Verification 
+Backup Restoration Test Reporting 
+Alternative Methods for data recovery 
+Data Backup Storage Location 
+Service reliability 
+Disaster recovery 
+Recovery Time Objective (RTO) 
+Recovery Point Objective (RPO) 
+Cloud Service Provider Disaster Recovery Plan 
+Table-A I- 1: ISO Standard 19086(Continued) 
+ 
+
+63 
+ 
+ 
+Cloud computing ─ Service Level Agreement(SLA) framework and terminology 19086-1— 
+Part 1 
+SLAs 
+SLOs 
+Data management 
+Intellectual Property Rights (IPR) 
+component 
+Intellectual Property Rights 
+Data management 
+Cloud Service Customer Data 
+Cloud Service Customer Data 
+Cloud Service Customer Data Usage 
+Data management 
+Cloud Service provider Data 
+Provider Data 
+Data management 
+Account  Data Component 
+Account Data 
+Data management 
+Derived Data 
+Derived Data 
+Derived Data Usage 
+Derived Data Access 
+Data management 
+Data Portability 
+Data Portability Capabilities 
+Data management 
+Data deletion 
+Data Deletion Time 
+Data Deletion Process 
+Data Deletion Notification 
+Data management 
+Data location 
+Data Location 
+Data Location Specification Capability 
+Data Location Policy 
+Data management 
+Data examination 
+Data Examination 
+Data management 
+Law enforcement access 
+Law Enforcement Requests 
+Attestations, certifications and 
+audits 
+Cloud Service Attestations 
+Cloud Service Certifications 
+Cloud Service Audits 
+A brief preview of the paper: 
+ISO/IEC 19086 cloud computing Service level agreement (SLA) framework was 
+recently published to clarify the definition of cloud computing (SLA) between cloud 
+service providers and cloud service consumers. It consists of four parts. ISO/IEC 
+19086-1 part one is an overview and term definitions of cloud computing SLA. 
+ 
+ 
+ 
+Table-A I- 1: ISO Standard 19086(Continued) 
+ 
+
+64 
+Table-A I- 2: Extracted SLA and SLO 
+Service level agreement framework for e-commerce cloud end-user perspective 
+SLAs 
+SLOs 
+• Availability 
+•  
+• Scalability 
+•  
+• Portability 
+•  
+• Performance 
+• Response time 
+• Throughput 
+• Security  
+• Authenticity 
+• Data Integrity 
+• Data Confidentiality 
+• Privacy 
+• Reliability 
+• Service Reliability 
+• Message Reliability 
+• Usability 
+•  
+• Backup&Recovery 
+•  
+• Data location 
+•  
+A brief preview of the paper: (Busalim, Hussin, & Ibrahim, 2013) 
+In this paper, the authors proposed a new SLA framework for E-commerce cloud 
+service with respect to the end user perspectives. They provided a list of the most 
+applicable SLA parameters and their objectives, which should be considered 
+when initiating an SLA framework for E-commerce cloud. These parameters will 
+help reducing the risks and challenges that face E-commerce cloud end users.  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+65 
+Table-A I- 3: Extracted SLA and SLO 
+Monitoring and Management of Service Level Agreements in Cloud Computing 
+SLAs 
+SLOs 
+• 
+Response time 
+• 
+Time to order.  
+• 
+Time to delivery.  
+• 
+Delay in end to end transaction.  
+• 
+Failed service re-quest rate 
+• 
+Availability of service rate  
+A brief preview of the paper: (Anithakumari & K, 2015) 
+In this paper, a framework to detect SLA violations by monitoring its parameters has 
+been proposed. Using the results of the predicted SLA violations, helped initiating an 
+adaptive resource allocation system, which tries to reduce any SLA violations may 
+occur.  
+In this experiment, an online shopping service SLA was used as an example, and only 
+one SLA parameter was monitored and analysed including its Service level objectives 
+at runtime.  
+ 
+Table-A I- 4: Extracted SLA and SLO 
+Adaptable Service Level Objective Agreement (A-SLO-A) for Cloud Service 
+SLAs 
+SLOs 
+• availability 
+•  
+• Accounting of services, 
+•  
+• IT continuity plans 
+•  
+• service development plans 
+•  
+• Terminologies 
+•  
+• Escalation plan 
+•  
+ 
+ 
+
+66 
+ 
+Adaptable Service Level Objective Agreement (A-SLO-A) for Cloud Services 
+SLAs 
+SLOs 
+• Guidelines for priorities 
+•  
+• Responsibilities 
+of 
+both 
+customer and company 
+•  
+• Data of both parties 
+•  
+• Service of both times 
+•  
+• Accomplishment penalties 
+•  
+• Signing an ID 
+•  
+• Termination reason 
+•  
+A brief preview of the paper:(Frey, Luthje, Teckelmann, & Reich, 2013) 
+ Most cloud providers offer a standard SLA for their customers. However, customers’ 
+needs and requirements are distinct from each other most of the time. This issue is 
+usually facing companies and individuals when trying to move their work or data to 
+the cloud.  
+In this paper, the authors are suggesting to create a special SLA for each customer 
+respecting all related SLOs that are needed to evaluate and measure the service. They 
+only mentioned the parts that each SLA should contain and present an USECASE 
+about Availability.  
+ 
+ 
+ 
+ 
+ 
+ 
+Table-A I- 4: Extracted SLA and SLO (Continued) 
+
+67 
+Table-A I- 5: Extracted SLA and SLO 
+Cloud Service Level Agreement. Encyclopedia of Cloud Computing 
+SLAs 
+SLOs 
+• Availability 
+•  
+• Response time 
+•  
+• Disaster recovery 
+•  
+• Ticket resolution 
+•  
+• Data backups 
+•  
+• Throughput 
+•  
+• Data storage location 
+•  
+• Data‐redundancy 
+•  
+• Data privacy policies 
+•  
+• Service renewals 
+•  
+• Service Restoration 
+•  
+• Service Acceptable Usage 
+Policy 
+•  
+• Service Guarantee Granularity 
+•  
+• Service guarantee exclusions 
+•  
+• Service Credit 
+•  
+• Service Violation Detection and 
+Measurement 
+•  
+• Service Activation and 
+Deactivation(Service 
+termination) 
+•  
+• Service Excess Use 
+•  
+• Service Transferability 
+(portability) 
+•  
+• Security 
+•  
+• Performance 
+ 
+•  
+
+68 
+ 
+Cloud Service Level Agreement. Encyclopedia of Cloud Computing 
+A brief preview of the paper: (San & Irena, 2016) 
+Considering the lack of standardization cloud computing is suffering from, most 
+cloud consumers face several challenges in term of choosing the appropriate cloud 
+provider. In this chapter, the author precisely explains the most important elements to 
+consider in an SLA, and then provides two real-life examples of the most popular 
+cloud providers in the market (Amazon and Rackspace). At the end, the author 
+discusses how SLA could be defined by the cloud provider in the future to help cloud 
+consumer compare and choose the best cloud provider that matches their 
+requirements.  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Table-A I- 5: Extracted SLA and SLO (Continued) 
+
+69 
+Table-A I- 6: Extracted SLA and SLO 
+On Service Level Agreement Assurance in Cloud Computing Data Centers 
+SLAs 
+SLOs 
+Cloud service performance 
+Response time 
+User to user time 
+Delay time 
+End to end delay 
+MOS(Mean Opinion Score) 
+Jitter 
+packet loss 
+A brief preview of the paper: (Zainelabden, Ibrahim, Kliazovich, & Bouvry, 
+2016) 
+Service level agreement is a contract that is made between cloud provider and cloud 
+consumer to identify the level of service required by the consumer and delivered by 
+the provider. However, there are no guidelines or methods to validate and confirm 
+that the quality of service will be delivered as mention in the SLA. In this paper, the 
+authors proposed a framework to assure the SLA and guarantee the service. This 
+framework could be useful for both cloud providers and consumers.  
+In contrast to all previous frameworks, this framework concentrates mostly on 
+evaluating the performance of the cloud and help providing a better service quality 
+which concerns both cloud providers and consumers.   
+ 
+Table-A I- 7: Extracted SLA and SLO 
+A comprehensive review on QoS measures for resource allocation in cloud 
+environment 
+SLAs 
+SLOs 
+• Reliability in Storage 
+•  
+•  High network Bandwidth 
+•  
+• Resource Availability 
+•  
+
+70 
+ 
+ 
+A comprehensive review on QoS measures for resource allocation in cloud 
+environment 
+• Security 
+•  
+• Confidentiality 
+•  
+• Integrity 
+•  
+• Reliability and Fast Access 
+•  
+• Flexibility and Creative User 
+group Infrastructure Service 
+•  
+• Testing time. 
+•  
+• Latency 
+•  
+• Data Backup 
+•  
+• Visibility 
+•  
+•  Good Response 
+•  
+• Usability 
+•  
+• Portability 
+•  
+• Reliability 
+•  
+A brief preview of the paper: (Shiny & Vignesh, 2017)  
+In this paper, the authors focused on resource allocation in cloud computing service 
+and discussed the most common issues that might face cloud providers and 
+consumers. According to the QoS metrics, SLA violation is one of the challenges that 
+might affect cloud provider in resource allocation.   
+They present several resource allocation methods and point out the QoS requirements 
+that an end user expected in different applications when it comes to resource 
+allocation. These requirements could be considered as SLA elements that have to be 
+met when offering a certain service.   
+Table-A I- 7: Extracted SLA and SLO(Continued)
+
+71 
+Table-A I- 8: Extracted SLA and SLO 
+Quality of service and service level agreements for cloud environments: Issues and 
+challenges 
+SLAs 
+SLOs 
+Availability 
+ 
+Reliability 
+ 
+Scalability 
+ 
+Security 
+ 
+Trust 
+ 
+performance supervision 
+ 
+Service description  
+ 
+Problem administration 
+ 
+Consumer responsibilities and 
+accountabilities 
+ 
+Licenses and cures 
+ 
+Reservation 
+ 
+Recovery(catastrophe recovery) 
+ 
+Service Termination 
+ 
+Service Assurance(Provider side) 
+ 
+fault perseverance time(P) 
+ 
+Service Assurance Time Period(P) 
+ 
+Response time(P) 
+ 
+Service assurance granularity(P) 
+ 
+Service guarantee(P) 
+ 
+Service recognition(P) 
+ 
+Service Violation Measurement and 
+Reporting(P) 
+ 
+A brief preview of the paper: (Chana & Singh, 2014) 
+In this paper, the relation between quality of service QoS and cloud computing is 
+discussed. The authors focused more on the relation between QoS and the SLA 
+agreement. How cloud service providers can assure the level of QoS provided to the 
+consumers. They also discussed the elements that should be considered in an SLA 
+and the challenges that an SLA could face.  
+
+72 
+Table-A I- 9: Extracted SLA and SLO 
+A Framework for Negotiating Service Level Agreement of Cloud-based Services 
+SLAs 
+SLOs (KPI metrics) 
+• Usability 
+• Accessibility 
+• Client personal requirements 
+• Installability 
+• Learnability 
+• Operability 
+• Transparency 
+• understandability 
+• Accountability 
+• Auditability 
+• Compliance 
+• Contacting experience 
+• Data ownership 
+• Ease of doing business 
+• Governance 
+• Provider SLA Verification 
+• sustainability 
+• Agility 
+• Adaptability 
+• Capacity 
+• Elasticity 
+• Extensibility 
+• Flexibility 
+• Portability 
+• Scalability 
+• Assurance 
+• Availability 
+• Maintainability 
+• Recoverability 
+• Reliability 
+• Fault-Tolerance 
+• Service stability 
+• Service-ability 
+• Financial 
+• Acquisition cost 
+• On-going cost 
+• Profit or cost sharing 
+• Performance 
+• Accuracy 
+• Functionality 
+• Suitability 
+• Interoperability 
+• Response time 
+• Throughput 
+
+73 
+ 
+A Framework for Negotiating Service Level Agreement of Cloud-based Services 
+SLAs 
+SLOs (KPI metrics) 
+• Security and Privacy 
+• Access control 
+• Data geographic 
+• Data integrity 
+• confidentiality 
+• Data privacy and data loss 
+• Physical, environmental 
+• Threat and vulnerability 
+• Retention, Disposition 
+A brief preview of the paper:(El-Awadi & Abu-Rizka, 2015) 
+The market of cloud computing is getting more and more competitive every day. 
+Therefore, choosing the best and most appropriate cloud provider would be a huge 
+issue that faces all cloud consumers. In this paper, the authors present a new 
+framework that would solve this matter by helping cloud consumers making the right 
+decision and choose the most relevant cloud provider that matches their requirements. 
+This framework will allow cloud consumers to evaluate several cloud providers’ 
+offers and select among them. The authors also support their framework by a case 
+study to show.  
+ 
+Table-A I- 10: Extracted SLA and SLO 
+SMICloud: A Framework for Comparing and Ranking Cloud Services 
+SLAs(high/top level attributes) 
+SLOs (KPIs) 
+• Accountability(This 
+service attribute depends on 
+multiple factors such as) 
+• Auditability 
+• Compliance 
+• data ownership, 
+• provider ethicality 
+• sustainability 
+•  
+Table-A I- 9: Extracted SLA and SLO (Continued) 
+ 
+
+74 
+ 
+SMICloud: A Framework for Comparing and Ranking Cloud Services 
+SLAs(high/top level attributes) 
+SLOs (KPIs) 
+• Agility(This service 
+attribute depends on 
+multiple factors such as) 
+• Elasticity 
+• Portable 
+• Adaptable 
+•  flexible 
+•  
+• Assurance of Service(This 
+service attribute depends on 
+multiple factors such as) 
+• Reliability 
+• resiliency 
+• service stability 
+•  
+• Cost 
+•  
+• Performance(This service 
+attribute depends on 
+multiple factors such as) 
+• Functionality 
+• service response time 
+• Accuracy. 
+•  
+• Security and Privacy(This 
+service attribute depends on 
+multiple factors such as) 
+• Privacy 
+• Data loss  
+• Integrity 
+•  
+• Usability(This service 
+attribute depends on 
+multiple factors such as) 
+• Accessibility 
+• Installability 
+• Learnability 
+• Operatibility 
+•  
+•  
+• Service Response Time 
+• Average response time 
+• Maximum Response Time 
+• Response Time Failure 
+Table-A I- 10: Extracted SLA and SLO (Continued)
+
+75 
+ 
+SMICloud: A Framework for Comparing and Ranking Cloud Services 
+SLAs(high/top level attributes) 
+SLOs (KPIs) 
+•  
+• Sustainability 
+• Service sustainability 
+• Environmental Sustainability 
+•  
+• Suitability 
+• number of non-essential features provided by 
+service 
+• number of non-essential features required by the 
+customer 
+•  
+• Accuracy 
+• frequency of failure 
+•  
+• Transparency 
+•  
+• Interoperability 
+•  
+• Availability 
+• Total time for which the service was not 
+available 
+•  
+• Reliability 
+• Mean time to failure 
+• Number of failure 
+•  
+• Stability 
+•  
+• Cost 
+• acquisition  
+• on-going 
+•  
+• Adaptability 
+•  
+• Elasticity 
+• mean time taken to expand 
+• maximum capacity 
+•  
+• Usability 
+A brief preview of the paper: (Garg, Versteeg, & Buyya, 2011) 
+Cloud computing is growing rapidly and a lot of companies and individuals are 
+transferring their business into the cloud. Yet the only challenge that concerns the 
+consumers is how to choose the best and most convenient cloud provider that 
+matches their requirements. In this paper, the authors proposed a framework and a 
+mechanism that could help in solving this problem. According to the user 
+requirements, The suggested platform can compare several cloud providers and assist 
+the user to decide the best offers that can match his needs.  
+Table-A I- 10: Extracted SLA and SLO (Continued) 
+
+76 
+Table-A I- 11: Extracted SLA and SLO 
+Conceptual SLA framework for cloud computing 
+SLAs 
+SLOs 
+• Availability 
+•  
+• Scalability 
+•  
+• Response time. 
+•  
+• Security and privacy 
+•  
+• Performance 
+• response time         CPU capacity 
+• SLA metrics for 
+IAAS(consumer)  
+• CPU capacity 
+• Memory size  
+• Boot time  
+• Storage  
+• Scale  
+• Scale down  
+• Scale up time  
+• Scale down time  
+• Auto scaling  
+• Max number can be 
+configured on physical 
+server 
+• Availability 
+• Response time 
+•  
+• SLA metrics for 
+PAAS(consumer)   
+• Integration  
+• Scalability 
+• Pay as you go billing  
+• Environments of 
+deployment 
+• Servers 
+• Browsers 
+• Number of developers 
+•  
+• SLA metrics for 
+SAAS(consumer) 
+• Reliability  
+• Usability  
+• Scalability  
+• Availability  
+• Customizability   
+•  
+
+77 
+ 
+Conceptual SLA framework for cloud computing 
+SLAs 
+SLOs 
+• SLA Metrics for 
+storage as a service 
+• Geographic location 
+• Scalability  
+• Storage space 
+• Storage billing  
+• Security  
+• Backup  
+• Recovery  
+• System throughput  
+• Transferring bandwidth 
+• Data life cycle 
+management 
+•  
+• Monitoring 
+•  
+• Billing 
+•  
+• Security 
+•  
+• Networking 
+ 
+ 
+• Privacy 
+ 
+ 
+• Local and international 
+policies 
+ 
+• Support service 
+ 
+A brief preview of the paper: (Alhamad, Dillon, & Chang, 2010) 
+In this paper, the authors discussed the negotiation process and some strategies that 
+are used. Moreover, they presented the essential criteria that should be used in the 
+stage of an SLA design. They also proposed a method to retain the trust level between 
+cloud service provider and consumer. 
+ 
+ 
+Table-A I- 11: Extracted SLA and SLO (Continued) 
+
+78 
+Table-A I- 12: Extracted SLA and SLO 
+Low level Metrics to High level SLAs - LoM2HiS framework: Bridging the gap 
+between monitored metrics and SLA parameters in cloud environments 
+SLAs 
+SLOs 
+• Availability 
+• Downtime (mean time to repair (MTTR)) 
+• Uptime (mean time between failure (MTBF)) 
+• Response time 
+• In bytes, 
+• out bytes, 
+• packet size, 
+• avail .bandwidth in, 
+• avail .bandwidth out 
+• Storage 
+• disk space 
+• Memory 
+•  
+• Incoming Bandwidth •  
+• Outgoing Bandwidth  •  
+A brief preview of the paper: (Emeakaroha, Brandic, Maurer, & Dustdar, 2010). 
+In this paper, a new framework to detect SLA violation is proposed. This framework 
+could help in the detection of SLA threats and inform the enactor component. They 
+also present an experimental to prove their work. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+79 
+Table-A I- 13: Extracted SLA and SLO 
+Continuous and Distributed Monitoring of Cloud SLAs Using S3LACC 
+SLAs 
+SLOs 
+• Availability 
+• Availability percentage 
+• Maximum number of outage per month  
+• Maximum duration per outage   
+• Response time 
+•  
+• Throughput 
+•  
+A brief preview of the paper: (Ghumman & Schill, 2017) 
+In this paper, the authors discussed the SLA lifecycle and presented a method that 
+minimize the amount of communications of SLA violations.  This proposed work is 
+applicable for service that is used at one location or more. 
+ 
+Table-A I- 14: Extracted SLA and SLO 
+A Systematic Review of Service Level Management in the Cloud 
+SLAs 
+SLOs 
+• Allowable violation 
+•  Maximum fraction of SLO violations 
+allowed 
+• Availability 
+• Percentage uptime or downtime 
+• Bandwidth 
+• Throughput (KB/s or MBit/s), data 
+transfer time, round trip time 
+• Cost 
+• Dollars, electricity prices, VM cost per 
+time unit, revenue per request 
+• CPU cycle 
+• MIPS, MHz, number of 
+cores/CPU/vCPU/cycles, CPU utilization/ 
+consumption/speed 
+• Duration of service 
+• Length of SLA time window, service time, 
+execution time 
+• Energy 
+• Cost per kWh, power (watts) 
+• Memory 
+• MB, GB 
+• Penalty rate 
+• SaaS VM parameter, average penalty ($) 
+ 
+
+80 
+ 
+A Systematic Review of Service Level Management in the Cloud 
+SLAs 
+SLOs 
+• Performance 
+• Throughput (MB/sec), response time, 
+MIPS, latency, execution time, deadline, 
+job processing time 
+• Request arrival rate 
+• Customer QoS parameter, request/sec, 
+arrival rate factor (user side) 
+• Security 
+•  
+• Space/Storage 
+• GB, I/O access (read size in MB) 
+• Upgrade request frequency 
+• Customer QoS parameter 
+• Others  
+• Intensity rate generator, VM initiation 
+time, client classification 
+(gold/silver/bronze), priority of job, 
+number of VMs 
+• Cloud federation SLA 
+parameters: Availability 
+•  
+• bandwidth 
+•  
+• Cost  
+•  
+• CPU cycle 
+•  
+• Duration of service 
+•  
+• Penalty rate 
+•  
+• Performance 
+•  
+• Request arrival rate  
+•  
+• Security  
+•  
+• Space/ storage  
+•  
+• SaaS SLA parameters: 
+Allowable violation 
+•  
+• CPU cycle 
+•  
+• duration of service 
+•  
+• Memory 
+•  
+ 
+ 
+ 
+ 
+Table-A I- 14: Extracted SLA and SLO (Continued) 
+
+81 
+ 
+ 
+A Systematic Review of Service Level Management in the Cloud 
+SLAs 
+SLOs 
+• penalty rate 
+•  
+• performance 
+•  
+• request arrival rate 
+•  
+• service initiation time 
+•  
+• space/storage 
+•  
+• upgrade request frequency 
+•  
+• PaaS SLA parameters: cost 
+•  
+• performance 
+•  
+• IaaS SLA parameters: 
+availability  
+•  
+• bandwidth 
+•  
+• cost 
+•  
+• CPU cycle 
+•  
+• energy 
+•  
+• memory 
+•  
+• penalty rate 
+•  
+• performance 
+•  
+• request arrival rate 
+•  
+• space/storage 
+•  
+• StaaS SLA parameters: 
+performance 
+•  
+• storage/space 
+•  
+• NaaS SLA parameters: 
+Bandwidth 
+•  
+• DaaS SLA parameters: 
+performance  
+•  
+• Other SLA parameters: CPU 
+cycle, memory 
+•  
+A brief preview of the paper:(Faniyi & Bahsoon, 2015) 
+In this paper, a survey on cloud computing SLA was conducted to help improving the 
+structure of cloud SLAs and their management.  
+& we consider the presented unit of measure as an SLO to the proposed SLA 
+parameters.  
+The presented parameters where ordered based on different cloud level of 
+abstractions 
+Table-A I- 14: Extracted SLA and SLO (Continued) 
+
+82 
+Table-A I- 15: Extracted SLA and SLO 
+Real-Time and Proactive SLA Renegotiation for a Cloud-Based System 
+SLAs 
+SLOs 
+• Throughput  
+•   
+• Availability  
+•  
+• Response time  
+•  
+•  
+•  
+•  
+•  
+•  
+•  
+A brief preview of the paper: (Paputungan, Hani, Hassan, & Asirvadam, 2018) 
+In this article, the authors introduced a real time negotiation model to support the 
+negation process in the cloud. They presented a new method to detect service 
+violation to guarantee better negotiation.   
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+83 
+Table-A I- 16: Extracted SLA and SLO 
+SelCSP: A Framework to Facilitate Selection of Cloud Service Providers 
+SLAs 
+SLOs 
+• Security  
+Controls: User access authorization/restriction, 
+User access revocation, Roles/Responsibilities, 
+Segregation of duties, Encryption, Encryption 
+key 
+management, 
+Vulnerability/ 
+Patch 
+management, 
+Anti-virus/malicious 
+software, 
+Audit tool access, Incident reporting, Network 
+security, Remote user multi-factor authentication  
+• Availability 
+•  
+• Response time 
+•  
+• Throughput 
+•  
+• Reliability trust 
+•  
+• Decision trust 
+•  
+• Reputation 
+•  
+• Compliance 
+•  
+• Data Governance 
+•  
+• Resiliency 
+•  
+• Operations Management which 
+control Capacity/resource 
+planning, Equipment 
+maintenance 
+•  
+A brief preview of the paper: (Ghosh, Ghosh, & Das, 2015) 
+A framework to assist cloud service consumers while choosing and identifying the 
+most applicable cloud provider which could assure the quality of the service provided, 
+is proposed in this paper. The authors    
+The authors consider these SLA parameters as the standard ones that are used with 
+several cloud service SLAs:  Availability, Response time and Throughput 
+
+84 
+Table-A I- 17: Extracted SLA and SLO 
+Adaptable Service Level Objective Agreement (A-SLO-A) for Cloud Services 
+SLAs 
+SLOs 
+• availability 
+•  
+• Accounting of services, 
+•  
+• IT continuity plans 
+•  
+• service development plans 
+•  
+• Terminologies 
+•  
+• Escalation plan 
+•  
+• Guidelines for priorities 
+•  
+• Responsibilities of both customer 
+and company 
+•  
+• Data of both parties 
+•  
+• Service of both times 
+•  
+• Accomplishment penalties 
+•  
+• Signing an ID 
+•  
+• Termination reason 
+•  
+A brief preview of the paper:(Frey et al., 2013) 
+ Most cloud providers offer a standard SLA for their customers. However, customers’ 
+needs and requirements are distinct from each other most of the time. This issue is 
+usually facing companies and individuals when trying to move their work or data to 
+the cloud.  
+In this paper, the authors are suggesting to create a special SLA for each customer 
+respecting all related SLOs that are needed to evaluate and measure the service. They 
+only mentioned the parts that each SLA should contain and present an USECASE 
+about Availability.  
+ 
+ 
+
+85 
+Table-A I- 18: Extracted SLA and SLO 
+An approach to identify and monitor SLA parameters for storage-as-a-service 
+cloud delivery model. 
+SLAs 
+SLOs, (KPIs) Key Performance Indicators 
+• Fault Tolerance 
+• Data Replication 
+• Data Mirroring 
+•  Multipath Input and output IO 
+• Performance 
+• Type of Application 
+• Maximum number of User Requests  
+• Response Time 
+• Transferring Bandwidth 
+• Disaster Recovery 
+• Recovery Point Objective (RPO) 
+• Recovery Time Objective (RTO) 
+• Security 
+• Confidentiality 
+• Integrity 
+• Availability 
+• Authentication 
+• Authorization 
+• Data Life Cycle 
+Management (DLM) 
+• Data Archival 
+•  Accessibility of the Archived Data 
+• Access Time 
+• Governance 
+• Geographic Location 
+• Regulations 
+• Availability 
+A brief preview of the paper:(Ghosh & Ghosh, 2012) 
+  Although consumers demand more assurance and guarantees to the provided service, 
+most cloud providers nowadays are focusing on availability rather than other 
+performance and management assurance. 
+In this paper, the authors indicate the non-Trivial SLA parameters that are related to 
+Storage-as-a-Service cloud, in addition to proposing a new SLA framework for  
+monitoring and checking SLOs by using a third party. They also point out the 
+limitations that most current SLAs in the market suffer from.  
+ 
+ 
+ 
+ 
+
+ 
+ 
+ 
+
+ 
+ANNEX II 
+ 
+ 
+SLA AND SLO PARAMETERS OCCURANCE PERCENTAGES  
+In this annex II, we will present the tables that contain all the extracted SLA and SLO 
+parameters that were used to identify the occurrence percentage for each SLA and SLO 
+parameters. 
+• 
+SLA Parameters 
+Table-A II- 1:SLA occurrence percentages 
+Reference Titles 
+Availability 
+response 
+time 
+Governance 
+Security 
+Termination 
+of service 
+Privacy 
+Performance 
+Throughput 
+Roles & 
+responsibilit
+i
+service 
+capacity 
+Elasticity or 
+Scalability  
+Disaster 
+recovery 
+1. 
+ISO/IEC 19086-1 SLA 
+Standard 
+M 
+M 
+M 
+M 
+M 
+NM 
+M 
+NM 
+M 
+M 
+M 
+M 
+2. 
+An approach to identify 
+and 
+monitor 
+SLA 
+parameters for storage-
+as-a-service 
+cloud 
+delivery model 
+NM 
+NM 
+M 
+M 
+NM 
+NM 
+M 
+NM 
+NM 
+NM 
+NM 
+M 
+3. 
+Service level agreement 
+framework 
+for 
+e-
+commerce cloud end-
+user perspective 
+M 
+NM 
+NM 
+M 
+NM 
+NM 
+M 
+NM 
+NM 
+NM 
+M 
+NM 
+4. 
+Monitoring 
+and 
+Management of Service 
+Level Agreements in 
+Cloud Computing 
+NM 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+5. 
+Adaptable Service Level 
+Objective 
+Agreement 
+(A-SLO-A) for Cloud 
+Services 
+M 
+NM 
+NM 
+NM 
+M 
+NM 
+NM 
+NM 
+M 
+NM 
+NM 
+NM 
+6. 
+Cloud 
+Service 
+Level 
+Agreement. 
+Encyclopedia of Cloud 
+Computing 
+M 
+M 
+NM 
+M 
+M 
+M 
+M 
+M 
+NM 
+NM 
+NM 
+M 
+7. 
+On 
+Service 
+Level 
+Agreement Assurance in 
+Cloud Computing Data 
+Centers 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+8. 
+A 
+comprehensive 
+review on QoS measures 
+for resource allocation 
+in cloud environment 
+M 
+M 
+NM 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+9. 
+Quality of service and 
+service level agreements 
+for cloud environments: 
+Issues and challenges 
+M 
+M 
+NM 
+M 
+M 
+NM 
+M 
+NM 
+M 
+NM 
+M 
+M 
+
+88 
+Reference Titles 
+Availability 
+response 
+time 
+Governance 
+Security 
+Termination 
+of service 
+Privacy 
+Performance 
+Throughput 
+Roles & 
+responsibilit
+i
+service 
+capacity 
+Elasticity or 
+Scalability  
+Disaster 
+recovery 
+10. A 
+Framework 
+for 
+Negotiating 
+Service 
+Level 
+Agreement 
+of 
+Cloud-based Services 
+NM 
+NM 
+NM 
+M 
+NM 
+M 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+11. Key 
+performance 
+indicators 
+for 
+cloud 
+computing SLAs 
+M 
+NM 
+NM 
+M 
+NM 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+12. SLA-Driven Monitoring 
+of 
+Multi-cloud 
+Application 
+Components Using the 
+MUSA Framework 
+NM 
+NM 
+NM 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+13. SMICloud: 
+A 
+Framework 
+for 
+Comparing and Ranking 
+Cloud Services 
+NM 
+M 
+NM 
+M 
+NM 
+M 
+M 
+NM 
+NM 
+NM 
+M 
+NM 
+14. Conceptual 
+SLA 
+framework 
+for 
+cloud 
+computing 
+M 
+M 
+NM 
+M 
+NM 
+M 
+M 
+M 
+NM 
+NM 
+M 
+NM 
+15. Low level Metrics to 
+High 
+level 
+SLAs 
+- 
+LoM2HiS 
+framework: 
+Bridging 
+the 
+gap 
+between 
+monitored 
+metrics 
+and 
+SLA 
+parameters 
+in 
+cloud 
+environments 
+M 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+16. Continuous 
+and 
+Distributed Monitoring 
+of Cloud SLAs Using 
+S3LACC. 2017 IEEE 
+Symposium on Service-
+Oriented 
+System 
+Engineering (SOSE) 
+M 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+M 
+NM 
+NM 
+NM 
+NM 
+17. A Systematic Review of 
+Service 
+Level 
+Management 
+in 
+the 
+Cloud." 
+ACM 
+Computing Surveys 
+M 
+NM 
+NM 
+M 
+NM 
+NM 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+18. Paputungan, I. V., A. F. 
+M. Hani, M. F. Hassan 
+and V. S. Asirvadam 
+(2018). "Real-Time and 
+Proactive 
+SLA 
+Renegotiation 
+for 
+a 
+Cloud-Based 
+System." 
+IEEE Systems Journal: 
+1-13. 
+M 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+M 
+NM 
+NM 
+NM 
+NM 
+19. SelCSP: A Framework 
+to Facilitate Selection of 
+Cloud Service Providers 
+M 
+M 
+M 
+M 
+NM 
+NM 
+NM 
+M 
+NM 
+M 
+NM 
+NM 
+Mentioning Percentage 
+% 
+68% 
+57% 
+15% 
+68% 
+21% 
+26% 
+52% 
+26% 
+15% 
+10% 
+26% 
+21% 
+ 
+Table-A II- 1:SLA occurrence percentages (Continued) 
+ 
+
+89 
+Table-A II- 2:SLA occurrence percentages 
+Reference Titles 
+backup and 
+restore 
+reliability 
+Data 
+location 
+Portability 
+Data 
+deletion 
+Fault 
+Tolerance 
+Usability 
+Service 
+renewals 
+Service 
+Credit 
+Service 
+violations 
+Monitoring  
+Service 
+Excess Use 
+1. 
+ISO/IEC 19086-1 SLA 
+Standard 
+M 
+M 
+M 
+M 
+M 
+M 
+N
+M 
+NM 
+NM 
+NM 
+M 
+NM 
+2. 
+An approach to identify 
+and 
+monitor 
+SLA 
+parameters for storage-
+as-a-service 
+cloud 
+delivery model 
+NM 
+NM 
+NM 
+NM 
+NM 
+M 
+N
+M 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+3. 
+Service level agreement 
+framework 
+for 
+e-
+commerce cloud end-
+user perspective 
+M 
+M 
+M 
+M 
+NM 
+NM 
+M 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+4. 
+Monitoring 
+and 
+Management of Service 
+Level Agreements in 
+Cloud Computing 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+5. 
+Adaptable Service Level 
+Objective 
+Agreement 
+(A-SLO-A) for Cloud 
+Services 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+M* 
+NM 
+NM 
+N
+M 
+NM 
+6. 
+Cloud 
+Service 
+Level 
+Agreement. 
+Encyclopedia of Cloud 
+Computing 
+M 
+NM 
+M 
+M 
+NM 
+NM 
+N
+M 
+M 
+M 
+M 
+N
+M 
+M 
+7. 
+On 
+Service 
+Level 
+Agreement Assurance in 
+Cloud Computing Data 
+Centers 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+8. 
+A 
+comprehensive 
+review 
+on 
+QoS 
+measures for resource 
+allocation 
+in 
+cloud 
+environment 
+M 
+M 
+NM 
+M 
+NM 
+NM 
+M 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+9. 
+Quality of service and 
+service level agreements 
+for cloud environments: 
+Issues and challenges 
+NM 
+M 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+NM 
+M 
+N
+M 
+NM 
+10. A 
+Framework 
+for 
+Negotiating 
+Service 
+Level 
+Agreement 
+of 
+Cloud-based Services 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+M 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+11. Key 
+performance 
+indicators 
+for 
+cloud 
+computing SLAs 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+M 
+NM 
+N
+M 
+NM 
+12. SLA-Driven Monitoring 
+of 
+Multi-cloud 
+Application 
+Components Using the 
+MUSA Framework 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+
+90 
+Reference Titles 
+backup and 
+restore 
+reliability 
+Data 
+location 
+Portability 
+Data 
+deletion 
+Fault 
+Tolerance 
+Usability 
+Service 
+renewals 
+Service 
+Credit 
+Service 
+violations 
+Monitoring  
+Service 
+Excess Use 
+13. SMICloud: 
+A 
+Framework 
+for 
+Comparing and Ranking 
+Cloud Services 
+NM 
+M 
+NM 
+M 
+NM 
+NM 
+M 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+14. Conceptual 
+SLA 
+framework 
+for 
+cloud 
+computing 
+M 
+M 
+M 
+NM 
+NM 
+NM 
+M 
+NM 
+NM 
+NM 
+M 
+NM 
+15. Low level Metrics to 
+High 
+level 
+SLAs 
+- 
+LoM2HiS 
+framework: 
+Bridging 
+the 
+gap 
+between 
+monitored 
+metrics 
+and 
+SLA 
+parameters 
+in 
+cloud 
+environments 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+16. Continuous 
+and 
+Distributed Monitoring 
+of Cloud SLAs Using 
+S3LACC. 2017 IEEE 
+Symposium on Service-
+Oriented 
+System 
+Engineering (SOSE) 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+17. A Systematic Review of 
+Service 
+Level 
+Management 
+in 
+the 
+Cloud." 
+ACM 
+Computing Surveys 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+NM 
+M 
+N
+M 
+NM 
+18. Paputungan, I. V., A. F. 
+M. Hani, M. F. Hassan 
+and V. S. Asirvadam 
+(2018). "Real-Time and 
+Proactive 
+SLA 
+Renegotiation 
+for 
+a 
+Cloud-Based 
+System." 
+IEEE Systems Journal: 
+1-13. 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+19. SelCSP: A Framework 
+to Facilitate Selection of 
+Cloud Service Providers 
+NM 
+M 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+Mentioning Percentage 
+% 
+26
+% 
+36
+% 
+21
+% 
+26
+% 
+5% 
+10
+% 
+26
+% 
+10
+% 
+10
+% 
+15
+% 
+1
+0
+% 
+5% 
+ 
+ 
+ 
+ 
+ 
+ 
+Table-A II- 2:SLA occurrence percentages (Continued) 
+ 
+
+91 
+Table-A II- 3:SLA occurrence percentages 
+Reference Titles 
+Cost and Finance 
+Trust  
+Confidentiality  
+Storage  
+Resiliency 
+Compliance  
+Data life cycle 
+management 
+law and jurisdiction 
+Penalties  
+Service 
+guarantee/Assurance  
+Service description 
+Cloud Service 
+Support 
+ISO/IEC 
+19086-1 
+SLA 
+Standard 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+M 
+NM 
+NM 
+M 
+M 
+An approach to identify and 
+monitor SLA parameters for 
+storage-as-a-service 
+cloud 
+delivery model 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+M 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+Service 
+level 
+agreement 
+framework for 
+e-commerce 
+cloud end-user perspective 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+Monitoring and Management 
+of Service Level Agreements 
+in Cloud Computing 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+Adaptable 
+Service 
+Level 
+Objective Agreement (A-SLO-
+A) for Cloud Services 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+M 
+NM 
+N
+M 
+NM 
+Cloud 
+Service 
+Level 
+Agreement. Encyclopedia of 
+Cloud Computing 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+M 
+N
+M 
+NM 
+On Service Level Agreement 
+Assurance 
+in 
+Cloud 
+Computing Data Centers 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+A comprehensive review on 
+QoS measures for resource 
+allocation 
+in 
+cloud 
+environment 
+NM 
+NM 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+Quality of service and service 
+level agreements for cloud 
+environments: 
+Issues 
+and 
+challenges 
+NM 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+M 
+M 
+NM 
+A Framework for Negotiating 
+Service Level Agreement of 
+Cloud-based Services 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+M 
+N
+M 
+NM 
+Key performance indicators for 
+cloud computing SLAs 
+NM 
+NM 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+M 
+M 
+N
+M 
+NM 
+SLA-Driven 
+Monitoring 
+of 
+Multi-cloud 
+Application 
+Components Using the MUSA 
+Framework 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+SMICloud: A Framework for 
+Comparing and Ranking Cloud 
+Services 
+M 
+NM 
+NM 
+NM 
+M 
+M 
+NM 
+NM 
+NM 
+M 
+N
+M 
+NM 
+Conceptual SLA framework 
+for cloud computing 
+M 
+NM 
+NM 
+M 
+NM 
+NM 
+M 
+M 
+NM 
+NM 
+N
+M 
+M 
+Low level Metrics to High 
+level 
+SLAs 
+- 
+LoM2HiS 
+framework: Bridging the gap 
+between monitored metrics and 
+SLA 
+parameters 
+in 
+cloud 
+environments 
+NM 
+NM 
+NM 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+
+92 
+Reference Titles 
+Cost and Finance 
+Trust  
+Confidentiality  
+Storage  
+Resiliency 
+Compliance  
+Data life cycle 
+management 
+law and jurisdiction 
+Penalties  
+Service 
+guarantee/Assurance  
+Service description 
+Cloud Service 
+Support 
+Continuous and Distributed 
+Monitoring of Cloud SLAs 
+Using S3LACC. 2017 IEEE 
+Symposium 
+on 
+Service-
+Oriented System Engineering 
+(SOSE) 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+A 
+Systematic 
+Review 
+of 
+Service Level Management in 
+the Cloud." ACM Computing 
+Surveys 
+M 
+NM 
+NM 
+M 
+NM 
+NM 
+NM 
+NM 
+M 
+NM 
+N
+M 
+NM 
+Paputungan, I. V., A. F. M. 
+Hani, M. F. Hassan and V. S. 
+Asirvadam (2018). "Real-Time 
+and 
+Proactive 
+SLA 
+Renegotiation for a Cloud-
+Based System." IEEE Systems 
+Journal: 1-13. 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+SelCSP: 
+A Framework to 
+Facilitate Selection of Cloud 
+Service Providers 
+NM 
+M 
+NM 
+NM 
+M 
+M 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+NM 
+Mentioning Percentage % 
+21
+% 
+10
+% 
+10
+% 
+15
+% 
+10
+% 
+10
+% 
+10
+% 
+10
+% 
+15
+% 
+26
+% 
+1
+0
+% 
+10
+% 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Table-A II- 3:SLA occurrence percentages (Continued) 
+ 
+
+93 
+Table-A II- 4:SLA occurrence percentages 
+Reference Titles 
+Accessibili
+ty  
+Error Rate  
+Integrity 
+Agility 
+Bandwidth 
+1. 
+ISO/IEC 19086-1 SLA Standard 
+M 
+NM 
+NM 
+NM 
+NM 
+2. 
+An approach to identify and monitor SLA 
+parameters for storage-as-a-service cloud 
+delivery model 
+NM 
+M 
+NM 
+NM 
+NM 
+3. 
+Service level agreement framework for e-
+commerce cloud end-user perspective 
+NM 
+NM 
+NM 
+NM 
+NM 
+4. 
+Monitoring and Management of Service 
+Level Agreements in Cloud Computing 
+NM 
+NM 
+NM 
+NM 
+NM 
+5. 
+Adaptable 
+Service 
+Level 
+Objective 
+Agreement (A-SLO-A) for Cloud Services 
+NM 
+NM 
+NM 
+NM 
+NM 
+6. 
+Cloud 
+Service 
+Level 
+Agreement. 
+Encyclopedia of Cloud Computing 
+NM 
+NM 
+NM 
+NM 
+NM 
+7. 
+On Service Level Agreement Assurance in 
+Cloud Computing Data Centers 
+NM 
+NM 
+NM 
+NM 
+NM 
+8. 
+A comprehensive review on QoS measures 
+for resource allocation in cloud environment 
+NM 
+NM 
+M 
+NM 
+M 
+9. 
+Quality 
+of 
+service 
+and 
+service 
+level 
+agreements for cloud environments: Issues 
+and challenges 
+NM 
+NM 
+NM 
+NM 
+NM 
+10. A Framework for Negotiating Service Level 
+Agreement of Cloud-based Services 
+NM 
+NM 
+NM 
+M 
+NM 
+11. Key 
+performance 
+indicators 
+for 
+cloud 
+computing SLAs 
+NM 
+NM 
+NM 
+NM 
+NM 
+12. SLA-Driven 
+Monitoring 
+of 
+Multi-cloud 
+Application Components Using the MUSA 
+Framework 
+NM 
+NM 
+NM 
+NM 
+NM 
+13. SMICloud: A Framework for Comparing and 
+Ranking Cloud Services 
+M 
+NM 
+M 
+NM 
+NM 
+14. Conceptual SLA framework for cloud 
+computing 
+NM 
+NM 
+NM 
+NM 
+NM 
+15. Low level Metrics to High level SLAs - 
+LoM2HiS framework: Bridging the gap 
+between 
+monitored 
+metrics 
+and 
+SLA 
+parameters in cloud environments 
+NM 
+NM 
+NM 
+NM 
+M 
+16. Continuous and Distributed Monitoring of 
+Cloud SLAs Using S3LACC. 2017 IEEE 
+Symposium on Service-Oriented System 
+Engineering (SOSE) 
+NM 
+NM 
+NM 
+NM 
+NM 
+17. A Systematic Review of Service Level 
+Management 
+in 
+the 
+Cloud." 
+ACM 
+Computing Surveys 
+NM 
+NM 
+NM 
+NM 
+M 
+
+94 
+Reference Titles 
+Accessibili
+ty  
+Error Rate  
+Integrity 
+Agility 
+Bandwidth 
+18. Paputungan, I. V., A. F. M. Hani, M. F. 
+Hassan and V. S. Asirvadam (2018). "Real-
+Time and Proactive SLA Renegotiation for a 
+Cloud-Based 
+System." 
+IEEE 
+Systems 
+Journal: 1-13. 
+NM 
+NM 
+NM 
+NM 
+NM 
+19. SelCSP: A Framework to Facilitate Selection 
+of Cloud Service Providers 
+NM 
+NM 
+NM 
+NM 
+NM 
+Mentioning Percentage % 
+10% 
+5% 
+10% 
+5% 
+15% 
+ 
+M: Mentioned  
+NM: Not Mentioned  
+MSLA: Mentioned as SLA Parameter  
+MSLO: Mentioned as SLO Parameter 
+ 
+• Let (F) be then percentage of the frequency of SLA parameters. 
+• Let M(n) be the number of how many times the parameter was mentioned.  
+• Let A(n) be the total number of the analysed articles.  
+ 
+F = M(n) X 100   
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+A(n) 
+Table-A II- 4:SLA occurrence percentages (Continued) 
+ 
+
+95 
+ 
+• 
+SLO parameters  
+Table-A II- 5: SLO occurrence percentages 
+Reference Titles 
+Response time  
+Throughput  
+Uptime  
+Downtime  
+Monitoring 
+parameters  
+Monitoring 
+Mechanisms 
+Accessibility 
+Standards 
+Accessibility  
+Policies 
+maximum Response 
+Time Observation 
+Response Time 
+Mean 
+Response Time 
+Variance 
+Cloud Service 
+Bandwidth
+ISO/IEC 
+19086-1 
+SLA 
+Standard 
+MS
+LA 
+M 
+ 
+M 
+ 
+M 
+ 
+M 
+ 
+M 
+ 
+M 
+ 
+M 
+ 
+M 
+ 
+M 
+ 
+M 
+ 
+M 
+ 
+An approach to identify 
+and 
+monitor 
+SLA 
+parameters for storage-as-
+a-service cloud delivery 
+model 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+ 
+Service level agreement 
+framework for e-commerce 
+cloud end-user perspective 
+M 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+Monitoring 
+and 
+Management of Service 
+Level 
+Agreements 
+in 
+Cloud Computing 
+MS
+LA 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+Adaptable Service Level 
+Objective Agreement (A-
+SLO-A) for Cloud Services 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+Cloud 
+Service 
+Level 
+Agreement. Encyclopedia 
+of Cloud Computing 
+MS
+LA 
+MS
+LA 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+On 
+Service 
+Level 
+Agreement Assurance in 
+Cloud 
+Computing 
+Data 
+Centers 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+A comprehensive review 
+on 
+QoS 
+measures 
+for 
+resource 
+allocation 
+in 
+cloud environment 
+MS
+LA 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+Quality of service and 
+service level agreements 
+for cloud environments: 
+Issues and challenges 
+MS
+LA 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+A 
+Framework 
+for 
+Negotiating Service Level 
+Agreement of Cloud-based 
+Services 
+M 
+M 
+NM 
+NM 
+NM 
+NM 
+M 
+ 
+M 
+ 
+NM 
+NM 
+NM 
+N
+M 
+Key 
+performance 
+indicators 
+for 
+cloud 
+computing SLAs 
+M 
+M 
+NM 
+NM 
+M 
+ 
+M 
+ 
+NM 
+NM 
+NM 
+NM 
+NM 
+M 
+ 
+SLA-Driven Monitoring of 
+Multi-cloud 
+Application 
+Components 
+Using 
+the 
+MUSA Framework 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+SMICloud: A Framework 
+for 
+Comparing 
+and 
+Ranking Cloud Services 
+MS
+LO
+MS
+LA 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+M 
+NM 
+NM 
+N
+M 
+
+96 
+Reference Titles 
+Response time  
+Throughput  
+Uptime  
+Downtime  
+Monitoring 
+parameters  
+Monitoring 
+Mechanisms 
+Accessibility 
+Standards 
+Accessibility  
+Policies 
+maximum Response 
+Time Observation 
+Response Time 
+Mean 
+Response Time 
+Variance 
+Cloud Service 
+Bandwidth
+Conceptual 
+SLA 
+framework 
+for 
+cloud 
+computing 
+MS
+LO
+MS
+LA 
+MS
+LA 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+Low level Metrics to High 
+level SLAs - LoM2HiS 
+framework: Bridging the 
+gap 
+between 
+monitored 
+metrics 
+and 
+SLA 
+parameters 
+in 
+cloud 
+environments 
+MS
+LA 
+NM 
+M 
+ 
+M 
+ 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+MS
+LO
+MS
+LA 
+Continuous and Distributed 
+Monitoring of Cloud SLAs 
+Using 
+S3LACC. 
+2017 
+IEEE 
+Symposium 
+on 
+Service-Oriented 
+System 
+Engineering (SOSE) 
+MS
+LA 
+MS
+LA 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+A Systematic Review of 
+Service Level Management 
+in 
+the 
+Cloud." 
+ACM 
+Computing Surveys 
+M 
+M 
+M 
+ 
+M 
+ 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+MS
+LA 
+Paputungan, I. V., A. F. M. 
+Hani, M. F. Hassan and V. 
+S. 
+Asirvadam 
+(2018). 
+"Real-Time and Proactive 
+SLA Renegotiation for a 
+Cloud-Based 
+System." 
+IEEE Systems Journal: 1-
+13. 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+SelCSP: A Framework to 
+Facilitate 
+Selection 
+of 
+Cloud Service Providers 
+MS
+LA 
+MS
+LA 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+Mentioning Percentage % 
+36% 
+26% 
+15% 
+15% 
+10% 
+10% 
+10% 
+10% 
+10% 
+5% 
+5% 
+15
+% 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Table-A II- 5: SLO occurrence percentages (Continued) 
+
+97 
+Table-A II- 6:SLO occurrence percentages 
+Reference Titles 
+Limit of Available Cloud 
+Service Resources 
+Limit of Simultaneous 
+Cloud Service 
+Elasticity Speed 
+ 
+Elasticity Precision 
+Recovery Point 
+Objective (RPO) 
+Recovery Time 
+Objective (RTO) 
+Confidentiality 
+Integrity 
+Availability 
+Authentication 
+Authorization 
+Data archival 
+ISO/IEC 
+19086-1 
+SLA 
+Standard 
+M 
+M 
+M 
+M 
+M 
+M 
+NM 
+NM 
+MS
+LA 
+NM 
+NM 
+N
+M 
+An approach to identify and 
+monitor SLA parameters 
+for 
+storage-as-a-service 
+cloud delivery model 
+NM 
+NM 
+NM 
+NM 
+M 
+M 
+M 
+M 
+M 
+M 
+M 
+M 
+Service 
+level 
+agreement 
+framework for e-commerce 
+cloud end-user perspective 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+M 
+M 
+MS
+LA 
+NM 
+NM 
+N
+M 
+Monitoring 
+and 
+Management 
+of 
+Service 
+Level Agreements in Cloud 
+Computing 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+M 
+NM 
+NM 
+N
+M 
+Adaptable Service Level 
+Objective Agreement (A-
+SLO-A) for Cloud Services 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+MS
+LA 
+NM 
+NM 
+N
+M 
+Cloud 
+Service 
+Level 
+Agreement. 
+Encyclopedia 
+of Cloud Computing 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+MS
+LA 
+NM 
+NM 
+N
+M 
+On 
+Service 
+Level 
+Agreement Assurance in 
+Cloud 
+Computing 
+Data 
+Centers 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+A comprehensive review on 
+QoS measures for resource 
+allocation 
+in 
+cloud 
+environment 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+MS
+LA 
+MS
+LA 
+MS
+LA 
+NM 
+NM 
+N
+M 
+Quality 
+of 
+service 
+and 
+service level agreements for 
+cloud environments: Issues 
+and challenges 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+MS
+LA 
+NM 
+NM 
+N
+M 
+A 
+Framework 
+for 
+Negotiating Service Level 
+Agreement of Cloud-based 
+Services 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+M 
+M 
+M 
+NM 
+NM 
+N
+M 
+Key performance indicators 
+for cloud computing SLAs 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+MS
+LA 
+NM 
+MS
+LA 
+NM 
+NM 
+N
+M 
+SLA-Driven Monitoring of 
+Multi-cloud 
+Application 
+Components 
+Using 
+the 
+MUSA Framework 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+M 
+NM 
+NM 
+N
+M 
+SMICloud: A Framework 
+for Comparing and Ranking 
+Cloud Services 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+MS
+LA 
+M 
+NM 
+NM 
+N
+M 
+Conceptual 
+SLA 
+framework 
+for 
+cloud 
+computing 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+MS
+LA 
+NM 
+NM 
+N
+M 
+
+98 
+Reference Titles 
+Limit of Available Cloud 
+Service Resources 
+Limit of Simultaneous 
+Cloud Service 
+Elasticity Speed 
+ 
+Elasticity Precision 
+Recovery Point 
+Objective (RPO) 
+Recovery Time 
+Objective (RTO) 
+Confidentiality 
+Integrity 
+Availability 
+Authentication 
+Authorization 
+Data archival 
+Low level Metrics to High 
+level SLAs - LoM2HiS 
+framework: Bridging the 
+gap 
+between 
+monitored 
+metrics 
+and 
+SLA 
+parameters 
+in 
+cloud 
+environments 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+MS
+LA 
+NM 
+NM 
+N
+M 
+Continuous and Distributed 
+Monitoring of Cloud SLAs 
+Using 
+S3LACC. 
+2017 
+IEEE 
+Symposium 
+on 
+Service-Oriented 
+System 
+Engineering (SOSE) 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+MS
+LA 
+NM 
+NM 
+N
+M 
+A Systematic Review of 
+Service Level Management 
+in 
+the 
+Cloud." 
+ACM 
+Computing Surveys 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+MS
+LA 
+NM 
+NM 
+N
+M 
+Paputungan, I. V., A. F. M. 
+Hani, M. F. Hassan and V. 
+S. 
+Asirvadam 
+(2018). 
+"Real-Time and Proactive 
+SLA Renegotiation for a 
+Cloud-Based 
+System." 
+IEEE Systems Journal: 1-
+13. 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+SelCSP: A Framework to 
+Facilitate 
+Selection 
+of 
+Cloud Service Providers 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+MS
+LA 
+M 
+M 
+N
+M 
+Mentioning Percentage % 
+5% 
+5% 
+5% 
+5% 
+10% 
+10% 
+15% 
+15% 
+26% 
+10% 
+10% 
+5% 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Table-A II- 6: SLO occurrence percentages (Continued) 
+
+99 
+Table-A II- 7:SLO occurrence percentages 
+Reference Titles 
+Data Deletion Process 
+Data Deletion Notification  
+Data Deletion Time  
+Maximum number of User 
+Requests 
+Delay in end to end transaction 
+Data Location Specification 
+Capability 
+packet loss 
+MOS(Mean Opinion Score) 
+ Law Enforcement Requests 
+Failed Storage Transactions 
+Number of Detected Attacks 
+Accessibility of the Archived 
+ISO/IEC 
+19086-1 
+SLA 
+Standard 
+M 
+M 
+M 
+NM 
+NM 
+M 
+NM 
+NM 
+M 
+NM 
+NM 
+N
+M 
+An approach to identify and 
+monitor SLA parameters for 
+storage-as-a-service 
+cloud 
+delivery model 
+NM 
+NM 
+NM 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+M 
+NM 
+M 
+Service 
+level 
+agreement 
+framework for e-commerce 
+cloud end-user perspective 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+Monitoring and Management 
+of Service Level Agreements 
+in Cloud Computing 
+NM 
+NM 
+NM 
+NM 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+Adaptable 
+Service 
+Level 
+Objective 
+Agreement 
+(A-
+SLO-A) for Cloud Services 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+Cloud 
+Service 
+Level 
+Agreement. Encyclopedia of 
+Cloud Computing 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+On Service Level Agreement 
+Assurance 
+in 
+Cloud 
+Computing Data Centers 
+NM 
+NM 
+NM 
+NM 
+M 
+NM 
+M 
+M 
+NM 
+NM 
+NM 
+N
+M 
+A comprehensive review on 
+QoS measures for resource 
+allocation 
+in 
+cloud 
+environment 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+Quality of service and service 
+level agreements for cloud 
+environments: 
+Issues 
+and 
+challenges 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+A Framework for Negotiating 
+Service Level Agreement of 
+Cloud-based Services 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+Key performance indicators 
+for cloud computing SLAs 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+M 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+SLA-Driven Monitoring of 
+Multi-cloud 
+Application 
+Components 
+Using 
+the 
+MUSA Framework 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+M 
+N
+M 
+SMICloud: A Framework for 
+Comparing 
+and 
+Ranking 
+Cloud Services 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+Conceptual SLA framework 
+for cloud computing 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+Low level Metrics to High 
+level 
+SLAs 
+- 
+LoM2HiS 
+framework: Bridging the gap 
+between monitored metrics 
+and SLA parameters in cloud 
+environments 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+
+100 
+Reference Titles 
+Data Deletion Process 
+Data Deletion Notification  
+Data Deletion Time  
+Maximum number of User 
+Requests 
+Delay in end to end transaction 
+Data Location Specification 
+Capability 
+packet loss 
+MOS(Mean Opinion Score) 
+ Law Enforcement Requests 
+Failed Storage Transactions 
+Number of Detected Attacks 
+Accessibility of the Archived 
+Continuous and Distributed 
+Monitoring of Cloud SLAs 
+Using S3LACC. 2017 IEEE 
+Symposium 
+on 
+Service-
+Oriented System Engineering 
+(SOSE) 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+A Systematic 
+Review of 
+Service Level Management in 
+the Cloud." ACM Computing 
+Surveys 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+Paputungan, I. V., A. F. M. 
+Hani, M. F. Hassan and V. S. 
+Asirvadam 
+(2018). 
+"Real-
+Time and Proactive SLA 
+Renegotiation for a Cloud-
+Based 
+System." 
+IEEE 
+Systems Journal: 1-13. 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+SelCSP: A Framework to 
+Facilitate Selection of Cloud 
+Service Providers 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+N
+M 
+Mentioning Percentage % 
+5% 
+5% 
+5% 
+5% 
+10% 
+5% 
+10% 
+5% 
+5% 
+5% 
+5% 
+5
+% 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Table-A II- 7: SLO occurrence percentages (Continued) 
+
+101 
+Table-A II- 8:SLO occurrence percentages 
+Reference Titles 
+Data encryption 
+Service disruption 
+CPU capacity 
+packet size 
+Maximum number of outage per 
+month 
+Maximum duration per outage 
+Maximum fraction of SLO 
+violations allowed 
+electricity prices 
+Dollars 
+Roles/Responsibilities 
+Portability 
+Reliability 
+ISO/IEC 
+19086-1 
+SLA 
+Standard 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+An approach to identify 
+and 
+monitor 
+SLA 
+parameters for storage-as-
+a-service cloud delivery 
+model 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+Service level agreement 
+framework 
+for 
+e-
+commerce cloud end-user 
+perspective 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+Monitoring 
+and 
+Management of Service 
+Level 
+Agreements 
+in 
+Cloud Computing 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+Adaptable Service Level 
+Objective Agreement (A-
+SLO-A) 
+for 
+Cloud 
+Services 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+Cloud 
+Service 
+Level 
+Agreement. Encyclopedia 
+of Cloud Computing 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+On 
+Service 
+Level 
+Agreement Assurance in 
+Cloud Computing Data 
+Centers 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+A comprehensive review 
+on 
+QoS 
+measures 
+for 
+resource 
+allocation 
+in 
+cloud environment 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+Quality of service and 
+service level agreements 
+for cloud environments: 
+Issues and challenges 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+A 
+Framework 
+for 
+Negotiating Service Level 
+Agreement of Cloud-based 
+Services 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+M 
+M 
+Key 
+performance 
+indicators 
+for 
+cloud 
+computing SLAs 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+SLA-Driven Monitoring of 
+Multi-cloud 
+Application 
+Components 
+Using 
+the 
+MUSA Framework 
+M 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+SMICloud: A Framework 
+for 
+Comparing 
+and 
+Ranking Cloud Services 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+M 
+
+102 
+Reference Titles 
+Data encryption 
+Service disruption 
+CPU capacity 
+packet size 
+Maximum number of outage per 
+month 
+Maximum duration per outage 
+Maximum fraction of SLO 
+violations allowed 
+electricity prices 
+Dollars 
+Roles/Responsibilities 
+Portability 
+Reliability 
+Conceptual 
+SLA 
+framework 
+for 
+cloud 
+computing 
+NM 
+NM 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+Low level Metrics to High 
+level SLAs - LoM2HiS 
+framework: Bridging the 
+gap between monitored 
+metrics 
+and 
+SLA 
+parameters 
+in 
+cloud 
+environments 
+NM 
+NM 
+NM 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+Continuous 
+and 
+Distributed Monitoring of 
+Cloud 
+SLAs 
+Using 
+S3LACC. 
+2017 
+IEEE 
+Symposium on Service-
+Oriented 
+System 
+Engineering (SOSE) 
+NM 
+NM 
+NM 
+NM 
+M 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+A Systematic Review of 
+Service 
+Level 
+Management 
+in 
+the 
+Cloud." ACM Computing 
+Surveys 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+M 
+M 
+M 
+NM 
+NM 
+NM 
+Paputungan, I. V., A. F. 
+M. Hani, M. F. Hassan and 
+V. S. Asirvadam (2018). 
+"Real-Time and Proactive 
+SLA Renegotiation for a 
+Cloud-Based 
+System." 
+IEEE Systems Journal: 1-
+13. 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+SelCSP: A Framework to 
+Facilitate 
+Selection 
+of 
+Cloud Service Providers 
+M 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+NM 
+M 
+NM 
+NM 
+Mentioning Percentage % 
+15% 
+5% 
+5% 
+5% 
+5% 
+5% 
+5% 
+5% 
+5% 
+5% 
+5% 
+10
+% 
+ 
+M: Mentioned  
+NM: Not Mentioned  
+MSLA: Mentioned as SLA Parameter  
+MSLO: Mentioned as SLO Parameter 
+• Let (F) be the percentage of the frequency of SLO parameters. 
+• Let M(n) be the number of how many times the parameter was mentioned.  
+• Let A(n) be the total  number of the analysed articles. 
+ 
+F = M(n) X 100   
+ 
+ 
+A(n) 
+ 
+Table-A II- 8: SLO occurrence percentages (Continued) 
+
+ 
+BIBLIOGRAPHY 
+Alhamad, M., Dillon, T., & Chang, E. (2010). Conceptual SLA framework for cloud computing. 4th 
+IEEE International Conference on Digital Ecosystems and Technologies (pp. 606-610). doi: 
+10.1109/DEST.2010.5610586.http://ieeexplore.ieee.org/ielx5/5599959/5610579/05610586.pd
+f?tp=&arnumber=5610586&isnumber=5610579 
+ 
+Anithakumari, S., & K, C. (2015). Monitoring and Management of Service Level Agreements in 
+Cloud Computing. 2015 International Conference on Cloud and Autonomic Computing (pp. 
+204207).doi:10.1109/ICCAC.2015.28.http://ieeexplore.ieee.org/ielx7/7311005/7312127/0731
+2156.pdf?tp=&arnumber=7312156&isnumber=7312127 
+Bradford, C. ( July 25). 7 Most Infamous Cloud Security Breaches. Retrieved from 
+https://blog.storagecraft.com/7-infamous-cloud-security-breaches/ 
+ 
+Busalim, A. H., Hussin, A. R. C., & Ibrahim, A. (2013). Service level agreement framework for e-
+commerce cloud end-user perspective. 2013 International Conference on Research and 
+Innovation in Information Systems (ICRIIS), 27-28 Nov. 2013 (pp. 576-581). IEEE. doi: 
+10.1109/ICRIIS.2013.6716773.http://dx.doi.org/10.1109/ICRIIS.2013.6716773http://ieeexplo
+re.ieee.org/ielx7/6704979/6716676/06716773.pdf?tp=&arnumber=6716773&isnumber=6716
+676 
+ 
+Chana, I., & Singh, S. (2014). Quality of service and service level agreements for cloud 
+environments: Issues and challenges. Cloud Computing (pp. 51-72). Springer.  
+ 
+Dastjerdi, A. V., & Buyya, R. (2012). An autonomous reliability-aware negotiation strategy for cloud 
+computing environments. Proceedings of the 2012 12th IEEE/ACM International Symposium 
+on Cluster, Cloud and Grid Computing (ccgrid 2012) (pp. 284-291). IEEE Computer Society.  
+ 
+De Benedictis, A., Rak, M., Turtur, M., & Villano, U. (2015). REST-based SLA management for 
+cloud applications. 2015 24th IEEE International Conference on Enabling Technologies: 
+Infrastructures for Collaborative Enterprises, WETICE 2015, June 15, 2015 - June 17, 2015 
+(pp. 
+93-98). 
+Institute 
+of 
+Electrical 
+and 
+Electronics 
+Engineers 
+Inc. 
+doi: 
+10.1109/WETICE.2015.36.http://dx.doi.org/10.1109/WETICE.2015.36http://ieeexplore.ieee.
+org/ielx7/7194241/7194298/07194337.pdf?tp=&arnumber=7194337&isnumber=7194298 
+ 
+Djemame, K., Armstrong, D., Guitart, J., & Macias, M. (2016). A Risk Assessment Framework for 
+Cloud Computing. IEEE Transactions on Cloud Computing, 4(3), 265-278. doi: 
+10.1109/TCC.2014.2344653http://ieeexplore.ieee.org/ielx7/6245519/7558283/06868985.pdf?
+tp=&arnumber=6868985&isnumber=7558283 
+ 
+El-Awadi, R., & Abu-Rizka, M. (2015). A Framework for Negotiating Service Level Agreement of 
+Cloud-based 
+Services. 
+Procedia 
+Computer 
+Science, 
+65, 
+940-949. 
+doi: 
+10.1016/j.procs.2015.09.066. Repéré à http://dx.doi.org/10.1016/j.procs.2015.09.066 
+
+104 
+ 
+Emeakaroha, V. C., Brandic, I., Maurer, M., & Dustdar, S. (2010). Low level Metrics to High level 
+SLAs - LoM2HiS framework: Bridging the gap between monitored metrics and SLA 
+parameters in cloud environments. Dans 2010 International Conference on High 
+Performance Computing & Simulation (pp. 48-54). doi: 10.1109/HPCS.2010.5547150 
+ 
+Faniyi, F., & Bahsoon, R. (2015). A Systematic Review of Service Level Management in the Cloud. 
+ACM 
+Computing 
+Surveys, 
+48(3), 
+43 
+(27 
+pp.). 
+doi: 
+10.1145/2843890. 
+http://dx.doi.org/10.1145/2843890 
+ 
+Frey, S., Luthje, C., Teckelmann, R., & Reich, C. (2013). Adaptable Service Level Objective 
+Agreement (A-SLO-A) for Cloud Services. CLOSER 2013. 3rd International Conference on 
+Cloud Computing and Service Science, 8-10 May 2013 (pp. 457-462). INSTICC Press.  
+ 
+Frey, S., Reich, C., & Lüthje, C. (2013). Key performance indicators for cloud computing SLAs. 
+Dans The Fifth International Conference on Emerging Network Intelligence, EMERGING 
+(pp. 60-64).  
+ 
+Garg, S. K., Versteeg, S., & Buyya, R. (2011). SMICloud: A Framework for Comparing and Ranking 
+Cloud Services. 2011 Fourth IEEE International Conference on Utility and Cloud Computing 
+(pp.210218).doi:10.1109/UCC.2011.36.http://ieeexplore.ieee.org/ielx5/6123165/6123457/06
+123500.pdf?tp=&arnumber=6123500&isnumber=6123457 
+ 
+Ghosh, N., & Ghosh, S. K. (2012). An approach to identify and monitor SLA parameters for storage-
+as-a-service cloud delivery model. Dans 2012 IEEE Globecom Workshops (GC Wkshps 
+2012), 3-7 Dec. 2012 (pp. 724-729). IEEE. doi: 10.1109/GLOCOMW.2012.6477664. Repéré 
+à http://dx.doi.org/10.1109/GLOCOMW.2012.6477664 
+http://ieeexplore.ieee.org/ielx7/6470041/6477486/06477664.pdf?tp=&arnumber=6477664&is
+number=6477486 
+ 
+Ghosh, N., Ghosh, S. K., & Das, S. K. (2015). SelCSP: A Framework to Facilitate Selection of Cloud 
+Service Providers. IEEE Transactions on Cloud Computing, 3(1), 66-79. doi: 
+10.1109/TCC.2014.2328578. 
+Repéré 
+à 
+http://ieeexplore.ieee.org/ielx7/6245519/7027147/06858002.pdf?tp=&arnumber=6858002&is
+number=7027147 
+ 
+ 
+Ghumman, W. A. (2014). Automation of the SLA Life Cycle in Cloud Computing. Dans Service-
+Oriented Computing - ICSOC 2013 Workshops. CCSA, CSB, PASCEB, SWESE, WESOA, and 
+PhD Symposium, 2-5 Dec. 2013 (pp. 557-562). Springer International Publishing. doi: 
+10.1007/978-3-319-06859-6_51. Repéré à http://dx.doi.org/10.1007/978-3-319-06859-6_51 
+https://link.springer.com/content/pdf/10.1007%2F978-3-319-06859-6_51.pdf 
+ 
+
+105 
+Ghumman, W. A., & Schill, A. (2017a). Continuous and Distributed Monitoring of Cloud SLAs 
+Using S3LACC. Dans 2017 IEEE Symposium on Service-Oriented System Engineering 
+(SOSE) 
+(pp. 
+114-119). 
+doi: 
+10.1109/SOSE.2017.23. 
+Repéré 
+à 
+http://ieeexplore.ieee.org/ielx7/7940188/7943274/07943300.pdf?tp=&arnumber=7943300&is
+number=7943274 
+ 
+Ghumman, W. A., & Schill, A. (2017b). SLA Life Cycle Automation and Management for Cloud 
+Services. Dans Computer Networks. 24th International Conference, CN 2017, 20-23 June 
+2017 (pp. 305-318). Springer International Publishing. doi: 10.1007/978-3-319-59767-6_25. 
+Repéré à http://dx.doi.org/10.1007/978-3-319-59767-6_25 
+https://link.springer.com/content/pdf/10.1007%2F978-3-319-59767-6_25.pdf 
+ 
+ISO/IEC 19086-1, Information technology – Cloud computing – Service Level Agreement (SLA) 
+framework and technology – Part 1: Overview and concepts International Organization for 
+Standardization, Geneva, Switzerland, 2016. 
+ 
+ISO/IEC 20000, Information technology – Service management – Service management system 
+requirements, Geneva, Switzerland, 2015. 
+ 
+Labidi, T., Mtibaa, A., Gaaloul, W., Tata, S., & Gargouri, F. (2017). Cloud SLA Modeling and 
+Monitoring. Dans 2017 IEEE International Conference on Services Computing (SCC) (pp. 
+338-345). 
+doi: 
+10.1109/SCC.2017.50. 
+Repéré 
+à 
+https://ieeexplore.ieee.org/ielx7/8031413/8034950/08035003.pdf?tp=&arnumber=8035003&i
+snumber=8034950 
+Latouf, J. (2016, June 18). What are the most famous or biggest cloud security breaches      
+events /incidents?. Retrieved from http://www.quora.com/profile/Joseph-Latouf 
+ 
+Maarouf, A., Marzouk, A., & Haqiq, A. (2016). Practical modeling of the SLA life cycle in Cloud 
+Computing. Dans 15th International Conference on Intelligent Systems Design and 
+Applications, ISDA 2015, December 14, 2015 - December 16, 2015 (Vol. 2016-June, pp. 52-
+58). 
+IEEE 
+Computer 
+Society. 
+doi: 
+10.1109/ISDA.2015.7489170. 
+Repéré 
+à 
+http://dx.doi.org/10.1109/ISDA.2015.7489170 
+http://ieeexplore.ieee.org/ielx7/7484413/7489153/07489170.pdf?tp=&arnumber=7489170&is
+number=7489153 
+ 
+Mirobi, G. J., & Arockiam, L. (2015). Service Level Agreement in cloud computing: An overview. 
+Dans 2015 International Conference on Control, Instrumentation, Communication and 
+Computational 
+Technologies 
+(ICCICCT) 
+(pp. 
+753-758). 
+doi: 
+10.1109/ICCICCT.2015.7475380. 
+Repéré 
+à 
+https://ieeexplore.ieee.org/ielx7/7469254/7475237/07475380.pdf?tp=&arnumber=7475380&i
+snumber=7475237 
+ 
+Morin, J. H., Aubert, J., & Gateau, B. (2012). Towards Cloud Computing SLA Risk Management: 
+Issues and Challenges. Dans 2012 45th Hawaii International Conference on System Sciences 
+
+106 
+(pp. 
+5509-5514). 
+doi: 
+10.1109/HICSS.2012.602. 
+Repéré 
+à 
+http://ieeexplore.ieee.org/ielx5/6148328/6148595/06149562.pdf?tp=&arnumber=6149562&is
+number=6148595 
+ 
+Oriol, M., Marco, J., & Franch, X. (2014). Quality models for web services: A systematic mapping. 
+Information and software technology, 56(10), 1167-1182.  
+ 
+Pan, L. (2011). Towards a ramework for automated service negotiation in cloud computing. Dans 
+2011 IEEE International Conference on Cloud Computing and Intelligence Systems (pp. 364-
+367). 
+doi: 
+10.1109/CCIS.2011.6045091. 
+Repéré 
+à 
+http://ieeexplore.ieee.org/ielx5/6034549/6045020/06045091.pdf?tp=&arnumber=6045091&is
+number=6045020 
+ 
+Paputungan, I. V., Hani, A. F. M., Hassan, M. F., & Asirvadam, V. S. (2018). Real-Time and 
+Proactive SLA Renegotiation for a Cloud-Based System. IEEE Systems Journal, 1-13. doi: 
+10.1109/JSYST.2018.2805293. 
+Repéré 
+à 
+https://ieeexplore.ieee.org/ielx7/4267003/4357939/08325545.pdf?tp=&arnumber=8325545&i
+snumber=4357939 
+ 
+Paschke, A., & Schnappinger-Gerull, E. (2006). A Categorization Scheme for SLA Metrics. Service 
+Oriented Electronic Commerce, 80(25-40), 14.  
+ 
+Patel, P., Ranabahu, A. H., & Sheth, A. P. (2009). Service level agreement in cloud computing.  
+ 
+Pittl, B., Mach, W., & Schikuta, E. (2016). A classification of autonomous bilateral cloud SLA 
+negotiation strategies. Dans Proceedings of the 18th International Conference on Information 
+Integration and Web-based Applications and Services (pp. 379-388). ACM.  
+ 
+Rady, M. (2012). Parameters for service level agreements generation in cloud computing. Dans 
+International Conference on Conceptual Modeling (pp. 13-22). Springer.  
+ 
+Rios, E., Mallouli, W., Rak, M., Casola, V., & Ortiz, A. M. (2016). SLA-Driven Monitoring of Multi-
+cloud Application Components Using the MUSA Framework. Dans 2016 IEEE 36th 
+International Conference on Distributed Computing Systems Workshops (ICDCSW) (pp. 55-
+60). 
+doi: 
+10.1109/ICDCSW.2016.29. 
+Repéré 
+à 
+http://ieeexplore.ieee.org/ielx7/7756174/7756178/07756209.pdf?tp=&arnumber=7756209&is
+number=7756178 
+ 
+ 
+ 
+
+107 
+Rojas, M. A. T., Gonzalez, N. M., Sbampato, F. V., Redigolo, F. F., Carvalho, T., Ullah, K. W., . . . 
+Ahmed, A. S. (2016). A framework to orchestrate security SLA lifecycle in cloud computing. 
+Dans 11th Iberian Conference on Information Systems and Technologies, CISTI 2016, June 
+15, 2016 - June 18, 2016 (Vol. 2016-July). IEEE Computer Society. doi: 
+10.1109/CISTI.2016.7521372. Repéré à http://dx.doi.org/10.1109/CISTI.2016.7521372 
+http://ieeexplore.ieee.org/ielx7/7511893/7521364/07521372.pdf?tp=&arnumber=7521372&is
+number=7521364 
+ 
+San, M., & Irena, B. (2016). Cloud Service Level Agreement. Dans Encyclopedia of Cloud 
+Computing (pp. 744). Wiley-IEEE Press. doi: 10.1002/9781118821930.ch36. Repéré à 
+http://ieeexplore.ieee.org/xpl/articleDetails.jsp?arnumber=7493779 
+http://onlinelibrary.wiley.com/doi/10.1002/9781118821930.ch36/pdf 
+ 
+Shiny, J. J., & Vignesh, S. (2017). A comprehensive review on QoS measures for resource allocation 
+in cloud environment. Dans 2016 Eighth International Conference on Advanced Computing 
+(ICoAC) 
+(pp. 
+157-164). 
+doi: 
+10.1109/ICoAC.2017.7951762. 
+Repéré 
+à 
+http://ieeexplore.ieee.org/ielx7/7938015/7951734/07951762.pdf?tp=&arnumber=7951762&is
+number=7951734 
+ 
+Suryn, W. (2014). Software quality engineering: a practitioner's approach. John Wiley & Sons.  
+ 
+Terfas, H., Suryn, W., Roy, J., & Eftekhar, S. M. (2018). Extending ISO/IEC 19086 Cloud 
+Computing SLA standards to support cloud service users with the SLA negotiation process. 
+SQM XXVI, 127.  
+ 
+Torrez Rojas, M. A., Gonzalez, N. M., Sbampato, F., Redigolo, F., De Brito Carvalho, T. C. M., 
+Nguyen, K. K., & Cheriet, M. (2015). Inclusion of security requirements in SLA lifecycle 
+management for cloud computing. Dans 2nd International Workshop on Evolving Security 
+and Privacy Requirements Engineering, ESPRE 2015, August 25, 2015 (pp. 7-12). Institute of 
+Electrical and Electronics Engineers Inc. doi: 10.1109/ESPRE.2015.7330161. Repéré à 
+http://dx.doi.org/10.1109/ESPRE.2015.7330161 
+http://ieeexplore.ieee.org/ielx7/7325165/7330155/07330161.pdf?tp=&arnumber=7330161&is
+number=7330155 
+ 
+ 
+Valentic, B. (2013, July). Business Relationship Management, Service Level Management… Too 
+much management? Retrieved from 
+https://advisera.com/20000academy/blog/2013/07/15/business-relationship-management-
+service-level-management-much-management/?icn=free-blog-20000&ici=top-service-level-
+management-process-txt 
+ 
+Venticinque, S., Aversa, R., Di Martino, B., Rak, M., & Petcu, D. (2010). A cloud agency for SLA 
+negotiation and management. Dans European Conference on Parallel Processing (pp. 587-
+594). Springer.  
+
+108 
+Wegmann, A., Regev, G., Garret, G.-A., & Maréchal, F. (2008). Specifying services for ITIL service 
+management. Dans 2008 International Workshop on Service-Oriented Computing: 
+Consequences for Engineering Requirements (pp. 8-14). IEEE. 
+ 
+ 
+Yadranjiaghdam, B., Hotwani, K., & Tabrizi, N. (2016). A Risk Evaluation Framework for Service 
+Level Agreements. Dans 2016 IEEE International Conference on Computer and Information 
+Technology 
+(CIT) 
+(pp. 
+681-685). 
+doi: 
+10.1109/CIT.2016.93. 
+Repéré 
+à 
+https://ieeexplore.ieee.org/ielx7/7875313/7876293/07876406.pdf?tp=&arnumber=7876406&i
+snumber=7876293 
+ 
+ 
+Zainelabden, A. A., Ibrahim, A., Kliazovich, D., & Bouvry, P. (2016). On Service Level Agreement 
+Assurance in Cloud Computing Data Centers. Dans 2016 IEEE 9th International Conference 
+on Cloud Computing (CLOUD) (pp. 921-926). doi: 10.1109/CLOUD.2016.0137. Repéré à 
+http://ieeexplore.ieee.org/ielx7/7819578/7820017/07820374.pdf?tp=&arnumber=7820374&is
+number=7820017 
+ 
+ 
+ Zitek, N. (2015, July). SLAs, OLAs and UCs in ITIL and ISO 20000. Retrieved from 
+https://advisera.com/20000academy/knowledgebase/slas-olas-ucs-itil-iso-20000/ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 

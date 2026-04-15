@@ -15,13 +15,14 @@
 | Optimizing Server and Memory Utilization in Cloud Computing through Virtualization and Caching | Krishnaiah, V.V.J.R., Rao, B.S. | 2025 | 3/5 | Discusses memory allocation and server underutilization challenges, provides context for optimization techniques |
 | Enhanced Virtual Machine Resource Optimization in Cloud Computing Using Real-Time Monitoring and Predictive Modeling | Doukha, R., Ez-zahout, A. | 2025 | 4/5 | Real-time monitoring and predictive modeling for resource optimization, applicable to dynamic overcommitment scenarios |
 | CPU and RAM Energy-Based SLA-Aware [Full title pending] | [Authors TBD] | Recent | 3/5 | Energy considerations with SLA awareness, secondary but relevant to cost optimization objectives |
+| The Analysis of Cloud Computing Service Level Agreement (SLA) to Support Cloud Service Consumers with the SLA Creation Process | Terfas, H. | 2019 | 4/5 | Defines SLA/SLO/SLI framework and analyzes SLA parameters across AWS, Azure, and Google Cloud; grounds our single-parameter SLA model in real provider contracts |
 
 **Summary Statistics:**
-- Total Papers: 13
-- Average Relevance: 4.5/5
-- High Relevance (5/5): 7 papers (54%)
-- Medium-High Relevance (4/5): 4 papers (31%)
-- Medium Relevance (3/5): 2 papers (15%)
+- Total Papers: 14
+- Average Relevance: 4.4/5
+- High Relevance (5/5): 7 papers (50%)
+- Medium-High Relevance (4/5): 5 papers (36%)
+- Medium Relevance (3/5): 2 papers (14%)
 
 **Key Themes Across Papers:**
 1. Memory overcommitment and management techniques
