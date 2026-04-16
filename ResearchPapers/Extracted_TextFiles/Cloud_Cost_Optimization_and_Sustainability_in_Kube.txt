@@ -1,0 +1,1096 @@
+Journal of Information Systems Engineering and Management 
+2025, 10(45s) 
+e-ISSN: 2468-4376 
+ 
+ 
+https://www.jisem-journal.com/ 
+Research Article 
+ 
+ 
+ 533 
+Copyright © 2024 by Author/s and Licensed by JISEM. This is an open access article distributed under the Creative Commons Attribution License 
+which permits unrestricted use, distribution, and reproduction in any medium, provided the original work is properly cited. 
+Cloud Cost Optimization and Sustainability in Kubernetes 
+ 
+Nishanth Reddy Pinnapareddy 
+Senior Software Engineer, Doordash Inc., San Francisco ,California 
+Email: nishanth.pinnapareddy@gmail.com 
+ 
+ARTICLE INFO 
+ABSTRACT 
+Received: 08 Mar 2025 
+Revised: 21 Apr 2025 
+Accepted: 06 May 2025 
+The examination investigates how cloud cost optimization must fit dual requirements of 
+environmental sustainability when applied to Kubernetes-based deployments, as these serve as 
+crucial elements in modern cloud-native environments. Due to its remarkable operational 
+features, Kubernetes became the leading container orchestration system after Google initially 
+developed it, as it provides flexibility and resilience alongside scalability. Resource management 
+proves challenging within Kubernetes deployments owing to their properties, which lead to high 
+cloud costs and adverse environmental outcomes. Three crucial aspects of Kubernetes 
+deployment management are evaluated in this research: technical elements, operational 
+methods, and strategic sustainability models. The research investigates Kubernetes resource 
+distribution factors where CPU, memory, and storage take center stage with descriptions of right-
+sizing features and autoscaling methods while exploring cost-efficient scheduling techniques. 
+The study evaluates the connection between security practice implementation and 
+environmental protection while reducing costs through improved monitoring capabilities. The 
+study conducts an environmental assessment of cloud operations and develops sustainability 
+methods that use workload consolidation with green cloud vendor selection and energy-efficient 
+node infrastructure. The document solves multicluster orchestration issues by explaining 
+workload distribution methods that keep cloud region expenses at their best. The paper shows 
+practical sustainability features through Kubecost applications, Kyverno, and Open Policy Agent 
+implementation. The section provides concrete guidelines that organizations must execute based 
+on best practice standards for implementing Kubernetes to improve their financial condition 
+while enhancing environmental sustainability. The recommended method promotes sustained 
+security-based Kubernetes operations by implementing cloud-native insights with policy 
+structures while conducting ongoing assessments to ensure sustainability.   
+Keywords:  Kubernetes, Cloud Cost Optimization, Sustainability, Autoscaling, Multicluster 
+Orchestration, Policy Management, Green Computing, Resource Management 
+1. 
+INTRODUCTION 
+Kubernetes is the fundamental modern cloud-native base for organizations because it enables easy control and 
+maintenance of containerized applications. The technology originated from Google but evolved into the industry-
+leading container orchestration solution, allowing agile microservices deployment. Applicants use Kubernetes access 
+base container orchestration features, but the platform now enables important operational requirements such as 
+automatic scaling, protection from failures, and cross-cloud platform management. Developers obtain the 
+infrastructure details required for application building via Kubernetes since the system handles all resource 
+deployment and utilization tasks. Businesses need improved cloud resource optimization because they heavily use 
+cloud-native technology implementations across their systems. The implementation of Kubernetes on clouds enables 
+user-generated scalability and flexible benefits. Inadequate Management of Kubernetes system resources translate 
+into unnecessary expenditures because users can modify resources within these systems. The complex technical 
+aspects in Kubernetes environments prove difficult to control because the systems apply dynamic scaling methods 
+that distribute resources across clusters and perform workload adjustments. Forming an optimal technology for 
+cloud cost optimization demands a complete understanding of Kubernetes cluster procedures regarding resource 
+provisioning, utilization, and termination operations.  
+
+Journal of Information Systems Engineering and Management 
+2025, 10(45s) 
+e-ISSN: 2468-4376 
+ 
+ 
+https://www.jisem-journal.com/ 
+Research Article 
+ 
+ 
+ 534 
+Copyright © 2024 by Author/s and Licensed by JISEM. This is an open access article distributed under the Creative Commons Attribution License 
+which permits unrestricted use, distribution, and reproduction in any medium, provided the original work is properly cited. 
+Cloud cost optimization uses operational methods with tactical techniques to delete unnecessary expenditures, 
+enabling business growth and operational efficiency. Because of its flexible framework, Kubernetes provides users 
+with complex resource management solutions and strong resource management capabilities. Cloud costs suddenly 
+rise unpredictably because poor cluster configuration leads organizations to work with surplus resources without 
+understanding their resource utilization. When organizations increase their workload scalability and consolidate 
+resources while implementing autoscaling policies, they create significant opportunities to reduce costs. Success in 
+managing organization costs requires strikes between operational efficiency and performance satisfaction. Business 
+entities work toward sustainable cloud practices while handling cost issues in their cloud-based systems. The use of 
+cloud operations generates rising levels of carbon emissions because businesses choose to migrate their services to 
+cloud platforms. The workload optimization features and efficient scaling capabilities in Kubernetes lead to much 
+better sustainable practices within cloud-native frameworks. Every Kubernetes infrastructure operation needs 
+complete sustainable methods during sustainability transformations beyond its cost optimization purpose. 
+Organizations use resource-utilization tools and energy-efficient practices to maintain operational performance 
+through environmental impact reduction. A series of obstacles stop organizations from achieving cost optimization 
+and sustainability practices in Kubernetes deployment spaces. 
+Technical complexity in Kubernetes structure combined with extensive multicluster and hybrid systems hinders the 
+proper Management of cost control in addition to sustainability targets. Multiple deployment challenges arise in 
+Kubernetes systems because the environment continuously changes, influencing resource management patterns and 
+operational effects. Complete cloud cost management strategies require businesses to establish policies retaining 
+real-time cost monitoring functions, resource optimization practices, and sustainability frameworks across 
+deployment lifecycle management. A complete cloud management solution that addresses economic and 
+environmental needs and orchestrates Kubernetes deployments and complexity is essential for organizations to solve 
+these issues. The research analyzes optimal solutions and challenges regarding cloud cost optimization for 
+sustainable Kubernetes deployments through security measure assessment, policy implementation, and multiple 
+cluster workload distribution analysis. This work examines cloud cost management optimization practices by 
+analyzing the mentioned fields to establish eco-friendly approaches for current cloud-native systems. 
+2. 
+KUBERNETES: A CLOUD-NATIVE INFRASTRUCTURE PLATFORM 
+The cloud-native infrastructure depends heavily on Kubernetes because it provides extensive solutions to manage 
+and orchestrate containers. Effective application deployment requires modern cloud computing environments to rely 
+on Kubernetes for its role as the essential operational base. Google created Kubernetes, but companies from multiple 
+industries chose it because it helps businesses run containerized applications more easily (Goel & Bhramhabhatt, 
+2024). The primary focus of this section covers Kubernetes' importance for cloud-native infrastructure, its 
+advantages for containerized application management, and its ability to generate scalability, flexibility, and increased 
+efficiency in cloud environments. 
+2.1 Explanation of Kubernetes and Its Role in Cloud-Native Infrastructure 
+Kubernetes delivers open-source technology that enables users to automatize application deployment, scaling, and 
+operation of containerized applications. Containers are essential because they allow applications to bundle with 
+dependencies uniformity across multiple execution settings. Kubernetes implements a layered abstraction that lets 
+users operate containers at a large scale with management abilities. The platform enables automated deployment 
+capabilities with service discovery features, resource management, resource balancing, and service discovery 
+functionalities. The organization selects Kubernetes as its core instrument because it enables effective infrastructure 
+control that must serve scalability and flexibility while maintaining resilience (Burns et al, 2022). The essential role 
+of Kubernetes arises from its ability to operate in cloud-native systems, which traditional infrastructure solutions fail 
+to manage efficiently in dynamic workloads. The system architecture functions through modular elements, which 
+consist of control plane elements and nodes and pod modules that create high availability and efficient resource usage 
+possibilities. The cluster control plane operates to sustain proper cluster configurations, yet nodes contain deployed 
+containers. The Kubernetes architecture includes pods, representing its most basic deployable unit, which executes 
+single or multiple containers. Using its flexible design, Kubernetes allows organizations to run their applications 
+across different cloud providers plus hybrid environments, increasing its worth for cloud-native infrastructures. 
+
+Journal of Information Systems Engineering and Management 
+2025, 10(45s) 
+e-ISSN: 2468-4376 
+ 
+ 
+https://www.jisem-journal.com/ 
+Research Article 
+ 
+ 
+ 535 
+Copyright © 2024 by Author/s and Licensed by JISEM. This is an open access article distributed under the Creative Commons Attribution License 
+which permits unrestricted use, distribution, and reproduction in any medium, provided the original work is properly cited. 
+ 
+Figure 1: Kubernetes Architecture Simplified: Concepts and Key Components 
+2.2 Benefits of Kubernetes in Managing Containerized Applications 
+The major strength of Kubernetes resides in its practical application management of containerized services. Each 
+container runs applications smoothly across multiple execution environments because developers need not handle 
+dependencies or system configuration requirements. Users can manage containers automatically with Kubernetes 
+through tools that handle continuous upgrades while finding issues and extending resources. Kubernetes implements 
+rolling updates as its core function to let businesses implement application updates without stopping their services. 
+The application remains operational during updates because Kubernetes introduces new versions incrementally 
+before waiting to remove old versions after confirming the stability of the latest version. The system reduces service 
+interruptions to enhance the user experience. Kubernetes equips operators with self-healing features capable of 
+restoring failed containers by automatic replacement or restart processes. The self-healing capabilities automatically 
+replace failed containers, so maintenance tasks no longer need human intervention, resulting in continuous 
+application operation. The platform's automated health checks and monitoring capabilities help it find and fix 
+problems automatically, enhancing application resilience for cloud-native systems (Dhanagari, 2024). Kubernetes 
+provides built-in horizontal scaling capabilities, one of its main advantages. Application deployment becomes 
+efficient under this feature because the system expands and contracts resources automatically in response to usage 
+patterns, boosting operational efficiency and saving costs. Through automatic instance deployment, Kubernetes 
+maintains enough resource availability to match traffic requirements. Through vertical scaling, the platform enables 
+containers to ask for additional resources like CPU capacity and memory when necessary. 
+2.3 How Kubernetes Contributes to Scalability, Flexibility, and Efficiency in Cloud Environments 
+The cloud computing environment depends heavily on Kubernetes to deliver its essential features of scalability, 
+operational flexibility, and operational efficiency (Kommera, 2013). Scalability functions as a central strength of 
+Kubernetes' operation. Automated application response and resource usage adjustments become possible through 
+the feature set Kubernetes provides. Such functionality serves cloud-native environments particularly well because 
+their workloads have large fluctuations. Kubernetes controls application scalability by allowing horizontal expansion 
+through additional containers and vertical increase of resources within individual containers to manage cloud 
+resource usage across demand levels properly. Through its platform, Kubernetes provides extended flexibility for 
+cloud management systems. Cloud-native systems distribute workloads between cloud provider locations, regional 
+servers, and physical data centers. Kubernetes provides organizations with operational simplicity in managing 
+distributed systems, enabling application deployment between hybrid cloud and multi-cloud configurations. 
+Developers maintain their focus on software applications because the infrastructure operates autonomously of their 
+responsibilities in the abstract architecture. 
+
+Journal of Information Systems Engineering and Management 
+2025, 10(45s) 
+e-ISSN: 2468-4376 
+ 
+ 
+https://www.jisem-journal.com/ 
+Research Article 
+ 
+ 
+ 536 
+Copyright © 2024 by Author/s and Licensed by JISEM. This is an open access article distributed under the Creative Commons Attribution License 
+which permits unrestricted use, distribution, and reproduction in any medium, provided the original work is properly cited. 
+ 
+Figure 2: The Ultimate Guide to Cloud Infrastructure and Cloud Networking 
+Through this flexible structure, organizations can choose optimal cloud setups that simultaneously use one or many 
+cloud providers. Kubernetes' abilities for efficiency let the system automatically select nodes based on how many 
+resources containers need. Strategic resource deployment using this strategy reduces costs and enhances the 
+efficiency of cloud-based resources. One operational system created by Kubernetes enables businesses to manage 
+cloud resources across entire organizations, thus helping them discover efficient resource allocation patterns to 
+optimize performance quality. The Kubernetes container orchestration system allows users to manage microservices-
+based applications via separate container deployment through its orchestration features (Khan, 2017). The method 
+allows organizations to enhance resource management and operational efficiency through independent service 
+deployment and scaling possibilities. 
+3. 
+UNDERSTANDING CLOUD COST OPTIMIZATION IN KUBERNETES 
+Organizations now use cloud computation to launch applications through a solution that enables them to achieve 
+superior scalability and flexibility. Effective cost management in Kubernetes environments poses substantial 
+difficulties to organizations. Open-source Kubernetes is a platform that automates containerized applications 
+through deployment and scaling functions while managing deployment. It delivers significant advantages for 
+enhanced efficiency and scalability capabilities. Cloud costs becoming unmanageable causes organizations to waste 
+resources because they lack proper cost optimization strategies. The complete comprehension of cloud cost 
+influencers in Kubernetes environments and effective cost optimization methods enable organizations to reach the 
+best possible cloud investment value. 
+3.1 Key Factors Influencing Cloud Costs in Kubernetes Environments 
+The cost of cloud resources depends on various elements in Kubernetes environments. The main cost driver in 
+Kubernetes environments stems from utilizing CPU and memory resources that support operating containerized 
+applications. Cloud providers apply billing systems that assess costs through resource consumption, storage, and 
+network bandwidth utilization. The way Kubernetes distributes and strengthens containers affects overall costs 
+because it controls the entire resource management system (Konneru, 2021). The costs of Kubernetes cluster 
+deployment increase as the number of clusters expands through multiple cloud regions between different providers 
+increases. Multiple cluster deployments between cloud providers create greater cost management difficulty because 
+they involve managing multiple simultaneous cluster operations. Individual clusters need infrastructure 
+maintenance, thus generating supplementary costs when managing inter-cluster links and cluster operations. The 
+workload demands of Kubernetes services typically change according to usage needs, which drives cloud expenses to 
+adjust automatically based on infrastructure resource usage. The level of workload intensity directly corresponds to 
+increased cloud infrastructure expenses. Organizations need proper cost optimization methods, including 
+Autoscaling and right-sizing, because inadequate strategies lead to over-provisioned resources, which increase 
+expenses or cause performance deterioration. 
+ 
+ 
+
+Journal of Information Systems Engineering and Management 
+2025, 10(45s) 
+e-ISSN: 2468-4376 
+ 
+ 
+https://www.jisem-journal.com/ 
+Research Article 
+ 
+ 
+ 537 
+Copyright © 2024 by Author/s and Licensed by JISEM. This is an open access article distributed under the Creative Commons Attribution License 
+which permits unrestricted use, distribution, and reproduction in any medium, provided the original work is properly cited. 
+3.2 The Role of Resource Management in Cost Control 
+Organizations must efficiently control cloud expenses through proper resource management within Kubernetes 
+environments. Kubernetes allows system operators to create CPU memory storage resource parameters to conduct 
+efficient budget control. The container scheduling process of Kubernetes depends on resource constraints, which 
+prevent excessive resource allocation, which results in waste. The equilibrium between resource capacity is vital for 
+cloud systems because it stops customers from paying for unused resources yet ensures service stability despite 
+inadequate supply. Users can allocate exact memory and CPU capacity limits for individual Kubernetes containers. 
+Organizations can defend against unnecessary costs for unnecessary resources through the exact definition of these 
+parameters while ensuring their apps remain operational. , Organizations need to develop application request 
+specifications that match usage patterns as their primary operational strategy for cost reduction—the monitoring 
+process and adjustment settings function as a control to distribute resources based on actual workload demands. 
+Kubernetes environments demand appropriate storage management solutions and stand among operators' primary 
+cost management responsibilities (Khatami et al., 2020). Persistent volumes (PVs) in Kubernetes store data beyond 
+the lifecycle of a pod. Storage management issues result in two main costs: redundantly stored data and allocating 
+extra storage capacity beyond operational demands. Successful cost-minimization in Kubernetes environments 
+requires organizations to use proper data storage deployments alongside volume deletion protocols. 
+3.3 Techniques for Cost Optimization 
+Multiple strategic approaches exist to reduce cloud expenditures in Kubernetes deployment environments. The 
+methods work to distribute resources correctly to maximize efficiency without damaging application performance or 
+reliability standards. Right-sizing is adequately adjusting the Container CPU, memory, and Storage specifications to 
+correspond with actual workload needs. The resource allocation framework in Kubernetes enables developers to state 
+the exact range of container resources needed so the application uses optimal resource amounts. Right-sizing reduces 
+Cloud costs considerably by removing excess resource allocation and optimizing usage efficiency (Dhanagari, 2024). 
+Kubernetes enables automatic scaling through its feature that modifies pod running numbers according to resource 
+usage levels or workload requirements. Kubernetes provides two essential scaling methods: horizontal Pod 
+Autoscaling (HPA) and Vertical Pod Autoscaling (VPA). The HPA system manages deployment pod quantities by 
+monitoring CPU and memory use, while VPA changes individual pod resource allocation. Organizations can prevent 
+resource overutilization through auto-scaling since it provides just the needed resources. The Kubernetes scheduler 
+has cost-aware capabilities because it considers resource requirements with actual running costs of pods across 
+different nodes or cloud regions. Organizations reduce cloud expenses through proper scheduling approaches that 
+factor in cost efficiency and adopt a cost-awareness strategy. The successful implementation of this approach requires 
+a thorough understanding of provider systems alongside the exact capabilities of Kubernetes configuration that 
+support cost-efficient resource selection. 
+ 
+Figure 3: Kubernetes HPA: Custom Metrics for Effective CPU & Memory Scaling 
+3.4 Tools and Services for Monitoring and Managing Kubernetes Costs 
+Several available services and tools enable effective Kubernetes cost control. The tracking tools furnish Kubernetes 
+cost management requirements by allowing organizations to monitor resource usage for effective expense allocation. 
+
+Journal of Information Systems Engineering and Management 
+2025, 10(45s) 
+e-ISSN: 2468-4376 
+ 
+ 
+https://www.jisem-journal.com/ 
+Research Article 
+ 
+ 
+ 538 
+Copyright © 2024 by Author/s and Licensed by JISEM. This is an open access article distributed under the Creative Commons Attribution License 
+which permits unrestricted use, distribution, and reproduction in any medium, provided the original work is properly cited. 
+The industry standards for monitoring Kubernetes' financial expenses include three key platforms: Kubecost, 
+CloudHealth, and Prometheus. With Kubecost, companies can instantly view their Kubernetes workload costs and 
+completely control expenses across service and cluster solutions. The platform allows users to detect resource waste 
+and expensive cloud zones, suggesting optimized strategies. Prometheus is an open-source monitoring system that 
+operates seamlessly with Kubernetes deployments. The system collects diverse Kubernetes cluster metrics before 
+storing them as detailed resource usage details for analysis. Organizations can achieve better resource allocation 
+decisions through Prometheus since this tool combines with Grafana to visualize resource usage and costs. Cloud 
+providers like AWS, Google Cloud and Azure provide Kubernetes-compatible cost management services that support 
+their billing functions (Virtanen, 2023). These technical tools enable precise cost allocation tracking while letting 
+users monitor resource consumption to discover ways of minimizing expenses. 
+4. 
+KUBERNETES SECURITY AND ITS ROLE IN COST OPTIMIZATION 
+The platform plays an indispensable role in managing applications with containers within modern cloud architecture. 
+Organizations using Kubernetes to manage large-scale dynamic applications must focus extensively on security 
+issues. Efficiently managing Kubernetes resources flexibly depends on robust security measures that minimize 
+operational expenses and protect organizations from security-based financial losses. The security aspects of 
+Kubernetes will be discussed, including the vulnerability causes of increased costs and best practices for Kubernetes 
+environmental security and cost optimization. 
+4.1 Overview of Kubernetes Security Essentials 
+The secure Management of Kubernetes platforms shields the Kubernetes API server and its nodes, the etcd key-value 
+data store, and the workloads comprising pods running containers. Securing Kubernetes involves various defense 
+mechanisms that protect the underlying system infrastructure and all running applications. The infrastructure 
+foundation of Kubernetes depends on encryption protocols (TLS) for internal and external component 
+communication to achieve security. The Kubernetes control plane needs to defend against unauthorized server access 
+by using powerful authentication and authorization standards (D'Silva & Ambawade, 2021). To protect its cluster 
+gateway access, the Kubernetes API server demands strong authentication through either mutual TLS or token 
+methods. Containers need different defense strategies that combine role-based access control (RBAC) with network 
+policies and container image scanning to protect their applications. The security of the Kubernetes cluster depends 
+on images sourced from public or private registries because these images can contain exploitable vulnerabilities 
+which allow attackers to gain access. The image level marks the starting point for container security by selecting 
+trusted images and then continually running vulnerability scans on these images. Clusters require protection at the 
+Kubernetes environment level and inside the cluster workloads. The security measures must include service 
+communication restrictions and data access limitations throughout the cluster framework. 
+ 
+Figure 4: Kubernetes Security 
+4.2 How Security Vulnerabilities Can Lead to Additional Costs 
+The lack of security in Kubernetes environments creates additional operational expenses and financial damage. A 
+data breach is the most frequent and expensive vulnerability among all known system weaknesses. Clusters 
+
+Journal of Information Systems Engineering and Management 
+2025, 10(45s) 
+e-ISSN: 2468-4376 
+ 
+ 
+https://www.jisem-journal.com/ 
+Research Article 
+ 
+ 
+ 539 
+Copyright © 2024 by Author/s and Licensed by JISEM. This is an open access article distributed under the Creative Commons Attribution License 
+which permits unrestricted use, distribution, and reproduction in any medium, provided the original work is properly cited. 
+Kubernetes manages and maintains multiple important data types, including application secrets and configuration 
+files. When an attacker obtains access to sensitive information through a security vulnerability, the organization will 
+incur severe financial expenses and damage its reputation. The organization must bear costs for fines and 
+remediation, legal expenses, and reputation loss (Chavan, 2024). The lack of Kubernetes security leads to resource 
+utilization problems affecting expense levels. An insecure configuration, like RBAC policies set too liberally, enables 
+unapproved entities to obtain exorbitant privileges. The improper deployment of resources through uncontrolled 
+services leads to unnecessary power consumption and storage volume growth, which ultimately increases cloud 
+expenses. Security-related cost inefficiencies frequently arise from container vulnerabilities and associated 
+applications. When attackers exploit container vulnerabilities to penetrate the host system, they might use it to 
+execute high-consumption attacks like denial-of-service cancellation, which drains substantial cloud resources. 
+Compromised containers present organizations with security expenses through cryptocurrency mining while 
+draining storage or bandwidth and CPU and memory resources without benefit. Security incidents stemming from 
+poor practices force organizations to spend significant money rectifying the damage. An organization must pay 
+significant expenses to handle incidents since they require forensic analysis, vulnerability fixes, and system 
+reinstallation. Security breaches demand organizations invest in additional infrastructure elements for network 
+upgrades and monitoring system expansions, which protects their systems from future such attacks (Aslan et al, 
+2023). 
+4.3 Best Practices for Securing Kubernetes Environments to Reduce Costs 
+Kubernetes environment security serves two essential purposes: protecting sensitive information and data privacy, 
+reducing cloud expense through proper resource utilization, and avoiding security breach costs. The following 
+operational guidelines help organizations protect their Kubernetes clusters without creating excess costs. Cloud 
+security depends heavily on implementing Role-Based Access Control (RBAC) for Kubernetes cluster protection. As 
+part of RBAC, security administration obtains control over the actions of various user types and service accounts 
+inside the cluster system. Organizations that practice least privileged access achieve better protection of sensitive 
+resources, decreasing the potential for unauthorized entry and inadequate resource use. Implementing proper RBAC 
+configuration methods secures cloud resources by restricting access to only authorized personnel and services and 
+preventing resource overuse. The security mechanism blocks improper usage of resources, thus avoiding unnecessary 
+financial expenses (Cirani, et al, 2013). Kubernetes network policies let users establish rules to manage 
+communication patterns between pods, namespaces, and services. Network policies establish specific rules to limit 
+network contacts between approved services, which assists in blocking adversaries from moving between network 
+systems after an attack occurs. These policies protect organizations against unauthorized external attackers who 
+might otherwise endanger resources and cause unnecessary expenses. When organizations enforce secure 
+networking standards, they decrease potential attacks that lead to incident response expenses and resource misuse. 
+The vulnerability management and image scanning process protects against exploiting container image security 
+weaknesses that attackers could exploit. The deployment of the Kubernetes cluster requires a frequent vulnerability 
+check for container images and their known security vulnerabilities. The scanning process for IaC and container 
+image automation is possible with tools like Clair, Anchore, and Trivy, which detect all insecure components. 
+Organizations implementing trusted vulnerability-free images achieve higher security through reduced risks of 
+security breaches and associated expenses involving downtime, resource exploitation, and legal liabilities. Image 
+scanning helps organizations save costs by stopping them from utilizing poorly configured images that would waste 
+valuable platform resources. A Kubernetes environment requires secret Management to protect vital information 
+such as API keys, passwords, and database authentication credentials. Kubernetes includes an integrated secrets 
+management system that lets users safely store confidential information in their cluster. Secrets management should 
+keep sensitive data from all places, including container images, environment variables, and logs. Organizations can 
+achieve secure secret storage with either HashiCorp Vault or Kubernetes' native secret management features, which 
+stop unauthorized access and resource exploitation (Sardana, 2022). 
+
+Journal of Information Systems Engineering and Management 
+2025, 10(45s) 
+e-ISSN: 2468-4376 
+ 
+ 
+https://www.jisem-journal.com/ 
+Research Article 
+ 
+ 
+ 540 
+Copyright © 2024 by Author/s and Licensed by JISEM. This is an open access article distributed under the Creative Commons Attribution License 
+which permits unrestricted use, distribution, and reproduction in any medium, provided the original work is properly cited. 
+ 
+Figure 5: Securing Kubernetes Secrets with HashiCorp Vault 
+Maintaining a secure Kubernetes environment depends on audit sessions and regular monitoring activities. The 
+Kubernetes API server generates audit logs to monitor system access and reveal user resource activities at specific 
+points in time. Security reviews of system logs supported by Prometheus Grafana and Sysdig monitoring tools enable 
+organizations to spot suspicious behaviour, allowing them to prevent massive security problems or unnecessary 
+resource depletion. Security demands that organizations maintain continuous updates for Kubernetes systems and 
+their dependent components through patch management. Security updates from Kubernetes help users eliminate 
+known vulnerabilities in their systems. Organizations that maintain regular updates of these security patches prevent 
+known threats from entering their systems and causing breaches and incidents with high costs. Automated 
+Kubernetes cluster management solutions simplify maintenance operations to keep clusters up-to-date with the most 
+recent secure versions (Poniszewska-Marańda & Czechowska, 2021). 
+5. 
+POLICY MANAGEMENT IN KUBERNETES FOR COST AND SUSTAINABILITY 
+Proper policy distribution within Kubernetes systems makes sustainable economic operations possible. Users who 
+operate Kubernetes as a cloud-native infrastructure platform maintain complete control through its platform for 
+managing containerized applications at any scale. Strong policy management systems protect Kubernetes 
+environments from developing into cost-intensive, unproductive operations. Organizations can reach their goals 
+successfully while reducing waste through policy management deployment, which allows them to track resource 
+distribution based on best practices. Guidance regarding Kubernetes policy management as a system requirement 
+will be provided throughout this section. The article presents two primary benefits of policy management: cost 
+management features and sustainability improvements alongside specific control systems for achieving actual 
+expense reductions. 
+5.1 Importance of Policy Management in Kubernetes Environments 
+Kubernetes policy management is essential for organizations since it enables them to deploy standard operational 
+guidelines throughout their cluster fabric (Ungureanu et al., 2019). Standard policies must be explicitly established 
+in Kubernetes environments to avoid resource waste, security risks, and ineffectual operational systems. Managing 
+policies between multiple cloud clusters and multiple cloud providers requires individualized approaches since 
+complex resource control systems need proper management. Kubernetes allows operators to adjust resources in ways 
+that generate both resource waste and higher operational expenses. Kubernetes clusters now accept policy 
+enforcement, enabling organizations to automatically follow defined rules for their Kubernetes configuration 
+management. Through implemented policies, users determine the operation of CPU and memory resources, storage 
+allocations, and application placements. The efficient utilization of cloud resources depends on policy management 
+because organizations achieve their emission reduction goals and decrease operational expenses while utilizing this 
+solution. Security protection against expensive security breaches comes from policy enforcement procedures that 
+protect against system failures and repair configuration errors. 
+
+Journal of Information Systems Engineering and Management 
+2025, 10(45s) 
+e-ISSN: 2468-4376 
+ 
+ 
+https://www.jisem-journal.com/ 
+Research Article 
+ 
+ 
+ 541 
+Copyright © 2024 by Author/s and Licensed by JISEM. This is an open access article distributed under the Creative Commons Attribution License 
+which permits unrestricted use, distribution, and reproduction in any medium, provided the original work is properly cited. 
+ 
+Figure 6: Distributed Resource - an overview 
+5.2 How Policy Management Helps Enforce Cost-Efficient and Sustainable Practices 
+Policy management is essential for achieving cost-efficiency by determining resource utilization patterns in 
+Kubernetes clusters. The primary purpose of policy management includes stopping resource over-allocation, as this 
+phenomenon produces avoidable cloud spending. Candidate administrators define resource requests and limits 
+through Kubernetes, yet without proper policies and applications, usage patterns frequently diverge from these 
+definitions, thus producing unused capacity. Organizations can establish rules that promote affordable resource 
+utilization through resource limits and quotas. Kubernetes administrators should define policies that establish 
+maximum resource usage to guard workloads from surpassing established constraints, which prevents 
+overconsumption of required resources. In policy enforcement, applications can function effectively only at required 
+times, thus preventing unnecessary cloud bills from overprovisioning (Sardana, 2022). Auto-scaling policies enable 
+correct implementation, allowing Kubernetes applications to automatically adapt resource usage by growing or 
+shrinking according to real-time need levels, promoting cost management and sustainability goals. It is possible to 
+enforce sustainability practices throughout the organization through policies. Energy waste occurs in Kubernetes 
+environments when resources remain unmanaged. Workloads executing on underutilized nodes and using outdated 
+images result in higher energy consumption. Organizations seeking carbon footprint reduction should execute 
+sustainability-related policies that limit workloads to energy-efficient nodes and require optimized container images. 
+Organizations can strengthen their environmental sustainability efforts through policies that rapidly release idle 
+resources to reduce unnecessary energy consumption. 
+5.3 Tools and Frameworks for Kubernetes Policy Management 
+The Kubernetes policy management sector offers multiple tools, with Open Policy Agent (OPA) and Kyverno being 
+the preferred options. These tools help Kubernetes administrators build and enforce policies that support cost and 
+sustainability goals across their organizations. Through its Open Policy Agent (OPA) tool, organizations gain access 
+to create policies through the Rego declarative language, which operates as a high-level open-source framework. CPA 
+connects to Kubernetes for policy enforcement activities that cover resource management, security protocols, and 
+regulatory compliance. OPA enables administrators to establish regulations that impose resource quantity 
+restrictions and block vulnerable container deployments while verifying workload suitability for specific 
+environmental criteria. Organizations achieve flexible policy management through OPA by creating policies that meet 
+their cost and sustainability needs (Chavan, 2022). The Kubernetes-native policy management tool Kyverno 
+simplifies regulating cluster policy implementation. Because Kyverno serves Kubernetes exclusively, it enables 
+organizations to define policy rules through Kubernetes resources, simplifying, maintenance and Management. 
+Through its comprehensive capabilities, Kyverno provides policy types that include resource quotas, image validation 
+functions, and label enforcement methods.  
+Organizations use Kyverno to efficiently utilize Kubernetes resources while ensuring their cluster's workload 
+compliance with sustainability requirements and container image trust management. Kyverno is the top solution for 
+organizations that need Kubernetes-native enforcement of cost and sustainability policies. Kubernetes Resource 
+Quotas and LimitRange represent Kubernetes's built-in capability for enforcing policy management. Within a 
+
+Journal of Information Systems Engineering and Management 
+2025, 10(45s) 
+e-ISSN: 2468-4376 
+ 
+ 
+https://www.jisem-journal.com/ 
+Research Article 
+ 
+ 
+ 542 
+Copyright © 2024 by Author/s and Licensed by JISEM. This is an open access article distributed under the Creative Commons Attribution License 
+which permits unrestricted use, distribution, and reproduction in any medium, provided the original work is properly cited. 
+namespace, the native capabilities let administrators establish usage restrictions controlling workloads' access to 
+CPU, memory, and storage resources. With resource quotas, administrators stop applications from taking excess 
+resources while minimizing resource consumption and cloud spending. Through its LimitRange functionality, 
+Kubernetes enforces limitations on the dimensions of single-container resources to prevent wasteful requests of 
+resources by containers. 
+Table 1: key Kubernetes policy management tools and their features 
+Tool 
+ 
+Key Features 
+Policy 
+Focus 
+Integration 
+Open 
+Policy 
+Agent 
+(OPA) 
+Uses 
+Rego 
+language; 
+supports 
+resource limits, 
+security, 
+compliance 
+checks 
+Cost, 
+sustainability, 
+security 
+External 
+(integrates 
+with 
+Kubernetes) 
+Kyverno 
+Kubernetes-
+native; 
+supports 
+quotas, image 
+validation, 
+label 
+enforcement 
+Cost, 
+sustainability, 
+image trust 
+Native 
+to 
+Kubernetes 
+Kubernetes 
+Built-ins 
+ResourceQuota 
+and 
+LimitRange to 
+control 
+CPU, 
+memory, 
+storage usage 
+Resource 
+efficiency, 
+cost control 
+Native 
+to 
+Kubernetes 
+ 
+5.4 Real-World Examples of Policy Enforcement Leading to Cost Savings 
+Implementing policy management solutions provides organizations with successful ways to achieve cost reduction 
+benefits within their Kubernetes systems. Large cloud-native organizations use OPA and Kyverno to create policy 
+enforcements that maximize resource utilization. The company used OPA to lock down high-performance node 
+deployment to particular approved containers, thus minimizing resource usage inefficiency and cloud costs. OPA 
+with Kyverno enforced workload restrictions, so the company decreased its cloud infrastructure expenses by more 
+than 25%. A worldwide online retail organization utilized Kubernetes to control operations across its microservices 
+framework. Kyverno functions within this company structure to conduct image scanning policies that enforce 
+container production deployment with no known vulnerabilities. Kubernetes enabled this company to prevent 
+security incidents resulting in system downtime, data breaches, and substantial financial losses (Chinamanagonda, 
+2021). Through their image scanning policies enabled by Kyverno, the company preserved security and sidestepped 
+the time and financial costs of fixing issues and maintenance stoppages. 
+6. 
+MULTI-CLUSTER WORKLOAD ORCHESTRATION AND COST EFFICIENCY 
+Today, Kubernetes is the default platform for managing large containerized applications, and companies building 
+their cloud-native systems need effective multicluster orchestration methods. Managing workloads spanning 
+numerous Kubernetes clusters constitutes multicluster orchestration, which operates between identical cloud setups 
+and multi-cloud deployments. Many benefits emerge from multicluster orchestration, but the cost complexities 
+become notably significant, particularly in expense management processes. This subsection examines Kubernetes 
+
+Journal of Information Systems Engineering and Management 
+2025, 10(45s) 
+e-ISSN: 2468-4376 
+ 
+ 
+https://www.jisem-journal.com/ 
+Research Article 
+ 
+ 
+ 543 
+Copyright © 2024 by Author/s and Licensed by JISEM. This is an open access article distributed under the Creative Commons Attribution License 
+which permits unrestricted use, distribution, and reproduction in any medium, provided the original work is properly cited. 
+multicluster orchestration, its financial effects, and proven cost-reduction methods for running multiple clusters 
+while presenting the advantages and difficulties that emerge from these deployments. 
+6.1 The Concept of Multi-cluster Orchestration in Kubernetes 
+Kubernetes enables the orchestration of multiple clusters through an approach which allows multiple Kubernetes 
+clusters to work collectively for containerized applications and workloads (Zhong & Buyya, 2020). People utilize this 
+method to overcome the problems that emerge due to geographical distribution, redundancy requirements, 
+regulatory needs, and resource isolation needs. The organization separates their clusters across different geographic 
+regions for two purposes: to minimize user latency worldwide and to follow data residency laws within each region. 
+Through its multicluster orchestration feature, Kubernetes gives administrators tools to manage workloads across 
+multiple clusters. KubeFed (Kubernetes Federation) and Istio (a service mesh) unite multiple clusters into a single 
+manageable entity, allowing organizations to distribute their workloads effectively and maintain high availability. 
+KubeFed is a platform that enables administrators to maintain resources between multiple clusters to achieve 
+application deployment across clusters for redundancy and failover tasks. Software systems' reliability improves 
+because workloads maintain operations even after a cluster failure occurs. 
+6.2 The Management of multiple clusters creates expenses throughout the system's lifecycle. 
+Multiple cluster orchestration offers many value propositions, such as better durability and adaptability, yet it also 
+imposes considerable expense burdens. The management process of multiple clusters demands increased operational 
+costs that are affected by infrastructure needs and personnel requirements. The resources Kubernetes clusters need 
+for computation storage and networking capabilities determine the amount organizations must pay to various cloud 
+service providers. A multicluster environment leads organizations to bear multiple duplicate infrastructure costs. 
+Deploying duplicate services from the same cluster to various regions leads to excessive resource duplication that 
+drives cloud expenditures. The high complexity of operating multiple clusters drives businesses to invest in larger 
+monitoring solutions, security infrastructure, and logging systems, increasing overall spending. Implementing 
+multiple clusters demands specialized tools, leading to higher operational expenses because of synchronization 
+needs, load balancing, and security controls. System-wide cluster configuration alignment proves difficult when 
+conducting multicluster orchestration because synchronized settings must be maintained across clusters. When 
+tooling components are not present properly, misconfigurations produce inefficient resource usage that causes 
+fragmented resource distribution and higher cloud expenses. Controlling the network connections among clusters 
+across different cloud providers leads to reduced operational performance and elevated operational expenses 
+(Chavan & Romanov, 2023). 
+6.3 Strategies for Optimizing Costs in Multicluster Kubernetes Environments 
+Implementing cost-optimizing strategies in complex Kubernetes deployments involves strategic methodology and 
+proven approaches to reduce waste and safeguard workload availability and performance. Multiple tactics exist to 
+reach cost-efficiency goals in multicluster orchestration systems. The strongest method to optimize multicluster 
+expenses involves joining possible clusters into single, larger instances (Handl & Knowles, 2007). Organizations 
+consolidate smaller and less used clusters into broader solutions to simplify infrastructure management while 
+maximizing resource allocation. This process simplifies Management, reducing operational costs and improving 
+monitoring capabilities. Clusters will function optimally through resource quotas and limits, preventing workloads 
+from surpassing their assigned amount. Through Kubernetes, administrators can establish CPU, storage, and 
+memory usage restrictions that stop overprovisioning problems and resource wastage. Cloud expenses decrease when 
+organizations impose resource limitations because it helps prevent an oversupply of resources needed per workload. 
+The feature Autoscaling plays an essential role in Kubernetes environments for cost optimization.  
+
+Journal of Information Systems Engineering and Management 
+2025, 10(45s) 
+e-ISSN: 2468-4376 
+ 
+ 
+https://www.jisem-journal.com/ 
+Research Article 
+ 
+ 
+ 544 
+Copyright © 2024 by Author/s and Licensed by JISEM. This is an open access article distributed under the Creative Commons Attribution License 
+which permits unrestricted use, distribution, and reproduction in any medium, provided the original work is properly cited. 
+ 
+Figure 7: A Multi-Cloud and Multi-Cluster Architecture with Kubernetes 
+Establishing cluster autoscaling and horizontal pod autoscaling (HPA) enables organizations to manage resource 
+adjustments based on authentic demand patterns. This feature automatically increases capacity when traffic spikes 
+occur, removing the need for over-provisioning in periods of low demand. Autoscaling enables organizations to save 
+costs through workload consolidation operations in off-peak times. The scheduling mechanism in Kubernetes 
+becomes more efficient when it evaluates workload expenses across various clusters and different geographical 
+regions. Workload scheduling through cost-effective clusters requires directing tasks to the clusters that offer the 
+most significant cost efficiency. Organizations need in-depth knowledge of cloud provider pricing to implement this 
+strategy and achieve workload distribution by cost-specific criteria (Raju, 2017). Organizations benefit from tracking 
+cluster resource utilization with Prometheus and Grafana tools because these log and monitor systems deliver 
+complete cluster surveillance to discover resource inefficiencies. The monitoring instruments allow administrators 
+to recognize underutilized resources or inefficient configurations within their multicluster framework, enabling them 
+to optimize their cost efficiency. 
+6.4 Benefits and Challenges of Multicluster Kubernetes Deployments in Terms of Cost and 
+Sustainability 
+Kubernetes deployments with multiple clusters provide numerous advantages, specifically availability, scalability, 
+and fault tolerance capability. The distribution of workloads among several clusters helps businesses enhance 
+application reliability because system breakdowns in one cluster will not affect users. Organizations achieve 
+geographical distribution of applications through multicluster orchestration, which helps them fulfil data residency 
+laws and improve end-user performance. The benefits of multicluster orchestration systems present difficulties due 
+to expenses and sustainability issues. Operating with multiple clusters increases infrastructure investment costs as 
+well as operational costs. Managing multiple clusters across various regions or cloud platforms becomes complex, 
+leading to resource inefficiency and performance waste. Security, monitoring, and automation solutions demand 
+extra resources to operate a multicluster environment, elevating operational expenses. Deploying multiple clusters 
+for sustainability purposes increases energy consumption when resources are not efficiently managed or clusters 
+operate at lower than maximum capacity. Organizations must handle resource distribution carefully since this 
+determines energy usage efficiency and swift shutdown of unutilized assets to decrease environmental impact (Omer, 
+2009). 
+7. 
+SUSTAINABILITY IN KUBERNETES: STRATEGIES FOR GREEN COMPUTING 
+Organizations implementing cloud-native infrastructure and Kubernetes face sustainability as a vital issue since 
+cloud computing demand continues to grow. Organizations have adopted Kubernetes for its role as a container 
+orchestration system, which lets them automate containerized application deployment scaling and Management at 
+scale. Kubernetes contributes positively to environmental impact reduction in cloud computing, although it delivers 
+flexibility, scalability improvements, and efficiency gains. The following section examines sustainability concepts in 
+Kubernetes, environmental cloud computing challenges, and green computing practices for Kubernetes deployment. 
+The discussion incorporates real-world Kubernetes usage alongside demonstration examples, which show how 
+companies can use Kubernetes systems for sustainable tasks. 
+ 
+
+Journal of Information Systems Engineering and Management 
+2025, 10(45s) 
+e-ISSN: 2468-4376 
+ 
+ 
+https://www.jisem-journal.com/ 
+Research Article 
+ 
+ 
+ 545 
+Copyright © 2024 by Author/s and Licensed by JISEM. This is an open access article distributed under the Creative Commons Attribution License 
+which permits unrestricted use, distribution, and reproduction in any medium, provided the original work is properly cited. 
+7.1 Defining Sustainability in the Context of Cloud-Native Infrastructure and Kubernetes 
+The Sustainability of Kubernetes-based cloud-native infrastructure represents the organizational methods to reduce 
+environmental consequences and achieve maximum resource usage optimization. Cloud-native environments 
+achieve Sustainability by decreasing power consumption while minimizing operational waste and optimizing every 
+efficiency point involving server capacity, storage, and network infrastructure allocation. The cloud infrastructure 
+benefits from enhanced Sustainability when Kubernetes executes its orchestration functions through workload 
+distribution, scaling abilities, and resource management capabilities (Singh et al., 2020). Resources in Kubernetes 
+work efficiently to reduce energy usage and maintain proper distribution of resources, thus preventing excessive costs 
+and waste. Through sustainable Kubernetes management, organizations lower their operational energy costs and 
+reduce their carbon emissions since it leads to environmentally economical practices. 
+7.2 The Environmental Impact of Cloud Computing and How Kubernetes Can Help Mitigate It 
+Today's businesses widely depend on cloud computing to manage their operations because this solution dramatically 
+affects global energy consumption. Cloud infrastructure in data centres consumes large quantities of electrical energy 
+to operate servers, maintain equipment temperature control, and connect network systems. Recent research findings 
+indicate that data centres currently use 1% of global electricity, yet this figure will grow due to expanding cloud 
+implementation (Kumar, 2019). Kubernetes reconstructs cloud resource utilization so organizations reduce their 
+environmental impact through cloud computing. Through Kubernetes, organizations can achieve demand-based 
+resource distribution, activating resources for essential usage and then deallocating them after requirements end. 
+The convenient resource distribution system eliminates unproductive server usage and infrastructure 
+underutilization, minimizing power consumption and environmental impact. The scheduling functions of 
+Kubernetes allow organizations to run their workloads on hardware that produces the least energy consumption. The 
+Kubernetes application provides a distributed workload mechanism across clusters operating within regions with 
+lower carbon emission profiles or using energy-efficient hardware platforms, including energy-saving hardware 
+devices. Kubernetes achieves better scheduling decisions that reduce the power consumption of cloud infrastructure 
+to support greener cloud operations. 
+ 
+Figure 8: Impact of power consumption in containerized clouds 
+7.3 Practices for Sustainable Kubernetes Management 
+Multiple sustainable policies exist for Kubernetes platforms, which should be adopted in their operational 
+environments. Optimizing resource allocation and improving energy efficiency are the primary goals, and reducing 
+the environmental impact of cloud-native infrastructures is the primary focus of these practices. Energy-efficient 
+workloads are the central methodology for sustainable Kubernetes management by concentrating resource 
+consumption. Organizations can maximize workload scheduling performance by designing resource requests that 
+match application resource requirements. The capacity planning feature in Kubernetes enables efficient resource 
+utilization because it prevents users from assigning excess resources and eliminates unnecessary power consumption 
+(Kaur et al, 2019). Actual usage monitoring allows organizations to adjust their resources only to the required levels. 
+To manage Kubernetes sustainability correctly, organizations need to distribute resources strategically. This stands 
+as an important necessity. Application resources under Kubernetes management obtain assigned quotas that include 
+
+Journal of Information Systems Engineering and Management 
+2025, 10(45s) 
+e-ISSN: 2468-4376 
+ 
+ 
+https://www.jisem-journal.com/ 
+Research Article 
+ 
+ 
+ 546 
+Copyright © 2024 by Author/s and Licensed by JISEM. This is an open access article distributed under the Creative Commons Attribution License 
+which permits unrestricted use, distribution, and reproduction in any medium, provided the original work is properly cited. 
+resource usage limits. Resource quota enforcement protects resources from misuse through which incorrect resource 
+utilization would otherwise increase cloud costs and energy consumption. Resource limitations set correctly bring 
+efficiency to Kubernetes clusters, leading to optimized resource usage without unnecessary waste. 
+Table 2: key sustainable Kubernetes policies 
+Policy/Practice 
+Purpose 
+Benefit 
+Energy-Efficient 
+Workloads 
+Concentrate and 
+optimize 
+resource 
+consumption 
+Reduced 
+environmental 
+impact 
+Resource-Aware 
+Scheduling 
+Match resource 
+requests 
+with 
+actual 
+application 
+needs 
+Improved 
+performance 
+and efficiency 
+Capacity 
+Planning 
+Avoid 
+over-
+provisioning of 
+resources 
+Reduced power 
+consumption 
+and cost 
+Horizontal 
+& 
+Vertical 
+Pod 
+Autoscaling 
+Adjust resources 
+based on actual 
+usage 
+Dynamic 
+optimization of 
+resource use 
+Resource 
+Quotas 
+and 
+Limits 
+Enforce 
+boundaries 
+for 
+application 
+resource usage 
+Prevent misuse 
+and 
+control 
+energy demands 
+ 
+Cluster Consolidation supports environmental improvements in multicluster systems since it optimizes Kubernetes 
+workloads effectively. Organizations lower their active data centers by operating several efficient clusters rather than 
+smaller underutilized clusters, reducing their energy use. The Kubernetes system enables cluster-to-cluster workload 
+deployment to consolidate resources and maintain high operational standards. Periods when resources are inactive 
+generate large amounts of unnecessary energy consumption. Kubernetes enables organizations to manage unused 
+resources by scaling resources and terminating pods so that free resources can be quickly made available. Kubernetes 
+provides automated features for closing dormant servers or decreasing operational pods during periods of low 
+requirement, thus keeping resources limited to active usage periods. Kubernetes enables organizations to select 
+sustainable infrastructure providers among available options. The market provides renewable energy-based "green" 
+cloud services from multiple providers. Organizations achieve efficient operation and sustainability progress when 
+they choose specific providers alongside Kubernetes management of their regional workloads (Lee et al, 2020). 
+7.4 Case Studies of Organizations Successfully Achieving Sustainability Goals with Kubernetes 
+Multiple organizations exploited Kubernetes to attain sustainability targets and implement them with cost-
+effectiveness. A worldwide e-commerce corporation used Kubernetes to execute resource management tasks across 
+its service-based system. By applying Kubernetes' autoscaling capabilities, the organization dynamically managed its 
+workload resources according to ongoing demand, leading to significant cuts in energy usage and carbon emissions. 
+The company obtained a 20% decrease in energy expenditure and improved application speed through proper 
+resource management strategies in the cloud environment. A large financial institution leveraged Kubernetes 
+platforms to manage its data analytics platform (Adenekan, 2019). Auto-scaling policies and resource quotas allowed 
+the organization to maximize resource efficiency by using resources only during necessary periods. Due to resource 
+optimization in its Kubernetes clusters, the institution cut operational costs by 15% and effectively lowered carbon 
+emissions. 
+
+Journal of Information Systems Engineering and Management 
+2025, 10(45s) 
+e-ISSN: 2468-4376 
+ 
+ 
+https://www.jisem-journal.com/ 
+Research Article 
+ 
+ 
+ 547 
+Copyright © 2024 by Author/s and Licensed by JISEM. This is an open access article distributed under the Creative Commons Attribution License 
+which permits unrestricted use, distribution, and reproduction in any medium, provided the original work is properly cited. 
+8. 
+BEST PRACTICES FOR CLOUD COST OPTIMIZATION AND SUSTAINABILITY IN 
+KUBERNETES 
+Cloud cost optimization and sustainability requirements have gained importance because Kubernetes processing 
+continues to grow in popularity for cloud-native applications. The correct Management of Kubernetes leads to 
+environmental and cost savings through its dynamic scaling and container orchestration features. Organizations need 
+practical guidelines for cloud cost optimization and best practices for sustainability when using Kubernetes. 
+8.1 Summary of Best Practices for Optimizing Cloud Costs and Ensuring Sustainability 
+Among the most potent methods to reduce cloud expenses in Kubernetes deployments is the perfect allocation of 
+resource capacity to containers (Medel et al, 2018). Organizations must assess which CPU and memory resources suit 
+their requirements instead of picking excessive hardware. Kubernetes provides a feature for users to set container 
+resource requests and limits to enforce workload resource utilization at required levels. The automated resource 
+allocation of Autoscaling determines costs through load-based adjustments. Spot instances and preemptible VMS 
+offer a cost-effective approach to lower-price cloud resources, but these instances have no guaranteed availability. 
+The Kubernetes scheduling and autoscaling features allow users to use these budget-friendly instances. Using spot 
+instances with stateless workloads allows organizations to reduce their cloud infrastructure costs efficiently (Karwa, 
+2023). Cloud spending optimization results from managing multiple Kubernetes clusters between cloud areas or 
+availability zones. Organizations achieve better infrastructure utilization by running workloads across multiple 
+clusters. Simultaneously, they reduce idle resources while distributing workloads to different clusters to prevent 
+bottlenecks. This method allows organizations to use region-based pricing variations to distribute their resources 
+better and save money on cloud expenses. Kubernetes features two automated tools, Horizontal Pod Autoscalers 
+(HPA) and Cluster Autoscalers, for managing resource scaling functions. The tools automatically modify running pod 
+and node numbers according to detected workload requirements.  
+ 
+Figure 9: Scaling Kubernetes on Application and Infrastructure Levels 
+Automated scaling measures protect organizations from resource misallocation between excessive allocation and 
+under-utilization, creating efficient cloud spending patterns and environmental sustainability. Scheduled scaling 
+delivers efficient workload cost-containment between peak and off-peak operations. Conducting thorough cost 
+allocation must accompany a comprehensive monitoring system within Kubernetes-based environments. The 
+resource tracking and performance monitoring system consists of Prometheus and Grafana. Kubecost, alongside 
+CloudHealth, functions as a cloud-native cost management tool to reveal workload and namespace consumption 
+data. Cost allocation knowledge enables teams to use data to locate resource optimization spots and select savings 
+opportunities. Kubernetes persistent storage features different options for data retention, but persistent storage 
+typically represents a significant expenditure point, mainly when operating stateful applications.  
+Organizations must choose storage classes that suit their workloads in terms of performance and durability criteria. 
+Storage expenses can be reduced effectively through the cleanup of unused volumes when using storage lifecycle 
+management policies (Singh, 2024). Organizations can deploy Cost-Aware Kubernetes Policies through Kubernetes 
+to establish resource limits and quotas to maintain cost enforcement. Organizations should set cost-aware policies 
+defining resource limits per namespace and team to stop the problem of uncontrolled resource spending. Cloud 
+resource overconsumption can be prevented by enforcing policies which assist organizations in maintaining control 
+
+Journal of Information Systems Engineering and Management 
+2025, 10(45s) 
+e-ISSN: 2468-4376 
+ 
+ 
+https://www.jisem-journal.com/ 
+Research Article 
+ 
+ 
+ 548 
+Copyright © 2024 by Author/s and Licensed by JISEM. This is an open access article distributed under the Creative Commons Attribution License 
+which permits unrestricted use, distribution, and reproduction in any medium, provided the original work is properly cited. 
+over costs. Integrating sustainable infrastructure principles leads to Kubernetes's efficiency in resource management. 
+Organizations achieve reduced carbon footprints by enhancing workload performance, increasing energy usage and 
+cloud inside the crease. Cloud providers have started introducing renewable-power data centers that customers can 
+choose for sustainable cloud operations (Zhang et al, 2011). They can utilize these services for Kubernetes 
+deployments, which creates alignment between business sustainability goals, environmental responsibility, and cost 
+management benefits. 
+8.2 Recommendations for Organizations Implementing Kubernetes in a Cost-Effective and 
+Sustainable Way 
+The implementation of Kubernetes by organizations needs to focus on the following operational guidelines to achieve 
+cost-effectiveness with sustainability: To achieve implementation success, stakeholders in development and 
+operations must be aware of costs related to their Kubernetes deployments. Dissemination of knowledge about 
+resource consumption effects and practice-focused training will develop accountable workplaces that emphasize 
+sustainable cost management. Many organizations succeed in reducing their operational burden through managed 
+Kubernetes services such as Amazon EKS, Google GKE, and Azure AKS, which provide cloud cost optimization 
+capabilities. These services offer built-in monitoring, Autoscaling, and sustaining best practices that help 
+organizations keep their configurations efficient and sustainable at all times. Regular evaluation and ongoing review 
+of cloud vendors become necessary because providers implement diverse pricing schemes and performance models 
+with varying sustainability features. Organizations must assess several cloud solutions to find infrastructure 
+combining the lowest operational costs and maximum sustainability for their Kubernetes clusters. Guest providers 
+should be reviewed frequently because evolving prices and services require periodic optimization assessments (Xing 
+et al, 2013). Cloud platforms can be effectively managed through specific cost management tools like Kubecost, 
+CloudHealth, and AWS Cost Explorer. These tools provide the visibility needed for optimized Management. 
+Kubernetes expenditure management tools help organizations identify resources while monitoring cost rates and 
+sending performance alerts to teams in advance. 
+ 
+Figure 10: EKS vs. AKS vs. GKE: Choosing the Ideal Kubernetes Platform 
+9. 
+CONCLUSION 
+Cloud cost optimization with sustainable practices represents a fundamental operational aspect of Kubernetes 
+environment management in modern business operations. When businesses adopt Kubernetes for expansive 
+application control, organizations must deal with operational expenses alongside the environmental effects of cloud 
+infrastructure. Organizations face unknown Kubernetes-related expenses because of its flexible nature when 
+managers do not handle resources properly. Organizations must implement strategic measures for reduced energy 
+intake. Following the trend of sustainability is essential for technological industry operations. Every Kubernetes 
+environment setup requires cloud cost optimization as its primary component. Organizations experience substantial 
+cost savings when implementing all Kubernetes advanced capabilities integrating auto-scaling, resource requests, 
+and limits combined with namespaces for workload isolation. The optimized approaches generate results which help 
+businesses optimize their cloud infrastructure efficiency through precise resource distribution according to 
+requirements. The effectiveness of the organization's resource usage benefits from Kubernetes features that automate 
+
+Journal of Information Systems Engineering and Management 
+2025, 10(45s) 
+e-ISSN: 2468-4376 
+ 
+ 
+https://www.jisem-journal.com/ 
+Research Article 
+ 
+ 
+ 549 
+Copyright © 2024 by Author/s and Licensed by JISEM. This is an open access article distributed under the Creative Commons Attribution License 
+which permits unrestricted use, distribution, and reproduction in any medium, provided the original work is properly cited. 
+operations and automatically repair systems. Implementing Kubernetes enables businesses to reach cost 
+optimization objectives and environmental targets by reducing emissions from cloud platforms. Organizations need 
+cloud-native infrastructure systems that are tightly connected to Kubernetes because they boost sustainability 
+measures in Kubernetes environments. Organizations will perform better regarding resource utilization after 
+implementing cluster workload distribution optimization between microservices architecture and containerized 
+applications. The strategic resource provisioning approach enables businesses to regulate their supplies, thus 
+avoiding environmentally damaging effects from resource overconsumption. Organizations require cloud service 
+providers who use green power alongside scheduling tools to optimize resource consumption without creating 
+unnecessary downtimes and realize effective energy conservation in cloud-native deployments. 
+The rising significance of Kubernetes will be evident in the coming years since organizations require these features 
+to optimize their economics through sustainable infrastructure building. Organizations will face sophisticated 
+sustainability management challenges because they combine multiple and hybrid cloud solutions throughout the next 
+few years. Advanced cost management systems and sustainability methods will originate because of ongoing 
+evolutionary developments. Kubernetes platform flexibility will enhance security policy development to create better 
+multicluster workload management systems that maintain financial sustainability in dynamic cloud environments. 
+Businesses that use best-practice Kubernetes management solutions obtain operational improvements that bring 
+competitive market gains to their business operations. Strong monitoring systems, along with alert methods, need to 
+be deployed by organizations to track resource use and costs through their networks. Kubernetes management 
+includes specific calculators and platforms which enable organizations to estimate and control their costs effectively. 
+Organizations must establish lasting work environments using green IT practices during infrastructure development. 
+Implementing Kubernetes creates outstanding possibilities for reducing cloud costs and sustainable achievements, 
+but organizations need extensive planning and continuous monitoring to reach this outcome. Kubernetes shows 
+positive indications because new improvements will strengthen cost controls and sustainability outcomes within the 
+cloud-native infrastructure. Organizations gain double advantages through financial improvement and sustainable 
+industry practices by implementing Kubernetes principles with transparency. Implementing best practices using 
+available tools becomes a requirement for businesses to lead Kubernetes workload management and achieve 
+operational success in the future. 
+REFERENCES; 
+[1] Adenekan, T. K. (2019). Scaling Kubernetes in FinTech: Key Insights and Real-World Applications. 
+[2] Aslan, Ö., Aktuğ, S. S., Ozkan-Okay, M., Yilmaz, A. A., & Akin, E. (2023). A comprehensive review of cyber 
+security vulnerabilities, threats, attacks, and solutions. Electronics, 12(6), 1333. 
+[3] Burns, B., Beda, J., Hightower, K., & Evenson, L. (2022). Kubernetes: up and running: dive into the future of 
+infrastructure. " O'Reilly Media, Inc.". 
+[4] Chavan, A. (2022). Importance of identifying and establishing context boundaries while migrating from 
+monolith to microservices. Journal of Engineering and Applied Sciences Technology, 4, E168. 
+http://doi.org/10.47363/JEAST/2022(4)E168  
+[5] Chavan, A. (2024). Fault-tolerant event-driven systems: Techniques and best practices. Journal of Engineering 
+and Applied Sciences Technology, 6, E167. http://doi.org/10.47363/JEAST/2024(6)E167  
+[6] Chavan, A., & Romanov, Y. (2023). Managing scalability and cost in microservices architecture: Balancing 
+infinite scalability with financial constraints. Journal of Artificial Intelligence & Cloud Computing, 5, E102. 
+https://doi.org/10.47363/JMHC/2023(5)E102 
+[7] Chinamanagonda, S. (2021). Container Security: Best Practices and Tools-: Rising concerns and solutions for 
+securing containerized environments. Journal of Innovative Technologies, 4(1). 
+[8] Cirani, S., Ferrari, G., & Veltri, L. (2013). Enforcing security mechanisms in the IP-based internet of things: An 
+algorithmic overview. Algorithms, 6(2), 197-226. 
+[9] Dhanagari, M. R. (2024). MongoDB and data consistency: Bridging the gap between performance and reliability. 
+Journal 
+of 
+Computer 
+Science 
+and 
+Technology 
+Studies, 
+6(2), 
+183-198. 
+https://doi.org/10.32996/jcsts.2024.6.2.21 
+
+Journal of Information Systems Engineering and Management 
+2025, 10(45s) 
+e-ISSN: 2468-4376 
+ 
+ 
+https://www.jisem-journal.com/ 
+Research Article 
+ 
+ 
+ 550 
+Copyright © 2024 by Author/s and Licensed by JISEM. This is an open access article distributed under the Creative Commons Attribution License 
+which permits unrestricted use, distribution, and reproduction in any medium, provided the original work is properly cited. 
+[10] Dhanagari, M. R. (2024). Scaling with MongoDB: Solutions for handling big data in real-time. Journal of 
+Computer Science and Technology Studies, 6(5), 246-264. https://doi.org/10.32996/jcsts.2024.6.5.20 
+[11] D'Silva, D., & Ambawade, D. D. (2021, April). Building a zero trust architecture using kubernetes. In 2021 6th 
+international conference for convergence in technology (i2ct) (pp. 1-8). IEEE. 
+[12] Goel, G., & Bhramhabhatt, R. (2024). Dual sourcing strategies. International Journal of Science and Research 
+Archive, 13(2), 2155. https://doi.org/10.30574/ijsra.2024.13.2.2155 
+[13] Handl, J., & Knowles, J. (2007). An evolutionary approach to multiobjective clustering. IEEE transactions on 
+Evolutionary Computation, 11(1), 56-76. 
+[14] Karwa, K. (2023). AI-powered career coaching: Evaluating feedback tools for design students. Indian Journal of 
+Economics & Business. https://www.ashwinanokha.com/ijeb-v22-4-2023.php  
+[15] Kaur, K., Garg, S., Kaddoum, G., Ahmed, S. H., & Atiquzzaman, M. (2019). KEIDS: Kubernetes-based energy 
+and interference driven scheduler for industrial IoT in edge-cloud ecosystem. IEEE Internet of Things 
+Journal, 7(5), 4228-4237. 
+[16] Khan, A. (2017). Key characteristics of a container orchestration platform to enable a modern application. IEEE 
+cloud Computing, 4(5), 42-48. 
+[17] Khatami, A. A., Purwanto, Y., & Ruriawan, M. F. (2020, October). High availability storage server with 
+kubernetes. In 2020 International Conference on Information Technology Systems and Innovation 
+(ICITSI) (pp. 74-78). IEEE. 
+[18] Kommera, A. R. (2013). The Role of Distributed Systems in Cloud Computing: Scalability, Efficiency, and 
+Resilience. NeuroQuantology, 11(3), 507-516. 
+[19] Konneru, N. M. K. (2021). Integrating security into CI/CD pipelines: A DevSecOps approach with SAST, DAST, 
+and SCA tools. International Journal of Science and Research Archive. https://ijsra.net/content/role-
+notification-scheduling-improving-patient 
+[20] Kumar, A. (2019). The convergence of predictive analytics in driving business intelligence and enhancing 
+DevOps efficiency. International Journal of Computational Engineering and Management, 6(6), 118-142. 
+https://ijcem.in/wp-content/uploads/THE-CONVERGENCE-OF-PREDICTIVE-ANALYTICS-IN-DRIVING-
+BUSINESS-INTELLIGENCE-AND-ENHANCING-DEVOPS-EFFICIENCY.pdf  
+[21] Lee, S., Son, S., Han, J., & Kim, J. (2020, November). Refining micro services placement over multiple 
+kubernetes-orchestrated clusters employing resource monitoring. In 2020 IEEE 40th International Conference 
+on Distributed Computing Systems (ICDCS) (pp. 1328-1332). IEEE. 
+[22] Medel, V., Tolosana-Calasanz, R., Bañares, J. Á., Arronategui, U., & Rana, O. F. (2018). Characterising resource 
+management performance in Kubernetes. Computers & Electrical Engineering, 68, 286-297. 
+[23] Omer, A. M. (2009). Energy use and environmental impacts: A general review. Journal of renewable and 
+Sustainable Energy, 1(5). 
+[24] Poniszewska-Marańda, A., & Czechowska, E. (2021). Kubernetes cluster for automating software production 
+environment. Sensors, 21(5), 1910. 
+[25] Raju, R. K. (2017). Dynamic memory inference network for natural language inference. International Journal of 
+Science and Research (IJSR), 6(2). https://www.ijsr.net/archive/v6i2/SR24926091431.pdf   
+[26] Sardana, J. (2022). Scalable systems for healthcare communication: A design perspective. International 
+Journal of Science and Research Archive. https://doi.org/10.30574/ijsra.2022.7.2.0253 
+[27] Sardana, J. (2022). The role of notification scheduling in improving patient outcomes. International Journal of 
+Science and Research Archive. https://ijsra.net/content/role-notification-scheduling-improving-patient 
+[28] Singh, V. (2024). AI-powered assistive technologies for people with disabilities: Developing AI solutions that aid 
+individuals with various disabilities in daily tasks. University of California, San Diego, California, USA. IJISAE. 
+https://doi.org/10.9734/jerr/2025/v27i21410 
+[29] Singh, V., Doshi, V., Dave, M., Desai, A., Agrawal, S., Shah, J., & Kanani, P. (2020). Answering Questions in 
+Natural Language About Images Using Deep Learning. In Futuristic Trends in Networks and Computing 
+Technologies: Second International Conference, FTNCT 2019, Chandigarh, India, November 22–23, 2019, 
+Revised Selected Papers 2 (pp. 358-370). Springer Singapore. https://link.springer.com/chapter/10.1007/978-
+981-15-4451-4_28  
+
+Journal of Information Systems Engineering and Management 
+2025, 10(45s) 
+e-ISSN: 2468-4376 
+ 
+ 
+https://www.jisem-journal.com/ 
+Research Article 
+ 
+ 
+ 551 
+Copyright © 2024 by Author/s and Licensed by JISEM. This is an open access article distributed under the Creative Commons Attribution License 
+which permits unrestricted use, distribution, and reproduction in any medium, provided the original work is properly cited. 
+[30] Ungureanu, O. M., Vlădeanu, C., & Kooij, R. (2019, July). Kubernetes cluster optimization using hybrid shared-
+state scheduling framework. In Proceedings of the 3rd International Conference on Future Networks and 
+Distributed Systems (pp. 1-12). 
+[31] Virtanen, J. (2023). Leveraging Kubernetes in Edge-Native Cable Access Convergence. 
+[32] Xing, Y., Li, L., Bi, Z., Wilamowska‐Korsak, M., & Zhang, L. (2013). Operations research (OR) in service 
+industries: a comprehensive review. Systems Research and Behavioral Science, 30(3), 300-353. 
+[33] Zhang, Y., Wang, Y., & Wang, X. (2011). Greenware: Greening cloud-scale data centers to maximize the use of 
+renewable energy. In Middleware 2011: ACM/IFIP/USENIX 12th International Middleware Conference, 
+Lisbon, Portugal, December 12-16, 2011. Proceedings 12 (pp. 143-164). Springer Berlin Heidelberg. 
+[34] Zhong, Z., & Buyya, R. (2020). A cost-efficient container orchestration strategy in kubernetes-based cloud 
+computing infrastructures with heterogeneous resources. ACM Transactions on Internet Technology 
+(TOIT), 20(2), 1-24. 
+ 
