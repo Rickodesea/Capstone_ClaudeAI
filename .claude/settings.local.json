@@ -11,7 +11,9 @@
       "WebSearch",
       "Bash(pandoc --version)",
       "Bash(pandoc Enhanced_Proposal_Draft.md -o Enhanced_Proposal_A1_Final.docx --reference-doc=Enhanced_Proposal_A1_Final.docx)",
-      "Bash(pandoc Enhanced_Proposal_Draft.md -o Enhanced_Proposal_A1_Final.docx)"
+      "Bash(pandoc Enhanced_Proposal_Draft.md -o Enhanced_Proposal_A1_Final.docx)",
+      "Bash(python update_model_column.py)",
+      "Bash(python generate_proposal_doc.py)"
     ],
     "deny": [],
     "ask": []

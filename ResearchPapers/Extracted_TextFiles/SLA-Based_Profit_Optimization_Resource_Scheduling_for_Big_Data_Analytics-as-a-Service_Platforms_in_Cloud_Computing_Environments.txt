@@ -1,0 +1,2307 @@
+SLA-Based Proﬁt Optimization Resource
+Scheduling for Big Data Analytics-as-a-Service
+Platforms in Cloud Computing Environments
+Yali Zhao
+, Rodrigo N. Calheiros
+, Graeme Gange, James Bailey
+, and Richard O. Sinnott
+Abstract—The value that can be extracted from big data greatly motivates users to explore data analytics technologies for better
+decision making and problem solving in various application domains. Analytical solutions can be expensive due to the demand for
+large-scale and high-performance computing resources. To provision online big data Analytics-as-a-Service (AaaS) to users in various
+domains, a general purpose AaaS platform is required to deliver on-demand services at low cost and in an easy to use manner. Our
+research focuses on proposing efﬁcient and automatic admission control and resource scheduling algorithms for AaaS platforms in
+cloud environments. In this paper, we propose scalable and automatic admission control and proﬁt optimization resource scheduling
+algorithms, which effectively admit data analytics requests, dynamically provision resources, and maximize proﬁt for AaaS providers,
+while satisfying QoS requirements of queries with Service Level Agreement (SLA) guarantees. Moreover, the proposed algorithms
+enable users to trade-off accuracy for faster response times and less resource costs for query processing on large datasets. We
+evaluate the algorithm performance by adopting a data splitting method to process smaller data samples as representatives of the
+original big datasets. We conduct extensive experiments to evaluate the proposed admission control and proﬁt optimization scheduling
+algorithms. Experimental evaluation shows the algorithms perform signiﬁcantly better compared to the state-of-the-art algorithms in
+enhancing proﬁts, reducing resource costs, increasing query admission rates, and decreasing query response times.
+Index Terms—Resource scheduling, service aevel agreement, analytics-as-a-service, data splitting, big data, cloud computing
+Ç
+1
+INTRODUCTION
+T
+HE value that can be extracted from big data greatly
+motivates users to explore data analytics techniques
+and solutions [1], [2]. Big data analytics is an emerging
+trend for decision-making and problem solving in many
+application domains, such as healthcare and medication.
+Cloud computing [3], [4] greatly eases and beneﬁts big data
+analytics by elastically provisioning heterogeneous and on-
+demand resources and services at infrastructure, platform,
+and application levels, which are provisioned in a pay-per-
+use basis with Service Level Agreement (SLA) guarantees.
+Big Data Analytics Applications (BDAAs) are usually tar-
+geted to speciﬁc domains and typically used by large enter-
+prises [5]. BDAAs require large-scale computing, which can
+incur signiﬁcant ﬁnancial costs based on the consumed
+resources. As such, BDAAs are usually used by large enter-
+prises or major research projects and are not suitable for
+occasional or individual usage.
+To facilitate big data analytics for various domains, a gen-
+eral
+purpose
+Analytics-as-a-Service
+(AaaS)
+platform
+is
+required to lead the market and deliver on-demand services
+to users at low cost and in an easy to use way [6]. Our pro-
+posed AaaS platform brokers BDAAs from third party appli-
+cation providers and commodity resources, such as Virtual
+Machines (VMs) and storage from cloud resource providers.
+The AaaS platform automatically manages cloud resources
+for BDAAs based on user demand and provisions AaaS as
+consumable services. We focus especially on BDAAs that
+typically process read-only queries and leave out data consis-
+tency and security issues. The AaaS delivery model greatly
+beneﬁts users with limited expertise to set up and manage
+large-scale cloud computing environments and enjoy on-
+demand AaaS with guaranteed SLAs on a pay per use basis.
+Resource scheduling is a core function for AaaS plat-
+forms that aim to maximize proﬁts by optimizing resource
+and query scheduling, increase market share by admitting
+more queries, and improve user satisfaction by delivering
+on-demand AaaS with SLA guarantees. AaaS platforms
+schedule resources to execute queries with guaranteed
+SLAs on QoS requirements of budgets and deadlines, which
+allows users to control analytical costs and get timely results
+for efﬁcient decision-making. However, resource schedul-
+ing for big data analytics on AaaS platforms must tackle
+several challenges:
+
+Data analytics for big data with large volumes (i.e.,
+terabytes, petabytes) can take considerable time.
+
+Y. Zhao, J. Bailey, R. O. Sinnott are with the University of Melbourne,
+Melbourne, VIC 3010, Australia. E-mail: yalizhao.alice@gmail.com,
+{baileyj, rsinnott}@unimelb.edu.au.
+
+G. Gange is with the Monash University, Melbourne, VIC 3800,
+Australia. E-mail: gkgange@gmail.com.
+
+R. N. Calheiros is with the Western Sydney University, Sydney, NSW,
+Australia. E-mail: R.Calheiros@westernsydney.edu.au.
+Manuscript received 26 Sept. 2017; revised 17 Aug. 2018; accepted 18 Dec.
+2018. Date of publication 27 Dec. 2018; date of current version 3 Sept. 2021.
+(Corresponding author: Yali Zhao.)
+Recommended for acceptance by K. S. Candan.
+Digital Object Identiﬁer no. 10.1109/TCC.2018.2889956
+1236
+IEEE TRANSACTIONS ON CLOUD COMPUTING, VOL. 9, NO. 3, JULY-SEPTEMBER 2021
+2168-7161 © 2018 IEEE. Personal use is permitted, but republication/redistribution requires IEEE permission.
+See ht_tps://www.ieee.org/publications/rights/index.html for more information.
+Authorized licensed use limited to: the Leddy Library at the University of Windsor. Downloaded on April 15,2026 at 14:58:21 UTC from IEEE Xplore.  Restrictions apply. 
+
+This requires efﬁcient resource management and
+task scheduling techniques that are capable to return
+query results before user-speciﬁed deadlines for fast
+and efﬁcient decision-making, especially for applica-
+tion domains requiring timely decisions.
+
+Big data analytics requires large-scale compute
+and storage resources that can incur considerable
+resource costs. It is a necessity for users to obtain
+query results under controllable costs, especially for
+users with limited budgets.
+
+Resource requirements of online analytical requests
+ﬂuctuate over time, which raises the requirement for
+automatic resource provisioning to react to dynamic
+query demands, which can be stochastic.
+
+Guaranteeing SLAs for AaaS is important for user
+satisfaction. Violating SLAs not only incurs penalty
+costs but also decreases user satisfaction. Effective
+and efﬁcient admission control and resource sched-
+uling is required to minimize/avoid SLA violations.
+
+Query response time is a major performance indica-
+tor of service delivery and should be minimized for
+better user experience. Transferring big data for
+processing can take considerable time and incur
+high resource costs and hence should be minimized.
+Data locality-aware scheduling techniques should be
+utilized to move the computing resources to the data
+by creating cloud resources at datacenters where the
+datasets reside.
+
+Maximizing proﬁt and minimizing query response
+times while guaranteeing SLAs of service delivery
+should be supported. This is a multi-objective opti-
+mization problem. The proﬁt optimization problem
+requires efﬁcient and effective modeling and formu-
+lation for optimal resource scheduling.
+
+Data analytics requests with tight budgets and dead-
+lines cannot be admitted if they cause signiﬁcant
+reduction of proﬁt, decrease user satisfaction, and
+lead to loss of customers. Among existing data ana-
+lytics techniques is data splitting that enables users
+to trade-off accuracy for faster response times and
+less resource cost by processing smaller data samples
+as representatives of the original datasets. Efﬁcient
+adoption of such data processing techniques in
+resource scheduling is required to process big data
+with limited budgets and times.
+To tackle the above challenges, our research focuses on
+proposing efﬁcient and automatic admission control and
+resource scheduling solutions to support AaaS platforms, to
+not only maximize the proﬁt for AaaS providers, but also to
+guarantee SLAs and minimize query time for AaaS users.
+The major contributions of our work are:
+
+We model and formulate a multi-objective proﬁt
+optimization and query time minimization resource
+scheduling problem.
+
+We propose admission control and proﬁt optimiza-
+tion scheduling algorithms that are able to admit
+queries whose QoS requirements can be satisﬁed to
+deliver services with SLAs guarantees; maximize the
+proﬁt for AaaS platforms by optimizing resource
+utilization; and minimize query response times with
+time-efﬁcient query execution solutions.
+
+The optimization algorithms utilize automatic sched-
+uling mechanisms that allow the AaaS platform to
+provide online data analytical services that react to
+dynamic variation of resource requirements based
+on realtime queries.
+
+The optimization scheduling algorithms utilize scal-
+able scheduling machanisms, which elastically lease
+under-provisioned cloud resources while releasing
+over-provisioned resources to optimize utilization
+and minimize cost.
+
+The scheduling algorithms adopt data-aware sched-
+uling to ensure the best data processing locality to
+minimize the network transfer times and costs.
+
+The scheduling algorithms enable users to trade-off
+accuracy for reduced response times and less cost.
+Applying data splitting and sampling techniques
+provides signiﬁcant performance improvement for
+resource scheduling that enables AaaS platforms to
+process data samples compared to processing the
+original data.
+
+The scheduling algorithms support ﬂexible query
+dependencies. A query can vary from an indepen-
+dent task to a complex dataﬂow. Queries that rely on
+results of other tasks can only be executed after their
+dependent tasks complete. Such ﬂexible support for
+task dependencies enables the AaaS platform to han-
+dle tasks of different complexities.
+We conduct extensive experiments to evaluate the admis-
+sion control and resource scheduling algorithms. The results
+show that the optimization scheduling algorithms perform
+signiﬁcantly better with regards to saving cost, enhancing
+proﬁt, and reducing query processing time in comparison to
+related state-of-the-art algorithms. Results also show that after
+applying data splitting-based scheduling mechanisms, there
+is a signiﬁcant performance improvement including enhanc-
+ing proﬁts, reducing resource costs, increasing admission
+rates, and reducing query processing times over traditional
+resource scheduling mechanisms, i.e., without data splitting.
+This paper is a signiﬁcant extension of our previous work
+[8]. Compared to our earlier work, we reﬁne and enhance
+the modeling and formulation of the multi-objective optimi-
+zation problem for resource scheduling to accommodate
+new features of task dependency and data splitting based
+scheduling. Moreover, we reﬁne the architecture and frame-
+work of the AaaS platform by adding data splitter to allow
+splitting of large datasets and processing smaller data sam-
+ples for quicker response and less cost. We also redesign the
+data splitting-based admission control and proﬁt optimiza-
+tion algorithms to allow data splitting and task dependency
+based resource scheduling. Furthermore, we redesign the
+experiments and conduct extensive experiments to evaluate
+the performance of the data splitting-based scheduling algo-
+rithm and non data splitting methods. We survey the state-
+of-the-art research works and compare our work to these
+works with regards to various performance parameters. In
+summary, this paper makes a signiﬁcant contribution on
+the applicability, efﬁciency, and performance improvement
+of the data splitting-based admission control and proﬁt
+ZHAO ET AL.: SLA-BASED PROFIT OPTIMIZATION RESOURCE SCHEDULING FOR BIG DATA ANALYTICS-AS-A-SERVICE PLATFORMS...
+1237
+Authorized licensed use limited to: the Leddy Library at the University of Windsor. Downloaded on April 15,2026 at 14:58:21 UTC from IEEE Xplore.  Restrictions apply. 
+
+optimization scheduling algorithms for AaaS platforms in
+cloud computing environments.
+2
+PROBLEM STATEMENT
+2.1
+Overview of the AaaS Environment
+An overview description of the AaaS Environment is shown
+in Fig. 1.
+Users submit queries online to the AaaS platform
+requesting particular data analytics services supported by
+speciﬁed BDAAs. These queries contain query speciﬁca-
+tions including QoS requirements on budgets and deadlines
+and data locations where to-be-analyzed datasets reside.
+The AaaS platform brokers cloud resources from third party
+Infrastructure-as-a-Service (IaaS) cloud providers while it
+also brokers BDAAs from third party application providers
+to provide analytical services based on application require-
+ments of analysis requests. BDAAs are maintained in a
+BDAA registry, which is a catalog for BDAA providers to
+register for BDAAs to the AaaS market and also a directory
+for AaaS platforms to search for required BDAAs. At any
+time, a BDAA can be registered and deregistered from the
+BDAA registry. Thus, the AaaS platform needs to search for
+availability of the requested BDAAs before admitting
+queries. Similarly, cloud resources are registered and main-
+tained in an IaaS resource registry. After the AaaS platform
+admits queries based on its admission policy, it makes proﬁt
+optimization resource and query scheduling decisions to
+execute queries. Admitted queries are executed on allocated
+cloud resources by adopting query-scheduling solutions.
+Finally, the AaaS platform provisions AaaS to users by auto-
+matic and dynamic resource provisioning and query sched-
+uling and deploys BDAAs on existing cloud resources for
+subsequent query processing.
+2.2
+Architecture of the AaaS Platform
+The architecture for the AaaS platform is shown in Fig. 2,
+which includes the following components.
+User interface serves as a mechanism for users and the
+AaaS platform to interact with each other. Users submit
+query speciﬁcations and negotiate SLAs with the AaaS plat-
+form. Details of the speciﬁcations are introduced in the
+modeling section. The AaaS platform outputs admission
+decisions and query results via the user interface.
+Admission Controller is responsible for query admission.
+Queries that can be admitted must satisfy the following con-
+ditions: 1) the BDAAs requested by queries are available; 2)
+QoS requirements of queries can be satisﬁed based on cur-
+rent resource capacity and conﬁguration; 3) to-be-processed
+datasets are accessible from data storage.
+SLA Manager gets the queries after the admission control
+and builds SLAs for the admitted queries to ensure the
+AaaS platform can guarantee SLAs during service delivery
+to avoid SLA violations that incur additional penalty costs
+and cause user dissatisfaction.
+Cost Manager manages all the costs in the AaaS platform
+including BDAA costs; cloud resource costs, AaaS service
+costs, and penalty costs. It provides pricing information to
+allow the Admission Controller to make performance esti-
+mation for query admission.
+Resource Manager brokers IaaS resources from third party
+IaaS resource providers and keeps a catalog of all available
+resources from the different IaaS providers. The Resource Man-
+ager keeps monitoring the status of VMs, which are created, ter-
+minated, in-use, and idle. This information allows the Query
+Scheduler to take different actions accordingly, e.g., sending
+queries to VM instances that are idle for load balancing.
+BDAA Manager is responsible for brokering BDAA
+resources from third party service providers based on user
+requests and maintaining application information. Informa-
+tion of BDAAs is maintained and updated in the BDAA
+Registry for application searching and selection.
+Data Source Manager is responsible for managing to-be-
+processed datasets factoring in their size, type and location.
+We utilize cloud resources in datacenters where datasets
+reside to reduce data transfer times and costs.
+Data Splitter is responsible for splitting large datasets to
+obtain smaller data samples for data analytics when budg-
+ets and deadlines are limiting factors. The data splitting can
+be achieved by different approaches such as data splitting
+and sampling. For queries that do not require full accuracy
+based on processing the entire datasets, the accuracy can be
+traded-off for faster response times and less resource costs
+by processing a less complete and hence less accurate subset
+Fig. 1. Overview of the AaaS environment.
+Fig. 2. Architecture of the AaaS platform.
+1238
+IEEE TRANSACTIONS ON CLOUD COMPUTING, VOL. 9, NO. 3, JULY-SEPTEMBER 2021
+Authorized licensed use limited to: the Leddy Library at the University of Windsor. Downloaded on April 15,2026 at 14:58:21 UTC from IEEE Xplore.  Restrictions apply. 
+
+of the data. For queries that cannot be admitted due to tight
+deadlines or limited budgets, if users allow approximate
+query processing, the AaaS platform checks whether the
+query can be admitted by estimating the splitting time and
+cost together with the data processing time and cost com-
+pared to user-speciﬁed query deadlines and budgets. If
+applying data splitting techniques can process the data with
+SLA guarantees on QoS requirements, such queries can be
+admitted for processing.
+Query scheduler is the central component of the AaaS plat-
+form and coordinates the other components. It makes query
+scheduling and resource provisioning decisions based on
+realtime resource and BDAA information the AaaS platform.
+It aims to make optimization scheduling decisions to maxi-
+mize the proﬁt, increase query admission rate, guarantee
+SLAs, while reacting to the dynamism of query workload and
+resource capacity. The query scheduler enables data locality-
+aware and dependency-based scheduling while supporting
+data splitting-based scheduling for faster response times and
+less resource costs.
+2.3
+Problem Modeling
+The proﬁt optimization resource scheduling problem aims
+to ﬁnd the optimal resource scheduling solution to maxi-
+mize proﬁt for the AaaS platform and minimize query time,
+while delivering satisfactory services to users with SLA
+guarantees.
+We consider a set of M queries Qs ¼ fQ1; Q2; . . . ; QMg
+submitted to the AaaS platform. A query can be a scan
+query, i.e., select the average body fat from a patient table,
+or a complex query, i.e., a machine learning algorithm to
+analyze the factors leading to lung cancer, etc. These queries
+request for a set of P Big Data Analytics Applications
+BDAAs ¼ fBDAA1; BDAA2; . . . ; BDAAPg that execute
+on a set of N resources Rs ¼ fR1; R2; . . . ; RNg. A BDAA
+can be a healthcare application running on top of data ana-
+lytical framework Spark [9] to analyze patient health data.
+A resource can be a VM, storage, or a cluster of VMs, etc.
+Different cost policies are applied in the AaaS platform,
+such as policies for query costs and penalty costs.
+Query Q ¼ fSLA; CR; BDAA; CH; DE; ACg, where SLA
+denotes QoS requirements of budget (the maximum cost to
+execute a request) and deadline (the latest time to return
+the analytical result); CR denotes the requested cloud
+resources to execute a query task; BDAA indicates the spe-
+ciﬁc data analytics applications that users request to ana-
+lyze the data; CH
+speciﬁes the characteristics of the
+dataset, such as data size, data type, data distribution, and
+data locality; DE denotes the dependency requirement;
+AC denotes whether the accuracy of the query can be sacri-
+ﬁced. If users allow sacriﬁcing accuracy during data ana-
+lytics procedures when budget or deadline of a query is a
+limiting factor, the AaaS platform may enable processing
+representative datasets using data splitting techniques. To
+avoid expensive data transfer costs and long data transfer
+times, we move the computing resources to the data, hence
+we process data by creating VMs in the cloud datacenters
+where datasets are stored. We assume the data is pre-
+stored in datacenters and that storage and data transfer
+costs are paid directly by users.
+Big Data Analytics Application BDAA ¼ fAT; Pg, where
+AT represents the application type while P represents the
+application proﬁle, which contains mappings of the BDAA
+cost, required resource time including query time, sampling
+time, and splitting time, and resource conﬁgurations for dif-
+ferent query requests. Obtaining proﬁles of heterogeneous
+BDAA applications requires expert knowledge from vari-
+ous application domains. Thus, we assume reliable BDAA
+proﬁles are provided by third-party BDAA providers.
+BDAAs provisioned by third party application providers
+should be accessible through a uniform interface to ease
+BDAA brokering and utilization.
+Resource R ¼ fRT; REC; NR; CCg, where RT denotes
+the resource type (e.g., memory optimized Amazon EC2
+VM instances, such as an r3.large instance or a cluster of r3.
+large instances), REC represents the resource capacity (e.g.,
+CPU, memory, storage, etc.) provided by the resource, NR
+represents the number of instances required to execute a
+query, while CC is the cost of each resource.
+Cost C ¼ fRC; BC; PC; ARC; PROg, where RC denotes
+the overall resource cost of the AaaS platform, BC denotes
+the cost of BDAA applications that is assumed as a constant
+cost charged by BDAA providers, PC represents the penalty
+cost if any SLA of a given query is violated, ARC denotes
+the overall cost that users pay the AaaS platform for utiliza-
+tion of the data analytics services, and PRO denotes the
+overall proﬁt made by the AaaS platform. We assume a con-
+stant service fee is charged for each query request depend-
+ing on speciﬁc requested cloud resources, BDAA, and QoS
+requirements. Hence, ARC is a constant value.
+2.4
+Problem Formulation
+The proﬁt optimization scheduling problem is an NP-com-
+plete problem that can be polynomially reduced to an Integer
+Linear Programming (ILP) problem. We formulate the proﬁt
+maximization resource scheduling problem based on the ILP
+model [10], [11]. Based on the cost model as introduced in the
+previous section, we can know ARC is a constant value. We
+aim to provide scheduling solutions with SLA guarantees on
+QoS requirements. Thus, PC is zero if SLAs are guaranteed.
+The PRO is calculated as PRO ¼ ARC  RC  AC  PC. As
+ARC and AC are constant while PC is zero while SLAs are
+guaranteed, the objective of maximizing PRO is to minimize
+RC while minimizing the query processing time and deliver-
+ing AaaS with SLA guarantees.
+To achieve the scheduling objective, we have two indi-
+vidual objectives to fulﬁll: Objective A and Objective B.
+A ¼ minimizeðPn
+j¼1 Cj  tjÞ, where j represents a cloud
+resource such as a VM or a cluster of VMs; n represents a
+set of resources; tj is the number of hours to be used for a
+resource j; while Cj is the hourly cost of the resource j.
+Objective A aims to minimize the resource cost RC, calcu-
+lated as the total costs of different resources, which is the
+product of purchased resource time tj and the unit resource
+cost Cj. Objective B ¼ minimizeðPm
+i¼1 siÞ, where i repre-
+sents a query request i; m denotes a set of query requests,
+while si is the start time of the query i. Objective B aims to
+ﬁnd a query scheduling solution with the cost minimized
+resource conﬁguration that can execute queries at the earli-
+est time. This enables future queries to start execution at the
+earliest time si to reduce tj and hence allows cost saving
+ZHAO ET AL.: SLA-BASED PROFIT OPTIMIZATION RESOURCE SCHEDULING FOR BIG DATA ANALYTICS-AS-A-SERVICE PLATFORMS...
+1239
+Authorized licensed use limited to: the Leddy Library at the University of Windsor. Downloaded on April 15,2026 at 14:58:21 UTC from IEEE Xplore.  Restrictions apply. 
+
+and minimizes the query times for quicker responses to
+improve the performance of delivered services. The sym-
+bols of the formulation are deﬁned in Table 1.
+We formulate the multiple Objective Z as a combination
+of Objective A and Objective B, which aims at minimizing
+resource costs while choosing a scheduling solution that
+starts query execution at the earliest time, subject to con-
+straints (1), (2), (3), (4), (5), (6), (7), (8), (9), (10), (11), (12),
+(13), (14). The combination leads to a standard lexicographic
+optimization problem [12]. The importance of individual
+objectives contributing to the proﬁt optimization resource
+scheduling problem is A > B. Coefﬁcient F0 is assigned to
+Objective A to guarantee the aggregated problem with mini-
+mization of all individual objective functions is consistent to
+the original proﬁt optimization problem that any change of
+A dominate the changes of B [11], [12].
+Objective Z:
+Z ¼ minimize F0 
+X
+j2n Cj  tj
+
+
+þ
+X
+i2m si
+
+
+Subject to:
+X
+i2m; j2n
+RRTij  xij
+
+
+ tj þ Tj
+(1)
+xij ¼
+1;
+i scheduled on j
+0; otherwise
+
+; 8 i 2 m; j 2 n
+(2)
+bik þ bki  1; 8 i; k 2 m
+(3)
+bik ¼
+1;
+i executes before k
+0; otherwise
+
+; 8 i; k 2 m
+(4)
+bik þ bki  xij  xkj  1; 8 i; k 2 m; j 2 n
+(5)
+si  sk þ F1  bik  F1  RRTij; 8 i; k 2 m; j 2 n
+(6)
+si þ F2  xij  F2 þ Di  RRTij; 8i 2 m; j 2 n
+(7)
+si  tj þ F3  xij  F3  RRTij þ EPTj; 8 i 2 m; j 2 n
+(8)
+si þ xij  F4  F4 þ EATj; 8 i 2 m; j 2 n
+(9)
+Cijxij  Bi; 8i 2 m; j 2 n
+(10)
+X
+i2m; j2n
+xij ¼ 1
+(11)
+xij ¼ 0; if j cannot access dataset of i; 8 i 2 m; j 2 n
+(12)
+bki ¼ 1; if i needs to process dataset split by k; 8 i; k 2 m
+(13)
+bki ¼ 1;
+if i is a dependent task of k; 8 i; k 2 m
+(14)
+xij ¼ 1
+xkj ¼ 1
+
+¼)
+either
+bik ¼ 1;
+bki ¼ 0
+bik ¼ 0; bki ¼ 1
+
+; 8 i; k 2 m; j 2 n
+(15)
+bik ¼ 1 )
+si þRRTij  sk; 8 i; k 2 m; j 2 n
+(16)
+F1  maxðsi þ RRTij  skÞ þ 1; 8 i; k 2 m; j 2 n
+(17)
+sixij þ RRTij  Di; 8 i 2 m; j 2 n
+(18)
+F2  maxðsi þ RRTij  DiÞ þ 1; 8 i 2 m; j 2 n
+(19)
+xij ¼ 1 ) si þ RRTij  tj þ EPTj; 8 i 2 m; j 2 n
+(20)
+F3  maxðsi  tj þ RRTij  EPTjÞ þ 1; 8 i 2 m;
+j 2 n
+(21)
+xij ¼ 1 ) si  EATj; 8 i 2 m; j 2 n
+(22)
+F4  min si  EATj
+
+
+ 1; 8 i 2 m; j 2 n
+(23)
+TABLE 1
+Deﬁnition of Symbols
+Symbol Deﬁnition
+i
+A speciﬁc query
+j
+A speciﬁc resource
+m
+The set of querie
+n
+The set of resources
+tj
+The time to be purchased for resource j
+Tj
+The available resource time of resource j.
+LRTj
+The remaining time of resource j in previous schedule
+RRTij
+The required resource time for query i on resource j
+xij/xkj
+It indicates whether query i / query k is assigned to
+resource j
+Cj
+The unit cost of resource j
+si/sk
+The start time of query i / query k
+bik/bki
+It indicates whether query i executes before query k
+Di
+The deadline of query i
+Bi
+The budget of query i
+Cij
+The cost of executing query i on resource j
+EATj
+The Earliest Available Time that resource j can be
+used to execute queries
+TFTj
+The query ﬁnish time on created resource j
+CTj
+The clock time of created resource j
+RCTj
+The creation time of resource j
+1240
+IEEE TRANSACTIONS ON CLOUD COMPUTING, VOL. 9, NO. 3, JULY-SEPTEMBER 2021
+Authorized licensed use limited to: the Leddy Library at the University of Windsor. Downloaded on April 15,2026 at 14:58:21 UTC from IEEE Xplore.  Restrictions apply. 
+
+Tj ¼
+LRTj; j created
+RCTj; otherwise
+
+; 8j 2 n
+(24)
+EATj ¼
+TFTj; tasks running on j
+CTj; otherwise
+
+; j created
+CTj þ RCTj; otherwise
+8
+>
+<
+>
+:
+; 8j 2 n:
+(25)
+Resource Capacity Constraints. Resource capacity con-
+straints are used to ensure that the sum of required resource
+times of queries for resource j should be less than or equal
+to the available resource time of resource j, as shown in (1),
+where xij is a binary variable indicating whether query i is
+scheduled to resource j; RRTij is the Required Resource
+Time (RRT) to execute query i on resource j; tj is the num-
+ber of hours requested to purchase for resource j. When
+query i is scheduled to resource j, xij ¼ 1; otherwise,
+xij ¼ 0, as shown in (2). For a created resource, Tj is the Left
+Resource Time (LRT) before the end of purchased time in
+the previous schedule, denoted as LRTj, which can be used
+to execute queries in the current schedule; while for newly
+created resources, Tj is a negative value that is used to
+deduct the Resource Creation Time (RCT) from tj, denoted
+as RCTj; as shown in (24).
+Query Execution Sequence Constraints. Query execu-
+tion sequence constraints deﬁne the execution sequence to
+ensure the unique execution sequence of queries for the
+optimization solution, as shown in (3), where bik is a binary
+variable, which indicates whether query i is scheduled
+before query k (if query i is scheduled before query
+k,
+bik ¼ 1; otherwise, bik ¼ 0).
+Query Deadline Constraints. Deadline constraints are
+used to ensure analytical solutions are returned before
+deadlines, as shown in Constraints (4), (5), (6), (7), (8), (9),
+(10). Constraint (4) is used to ensure the unique execution
+order of query i and query k by allowing only one of bik
+and bki to be 1. Constraint (5) ensures that query i must be
+executed either before query k or after query k when they
+are executed on the same resource j, which is derived from
+non-linear constraint (15) through linearization. Constraint
+(15) ensures that if i and k are scheduled on resource j,
+either bik ¼ 1; bki ¼ 0 (i executes before k) or bik ¼ 0; bki ¼ 1
+(query i executes after query k). Constraint (6) is derived
+from non-linear constraint (16) using Big M method, which
+is used to ensure if bik ¼ 1, query i should ﬁnish execution
+before k starts execution, where F1 is a sufﬁcient large con-
+stant satisfying (17) [6]. Constraint (7) is used to ensure that
+if query i starts execution on resource j at si, it should ﬁnish
+before its deadline Di, derived from non-linear constraint
+(18), where F2 is a sufﬁcient large constant satisfying (19).
+Constraint (8) is derived from non-linear relationship (20),
+where F3 is a sufﬁcient large constant satisfying (21), which
+ensures that if query i is scheduled on resource j, its ﬁnish
+time has to be earlier than or equal to the end of the pur-
+chased time of resource j, which is the sum of previous pur-
+chased end time EPTj of resource j and the new purchased
+time tj. Constraint (9) is derived from non-linear relation-
+ship (22), where F4 is a sufﬁcient small constant satisfying
+(23), which is used to ensure that if i is assigned to resource
+j, it should start execution after EATj that is the Earliest
+Available Time (EAT) of resource j. If resource j is created
+while it has queries running on it, EATj is the Task Finish
+Time (TFT) of resource j, denot- ed as TFTj; otherwise,
+EATj is the Clock Time (CT) of resource j, denoted as CTj.
+If resource j is not created, EATj is the sum of CTj and
+RCTj, as shown in (25).
+Query Budget Constraints. Budget constraints are used
+to ensure that the execution cost of query i on j does not
+exceed the budget Bi, as shown in (10), where Cij is the cost
+of executing i on j.
+Query Scheduling Times Constraints. As shown in (11),
+the constraints on query scheduling times ensure that the
+sum of xij for a query must be 1 to ensure that the query i is
+scheduled to one resource for execution to avoid SLA
+violations.
+Data Locality Constraints. Data locality constraints, as
+shown in (12) are used to ensure that queries can only be
+submitted to VMs where to-be-processed datasets are
+accessible to avoid expensive data transfer costs and
+long data transfer times. If a VM j does not have access
+to the dataset of a query i, xij ¼ 0. This indicates that
+query i cannot be scheduled to VM j. For VMs that have
+access to the dataset of query i, xij will be allowed to be
+1 only if such assignment can lead to a proﬁt optimiza-
+tion scheduling solution.
+Algorithm 1. Admission Control Algorithm
+Input: queries submitted by users
+Output: admission or rejection decisions of queries
+1: for each query 2 submittedQueries
+2:
+requestedBDAA  search BDAA registry
+3:
+if requested BDAA is available && dataset is accessible
+4:
+resConﬁgs  search resource registry
+5:
+if resConﬁgs > 0
+6:
+for each conﬁguration 2 resConﬁgs
+7:
+EET ¼ calculateEET
+8:
+EC ¼ calculateEC
+9:
+if EET < deadline && EC < budget
+10:
+admQueries  admit query
+11:
+end if
+12:
+else if query allows sacriﬁce accuracy
+13:
+apprQueries  get approximate queries
+14:
+for each query in apprQueries
+15:
+DSC  estimate resource cost for splitting
+16:
+DST  estimate time for data splitting
+17:
+DPC  estimate resource cost for splitting
+18:
+DPT  estimate the splitting time
+19:
+if DSCþDPC < budget & DSTþDPT < deadline
+20:
+admQueries  admit the query
+21:
+end if
+22:
+end for
+23:
+end if
+24:
+end for
+25:
+if query is not admitted
+26:
+reject query with detailed rejection reasons
+27:
+end if
+28:
+end if
+29: end for
+ZHAO ET AL.: SLA-BASED PROFIT OPTIMIZATION RESOURCE SCHEDULING FOR BIG DATA ANALYTICS-AS-A-SERVICE PLATFORMS...
+1241
+Authorized licensed use limited to: the Leddy Library at the University of Windsor. Downloaded on April 15,2026 at 14:58:21 UTC from IEEE Xplore.  Restrictions apply. 
+
+Data Splitting Constraints. Data splitting on very large
+datasets is required when data analytics tasks are restricted
+with tight deadlines or limited budgets. Data splitting and
+sampling techniques aim to generate small data representa-
+tives of original large sdatasets. Processing smaller data
+samples can reduce resource costs while returning analyti-
+cal results in a time-efﬁcient manner. If large datasets
+are to be processed in such way, bki ¼ 1, as shown in con-
+straint (13), which indicates a data processing task i has to
+be executed after data splitting task k ﬁnishes the data
+splitting job.
+Query Dependency Constraints. Query dependency
+constraints are used to deﬁne the task dependencies, as
+shown in (14), bik ¼ 1 is set when query i depends on the
+execution results of query k. This is to ensure a query can
+only start execution when its dependent queries ﬁnish exe-
+cution. Query dependency constraints allow deﬁning sim-
+ple task dependencies, such as bag of tasks, as well as
+complex task dependencies, such as dataﬂows.
+3
+ADMISSION CONTROL AND RESOURCE
+SCHEDULING
+In this section, we introduce the admission control and
+resource scheduling algorithms, which admit queries and
+make resource scheduling decisions to allow the AaaS plat-
+form to achieve proﬁt optimization objectives with mini-
+mized query processing times and SLA guarantees.
+3.1
+Admission Control
+Admission control is the prerequisite for the AaaS platform
+to make effective and efﬁcient query and resource schedul-
+ing decisions. The admission controller aims to maximize
+the query admission rate for higher market share while
+ensuring all the admitted queries can be successfully exe-
+cuted with SLA guarantees. It only admits queries whose
+QoS requirements can be satisﬁed with provisioned BDAAs
+and resources.
+There are two possible scenarios where queries can be
+admitted. Scheduling Scenario 1: as we have considered in
+previous work [8], queries have sufﬁcient budgets and
+deadlines, which allows queries to be executed by proc-
+essing the entire datasets. Scheduling Scenario 2: users
+have limited budgets to spend and tight deadlines to
+obtain results. In this way, traditional data processing on
+the original datasets cannot fulﬁll QoS requirements for
+user queries. To face the challenge, data splitting techni-
+ques are utilized to obtain samples of the original data-
+sets
+that
+enables
+quicker
+processing
+of
+queries
+on
+smaller datasets with reduced costs. After admission
+control, if queries cannot be admitted by the AaaS plat-
+form, the reasons for rejection are presented to users to
+give them the chance to modify their query speciﬁcations
+for resubmission.
+The admission control algorithm works in the follow-
+ing way, as shown in Algorithm 1. It gets online queries
+submitted by users. Then, it iteratively makes admission
+decisions for each query. The admission control algo-
+rithm ﬁrst checks whether the BDAA requested by the
+query is available and the dataset is accessible. If the
+conditions are satisﬁed, the admission controller further
+checks whether the QoS requirements of a query can be
+satisﬁed by any resource conﬁguration by searching all
+possible Resource Conﬁgurations (resConﬁgs) in the
+resource registry. The Scenario 1 of the admission control
+is shown in Lines 3-11. For each resource conﬁguration,
+it calculates the Estimated Execution Time (EET) and
+Estimated Cost (EC) to execute the query on such conﬁg-
+uration at the earliest time without queuing the query. If
+such a conﬁguration exists, the query is admitted.
+If a query cannot be admitted due to limitations of
+budgets and/or deadlines, it is then further considered
+for approximate processing under the condition that the
+accuracy of the queries can be traded-off for quicker
+times and less costs, as shown in Lines 12-24. For each
+approximate query, admission control is conducted to
+estimate whether applying a data splitting method can
+satisfy its QoS requirements. The admission controller
+re-estimates the overall data processing cost as a result
+of the Data Splitting Cost (DSC) and the Data Processing
+Cost (DPC) while the overall data processing time as a
+result of the Data Splitting Time (DST) and the Data
+Processing Time (DPT). If a query can be executed by
+approximately processing split smaller datasets, it is
+admitted to the AaaS platform as shown in Scenario 2.
+After
+the
+splitting-based
+admission
+control,
+all
+the
+queries that cannot be admitted are given rejection rea-
+sons, as shown in Lines 25-27.
+3.2
+Resource Scheduling
+In this section, we propose the proﬁt optimization algorithm
+based on the ILP formulation of the resource scheduling
+problem. We compare the performance of the optimization
+algorithm against several heuristic algorithms. We also pro-
+pose the data splitting-based proﬁt optimization algorithm
+to enable big data processing under limited budgets and
+tight deadlines.
+3.2.1
+Proﬁt Optimization (PO) Scheduling Algorithm
+We build the PO resource scheduling algorithm, as
+shown in Algorithm 2, to maximize proﬁt for the AaaS
+platform while processing queries with SLA guarantees
+and minimized processing times. PO ﬁrst gets all submit-
+ted queries for each BDAA and makes query admission
+control decisions, as shown in Lines 1-3. Afterwards, it
+checks whether any resource conﬁguration can process
+the admitted queries, admQueries, while satisfying QoS
+requirements. If such conﬁgurations are available, PO
+then selects the cost minimized conﬁgurations as the
+resources to execute queries. For admQueries, PO uses a
+heuristic method selectResourceHeuristic to decide the
+resource inputs, heuResources, for the POScheduling
+method (Lines 4-6). The POScheduling method adopts the
+ILP formulation of the resource scheduling problem with
+Objective Z subject to Constraints (1), (2), (3), (4), (5), (6),
+(7), (8), (9), (10), (11), (12). For extremely large query
+arrival rates, if no feasible solution is returned by POS-
+cheduling within a scheduling timeout, the heuristic algo-
+rithm is utilized to avoid deadline violations (Lines 8-
+14). After adopting the scheduling solution, PO scales
+resources down by periodic checks. During a check, if
+1242
+IEEE TRANSACTIONS ON CLOUD COMPUTING, VOL. 9, NO. 3, JULY-SEPTEMBER 2021
+Authorized licensed use limited to: the Leddy Library at the University of Windsor. Downloaded on April 15,2026 at 14:58:21 UTC from IEEE Xplore.  Restrictions apply. 
+
+there is any resource that is idle and reaching the end of
+its billing period, the PO scheduling algorithm termi-
+nates such VMs to reduce resource costs (Lines 15-18).
+The selectResourceHeuristic method (Lines 19-26) signiﬁ-
+cantly reduces Algorithm Running Time (ART) of POSchedul-
+ing by reducing the search space to allow it to efﬁciently
+generate scheduling solutions. It ﬁrst selects the available
+resources, avaResources, from existing resources; then, it selects
+resources that can execute at least one query satisfying its QoS
+requirements from avaResources, as exeResources; afterwards,
+it utilizes maximumDelayTime-based scheduling method to
+maps adQueries to exeResource. The selectResourceHeuristic
+method combines exeResources and newResources as the heuRe-
+sources to input to the POScheduling method. The heuResources
+provisions sufﬁcient resource capacity to allow POScheduling
+to schedule queries with SLA guarantees. The capacity pro-
+vided by heuResources is close to the optimal resource conﬁgu-
+ration that can be found by POScheduling, which greatly
+reduces the search space to ﬁnd the optimal resource conﬁgu-
+ration and allows POScheduling to return timely proﬁt optimi-
+zation resource scheduling solutions.
+The maximumDelayTime method (Lines 27-29) adopts a
+Maximum Delay Time (MDT) based scheduling method.
+MDT is the maximum time a query can be delayed for exe-
+cution, which is the difference between query deadline and
+its execution time. The maximumDelayTime method ﬁrst
+sorts queries in the MDT ascending order. Then, it keeps
+Algorithm 2. PO Resource Scheduling Algorithm
+Input: submitted queries, resource conﬁgurations, existing
+resources, and BDAAs
+Output: scheduling solution
+1: for each BDAA 2 requested BDAAs
+2:
+queries  get all submitted queries of BDAA
+3:
+admQueries  admissionControl (queries, resConﬁgs,
+BDAA)
+4:
+if (admQueries >0)
+5:
+resources  get existing resources of BDAA
+6:
+heuResources  selectResourceHeuristic (resources,
+resConﬁgs, admQueries, BDAA)
+7:
+solution  POScheduling (admQueries, heuResour-
+ces, BDAA)
+8:
+if feasible solution is returned within scheduling timeout
+9:
+adopt scheduling solution to execute queries
+10:
+end if
+11:
+else
+12:
+solution  maximumDelayTime (heuResources,
+admQueries, BDAA)
+13:
+adopt scheduling solution to execute queries
+14:
+end else
+15:
+resources  get existing resources of BDAA
+16:
+scaleDown(resources)
+17:
+end if
+18: end for
+19: Procedure: selectResourceHeuristic (resources, resConﬁgs,
+admQueries, BDAA)
+20:
+avaResources  get available resources
+21:
+exeResources  select resources from avaResources
+22:
+maximumDelayTime (admQueries, exeResources, BDAA)
+23:
+if any query not scheduled in admQueries
+24:
+newResources  newResourceHeuristic (resConﬁgs,
+admQueries, BDAA)
+25:
+heuResources  exeResources þ newResources
+26:
+end if
+27:
+Procedure: maximumDelayTime (admQueries, heuRe-
+sources, BDAA)
+28:
+sort admQueries based on MDT
+29:
+schedule admQueries to resources with minimal EST
+30: Procedure: newResourceHeuristic (resConﬁgs, admQu-
+eries, BDAA)
+31: modiﬁcations  get all possible modiﬁcations
+32:
+newResources  searchHeuristic (resConﬁgs, modiﬁca-
+tions, admQueries, BDAA)
+33: Procedure: POScheduling (admQueries, heuResources,
+BDAA)
+34:
+getUpdatedInfo(admQueries, heuResources, BDAA)
+35:
+deﬁneScheduleObj(Objective Z)
+36:
+deﬁneScheduleConstraints (Constraints 1-12)
+37:
+deﬁneTimeOut(timeout)
+38:
+solveScheduleProblem()
+39:
+solution  getScheduleSolution()
+Algorithm 3. SPO Resource Scheduling Algorithm
+Input: submitted queries, resource conﬁgurations, existing
+resources, and BDAAs
+Output: scheduling solution
+1: for each BDAA 2 requested BDAAs
+2:
+queries  get all submitted queries of BDAA
+3:
+admQueries  admissionControl (queries, resourceCon-
+ﬁgurations, BDAA)
+4:
+apprQueries  get approximate queries
+5:
+for each query in approximateQueries
+6:
+dataSplittingTasks  generate data splitting tasks
+7:
+end for
+8:
+anaTasks  admQueries þ dataSplittingTasks
+9:
+if (anaTasks > 0)
+10:
+resources  get existing resources of BDAA
+11:
+heuResources  selectResourceHeuristic (resour-
+ces, resConﬁgs, anaTasks, BDAA)
+12:
+solution  SPOScheduling (anaTasks, heuResources,
+BDAA)
+13:
+if feasible solution is returned within scheduling
+timeout
+14:
+adopt scheduling solution to execute queries
+15:
+end if
+16:
+else
+17:
+solution  maximumDelayTime (heuResources,
+anaTasks, BDAA)
+18:
+adopt scheduling solution to execute queries
+19:
+end else
+20:
+resources  get existing resources of BDAA
+21:
+scaleDown(resources)
+22:
+end if
+23: end for
+24: Procedure: SPOScheduling (anaTasks, heuResources, BDAA)
+25:
+getUpdatedInfo(anaTasks, heuResources, BDAA)
+26:
+deﬁneScheduleObj(Objective Z)
+27:
+deﬁneScheduleConstraints(Constraints 1-14)
+28:
+deﬁneTimeOut(timeout)
+29:
+solveScheduleProblem()
+30:
+solution  getScheduleSolution()
+ZHAO ET AL.: SLA-BASED PROFIT OPTIMIZATION RESOURCE SCHEDULING FOR BIG DATA ANALYTICS-AS-A-SERVICE PLATFORMS...
+1243
+Authorized licensed use limited to: the Leddy Library at the University of Windsor. Downloaded on April 15,2026 at 14:58:21 UTC from IEEE Xplore.  Restrictions apply. 
+
+mapping queries with minimal MDT ﬁrst to resources that
+can satisfy their SLAs and give them the Earliest Starting
+Time (EST). After the MDT-based scheduling, if there is any
+query not scheduled due to limited resource capacity, the
+newResourceHeuristic method is utilized to create newResour-
+ces to execute queries.
+The newResourceHeuristic method (Lines 30-32) applies a
+search heuristic, searchHeuristic, to ﬁnd the local cost-mini-
+mal resource conﬁguration to create new resources for
+queries. The set of all possible resource conﬁgurations for
+a requested BDAA is represented by a directed acyclic
+graph, Configuration ¼ ðNode; EdgeÞ, where Node is a
+set of nodes while Edge is a set of edges. A node is a pos-
+sible resource configurationi. An edge ðconfigurationi;
+configurationiþ1Þ
+indicates
+by
+applying
+a
+modiﬁcation,
+configurationiþ1 can be obtained from configurationi. The
+number of resource types available in the AaaS platform
+determines the number of possible modification s, which
+include: adding the cheapest resource, adding more expen-
+sive resource, utill adding the most expensive resource. The
+newResourceHeuristic method gets all possible modifications
+and iteratively applies each modification on current
+resource conﬁguration to generate a new conﬁguration to
+execute queries. It continues these steps until it ﬁnds the
+cost-minimal local-optimal resource conﬁguration, newRe-
+sources, to execute queries with guaranteed SLAs.
+The ProﬁtOptimizationScheduling method (Lines 33-39)
+ﬁrst gets updated information of heuResources, admQueries,
+and BDAA. Afterwards, it creates the ILP solver with
+deﬁned Objective Z and deﬁned Constraints (1), (2), (3), (4),
+(5), (6), (7), (8), (9), (10), (11), (12). Afterwards, it speciﬁes a
+timeout as the maximum time that the ILP solver can run.
+Then POScheduling utilizes the ILP solver to ﬁnd the optimal
+solution for the scheduling problem. If a feasible solution is
+found, it is then applied in the AaaS platform to provision
+resources and schedule queries. Otherwise, the MDT-based
+scheduling method is utilized to schedule admQueries to
+heuResources.
+3.2.2
+Heuristic Greedy Search (HGS) Algorithm
+The HGS scheduling algorithm is a combination of the
+selectResourceHeuristic method and the maximumDelayTime
+method. After admitting queries, the HGS scheduling algo-
+rithm ﬁrst ﬁnds heuResources by applying the selectResource-
+Heuristic method and heuristically schedules queries to
+heuResources by applying the maximumDelayTime schedul-
+ing method. If the POScheduling method of the PO schedul-
+ing
+algorithm
+cannot
+return
+any
+feasible
+scheduling
+solution with deﬁned timeout, the maximumDelayTime
+method is utilized as the scheduling method for PO to
+schedule queries in a heuristic way to avoid deadline viola-
+tions. In this particular scenario, the scheduling solution
+generated by the PO scheduling algorithm is the same as
+the HGS scheduling algorithm.
+3.2.3
+Adaptive ILP (AILP) Algorithm
+The AILP scheduling algorithm [6] is a two-phase resource
+scheduling algorithm, which aims to provide cost-effective
+resource scheduling solution to execute queries with SLA
+guarantees on budgets and deadlines. AILP provisions a
+scalable resource scheduling solution by applying a sched-
+uling method based on its ILP modeling for two scheduling
+phases. In Phase 1, AILP aims to maximize resource utiliza-
+tion of existing resources and scale resources down by ter-
+minating existing resources when resources are over-
+provisioned to minimize resource cost with SLA guarantees.
+In Phase 2, if there is any query not successfully scheduled
+due to the under-provision of resources, AILP scales
+resources up to execute queries by creating resources with
+minimal resource cost while satisfying SLAs. To avoid
+unpredicted arrival of large number of queries, AILP speci-
+ﬁes timeout to limit algorithm running time as latest time
+ILP-based scheduling method can run. If the timeout is
+exceeded when no feasible solution is returned, AILP
+utilizes maximumDelayTime scheduling method to make
+scheduling decision to avoid deadline violations. If the
+ILP-based scheduling method of AILP cannot return feasi-
+ble solution, AILP generates the same solution as the
+solution generated by running AGS scheduling algorithm
+directly in this particular scenario.
+3.2.4
+Adaptive Greedy Search (AGS) Algorithm
+The AGS scheduling algorithm [6] is a two-phase schedul-
+ing heuristic, which applies maximumDelayTime and search-
+Heuristic methods. After admission control, AGS schedules
+admQueries to existing resources by applying maximum
+DelayTime scheduling method in Phase 1. If created resour-
+ces have limited capacity to execute queries satisfying QoS
+requirements, AGS then creates new VMs to process queries
+in Phase 2 by applying the searchHeuristic method to ﬁnd
+local cost-minimal conﬁguration of resources, newResource,
+and schedules queries to newResource based on the new
+ResourceHeuristic method by applying a local cost-minimal
+resource conﬁguration.
+3.2.5
+Data Splitting-Based Proﬁt Optimization (SPO)
+Scheduling Algorithm
+For big data analytics with limited budgets or tight deadlines,
+such analytical requests cannot always be admitted due to
+QoS constraints. To tackle this challenge, data splitting-based
+scheduling algorithms can be applied to process a subset of
+the data and return analytical solutions with less costs and
+faster responses.
+SPO applies SLA and data splitting based scheduling
+that allocate resources to execute queries on smaller split
+data samples with SLA guarantees. SPO enables processing
+queries with tight deadlines and limited budgets and allows
+the analytical results to be returned in a timely manner
+with controllable costs. It also beneﬁts users who have cost-
+saving purposes and want timely results where accuracy is
+not a limited factor for the tasks. The presudo code of the
+SPO algorithm is shown in Algorithm 3.
+The scheduling scenario for SPO works as follows: users
+submit data analytics requests to the AaaS platform request-
+ing BDAAs to process their datasets. For each BDAA, the
+SPO scheduler ﬁrstly gets all the queries, resources running
+the BDAA, and the current resource conﬁguration of the
+AaaS platform as input data. The resource scheduler then
+calls the admission controller to admit queries. After admis-
+sion control, SPO schedule queries based on the SPO
+1244
+IEEE TRANSACTIONS ON CLOUD COMPUTING, VOL. 9, NO. 3, JULY-SEPTEMBER 2021
+Authorized licensed use limited to: the Leddy Library at the University of Windsor. Downloaded on April 15,2026 at 14:58:21 UTC from IEEE Xplore.  Restrictions apply. 
+
+Scheduling method, which adopts the ILP formulation of
+the resource scheduling problem with Objective Z subject to
+Constraints (1), (2), (3), (4), (5), (6), (7), (8), (9), (10), (11), (12),
+(13), (14).
+If there are queries that cannot be admitted due to con-
+straints of budgets and deadlines to process the large data-
+sets, the Admission Controller checks among these queries
+and tries to re-admit the approximate queries, apprQueries,
+which allow approximate processing. If applying the split-
+ting technique leads to satisfactory service delivery with
+respect to QoS requirements of queries, such queries are
+admitted. Afterwards, SPO scheduler generates the data
+analytics tasks, anaTasks, including data splitting tasks and
+data processing tasks, as shown in Lines 1-8. SPO then
+selects
+heuResources
+by
+applying
+selectResourceHeuristic
+method. Afterwards, the SPO scheduler applies SPOSched-
+uling to generate proﬁt-optimal scheduling solution, as
+shown in Lines 9-12.
+The SPOScheduling method (Lines 24-30) ﬁrst gets the up-
+to-date information regarding the BDAA, queries, and
+resources as input to the optimization solver. Then, SPO
+speciﬁes the objective and constraints of the scheduling prob-
+lem. SPO shares the same objective function as PO while
+accommodating additional constraints for data splitting and
+data dependencies. Finally, SPO utilizes the solver to gener-
+ate the optimized scheduling solution. If feasible solutions
+are genereated within scheduling timeout, the solution is
+applied to execute queries. Otherwise, the heuristic schedul-
+ing approach maximumDelayTime is utilized to generate alter-
+native solution to schedule resources (Lines 13-19). After
+applying the scheduling solution to execute queries, the SPO
+scheduler further conducts periodic check to scale resources
+down (Lines 20-21). After the current schedule, new periodic
+schedules are triggered as more online queries submitted by
+users arrive at the AaaS platform and need to be scheduled
+and processed with SLA guarantees.
+4
+PERFORMANCE EVALUATION
+The admission control and proﬁt optimization scheduling
+algorithms aim to maximize the proﬁt for AaaS platforms
+and deliver AaaS services with SLA guarantees. In this sec-
+tion, we conduct extensive experiments to evaluate the
+effectiveness and efﬁciency of the proposed algorithms in
+admission control, SLA guarantee, proﬁt enhancement, cost
+saving, resource conﬁguration, algorithm running time, and
+query admission.
+4.1
+Experiment Setup
+4.1.1
+Experiment Environment
+To evaluate the proposed admission control and resource
+scheduling algorithms, we build the AaaS framework in
+CloudSim [22], which is a discrete event simulation platform
+that enables modeling and simulation of cloud environments
+with on-demand resource provisions and conﬁgurations. It
+allows us to conduct repeatable and controllable evaluations
+of our proposed resource scheduling solutions without incur-
+ring expensive IaaS resource and BDAA costs. We utilize
+IBM ILOG CPlex 5.5 as the integer linear programming
+solver. CPlex is an optimization software package, which is
+an analytical decision support toolkit for rapid development
+and deployment of optimization models using mathematical
+and constraint programming [21]. We study algorithm perfor-
+mance for different scheduling scenarios including periodic
+scheduling that schedules queries for each Scheduling Inter-
+val (SI) and non-periodic (realtime) scheduling that schedules
+queries based on arrival times.
+4.1.2
+Resource Conﬁguration
+We simulate a datacenter that consists of 500 physical nodes.
+Each node has 50 CPU cores, 100 GB memory, 10 TB storage,
+and 10 GB/s bandwidth. We simulate ﬁve types of memory
+optimized VMs based on the Amazon EC2 VM model.
+The VMs are r3.large, r3.xlarge, r3.2xlarge, r3.4xlarge, and
+r3.8xlarge [13]. The resource conﬁguration to execute queries
+can be a single VM or a cluster of VMs. A resource is charged
+based on the hourly utilization. The unit for memory is GiB,
+for storage is GB, and for the resource cost is dollar/hour.
+4.1.3
+Data Analytics Workload
+The data analytics workload generated in this study is
+based on Big Data Benchmark [14] and a Normal Distri-
+bution (ND) based data splitting work [7]. The ND based
+data splitting technique [7] is utilized to split the original
+large datasets to obtain smaller split datasets to process.
+It provides signiﬁcant performance improvement com-
+pared to process the original datasets. The ND-splitting
+work details the resource conﬁgurations and times to
+split large datasets using ND based data splitting appli-
+cations while, the Big Data Benchmark details query
+processing times and the resource conﬁgurations using
+the Amazon EC2 Cloud to run queries on large datasets
+using different data analytic frameworks with given data
+size, data type, and data location. Based on the data
+splitting and processing information, we model the time
+for data processing and splitting on BDAAs under differ-
+ent resource conﬁgurations.
+Each query request contains the following information:
+Submission time which is generated using a Poisson process
+with 1 minute mean Poisson arrival interval. Query type
+includes scan query, aggregation query, join query, and
+User Deﬁned Function (UDF) query. BDAAs: 4 types of
+BDAAs are considered in our experiment that are built on
+Impala (disk) (BDAA1) [15], Shark (disk) (BDAA2) [16],
+Hive (BDAA3) [17], and Tez (BDAA4) [18]. Resource time is
+modeled based on the resource requirements of queries.
+As the performance of queries can vary, we model
+10 percent performance variation by introducing a variation
+coefﬁcient [19], which is generated from a Uniform Distri-
+bution with upper bound 1.1 and lower bound 0.9. User: we
+simulate 50 users who submit queries and request for
+BDAAs. Deadline is generated as the benchmark does not
+contain QoS requirements on deadline, so is budget. Two
+types of deadline are considered, tight deadline and loose
+deadline. Tight deadline is generated using a Normal Distri-
+bution (3, 1.4). Loose deadline is generated similarly using a
+Normal Distribution (8, 3) [20]. Similarly, Budget contains
+tight budget and loose budget. Tight budget is generated
+using a Normal Distribution (3, 1.4) while loose budget is
+generated using a Normal Distribution (8, 3).
+ZHAO ET AL.: SLA-BASED PROFIT OPTIMIZATION RESOURCE SCHEDULING FOR BIG DATA ANALYTICS-AS-A-SERVICE PLATFORMS...
+1245
+Authorized licensed use limited to: the Leddy Library at the University of Windsor. Downloaded on April 15,2026 at 14:58:21 UTC from IEEE Xplore.  Restrictions apply. 
+
+4.2
+SLA Based Resource Scheduling
+We generate an approximate 7 hours query workload on
+30 GB data that contains 400 queries. We conduct the real-
+time scheduling and periodic scheduling by varying the SI
+from 10 to 60 (unit: minute) to evaluate the algorithm
+performance regarding admission control, SLA guarantee,
+proﬁt enhancement, resource cost, resource conﬁguration
+and algorithm runtime.
+4.2.1
+Admission Control and SLA Guarantees
+We conduct the realtime scheduling and periodic schedul-
+ing by varying the SI from 10 to 60 (unit: minute) to evaluate
+the algorithm performance regarding admission control and
+SLA guarantee. We calculate the query admission rate and
+SLA guarantee rate based on the obtained results, as shown
+in Table 2. For realtime scheduling, the admission rate is
+84.0 percent. For periodic scheduling with SI varied from 10
+to 60, the admission rate decreases from 79.3 to 63.0 percent
+since the longer SI is the more queries are rejected due to
+deadline constraints. Thus, shorter SIs are recommended as
+more queries can be admitted to increase user satisfaction
+and enlarge market share. All admitted queries are success-
+fully executed with 100 percent SLA guarantees, which is
+the result of effective and efﬁcient admission control and
+resource scheduling. Service delivery with SLA guarantees
+helps to increase user satisfaction and reputation of AaaS
+providers.
+4.2.2
+Proﬁt Enhancement and Cost Saving
+We evaluate the mean and median resource costs and prof-
+its of PO compared to HGS, AILP, and AGS for all schedul-
+ing scenarios, as shown in Figure 3. Compared to HGS,
+AILP and AGS, PO saves 7 to 15 percent more resource
+costs respectively while creating 9 to 19 percent higher
+proﬁt. Moreover, the mean proﬁt created by PO is $104
+and the resource cost is $126. Compared to HGS, AILP,
+and AGS, the proﬁt of PO is [9, 10, 21 percent] higher while
+the resource cost is [7, 7, 15 percent] less. The above results
+indicate the overall performance advantages of PO in
+achieving higher cost saving and proﬁt enhancement
+objectives.
+1) Proﬁts and Resource Costs for Different Scenarios.
+We detail the performance evaluation of PO in different
+scheduling scenarios, as shown in Fig. 4. For realtime and
+periodic scheduling, results indicate that PO creates the
+highest proﬁt and generates the least cost while AGS per-
+forms the opposite. As an optimization algorithm, PO per-
+forms signiﬁcantly better than AILP to generate proﬁt
+optimization solutions. As a heuristic algorithm, HGS per-
+forms signiﬁcantly better than AGS that serves as a suitable
+alternative algorithm to deliver cost-effective scheduling
+solutions for extreme large-scale arrivals of queries. From
+this section on, we do not include AGS and AILP in the
+evaluation for simplicity purposes.
+The obtained results also show that PO creates higher
+proﬁt and generates less resource cost compared to HGS for
+both realtime and periodic scheduling. As SI increases, due
+to high query arrival rates, the scheduling decisions gener-
+ated by PO for some schedules may not be the optimal ones,
+which weaken the advantages of PO.
+SI can be adjusted to a suitable scale based on the arrival
+rate of queries for different workloads to enable PO to gen-
+erate timely proﬁt optimization solutions. To achieve higher
+cost saving and proﬁt enhancement, while admitting more
+queries, periodic scheduling with SI ¼ 40 is the best solu-
+tion to execute the query workload.
+2) Performance Evaluation for Different BDAAs. We
+also evaluate the efﬁciency of PO for each BDAA with
+SI ¼ 40. As shown in Fig. 5, for different BDAAs, the
+resource cost and proﬁt vary signiﬁcantly. This is caused by
+variations in the number of admitted queries and their
+dynamic needs for resources. The results show that PO cre-
+ates higher proﬁts and generates less resource costs for
+BDAA1, BDAA3, and BDAA4 compared to HGS. For
+BDAA2, the proﬁt and resource cost of PO and HGS are the
+same. We further analyze the results, which show it takes
+15.8 hours for PO to execute queries on 7r3.large VMs
+while it takes 12.4 hours for HGS to execute queries on 7r3.
+large and 1r3.xlarge VMs. If PO and HGS are used to run a
+TABLE 2
+Query Admission and SLA Guarantees
+Rate
+Real Time
+Periodic
+10
+20
+30
+40
+50
+60
+Admission
+84.0
+79.3
+74.8
+71.8
+68.5
+65.3
+63. 0
+SLA Guarantee
+100
+100
+100
+100
+100
+100
+100
+Fig. 3. Median proﬁts and resource costs of PO, HGS, AILP, and AGS
+algorithms.
+Fig. 4. Proﬁts and resource costs of PO, HGS, AGS, and AILP
+algorithms.
+1246
+IEEE TRANSACTIONS ON CLOUD COMPUTING, VOL. 9, NO. 3, JULY-SEPTEMBER 2021
+Authorized licensed use limited to: the Leddy Library at the University of Windsor. Downloaded on April 15,2026 at 14:58:21 UTC from IEEE Xplore.  Restrictions apply. 
+
+different workload, the performance ad vantages of PO for
+BDAA2 can be shown.
+3) Performance Evaluation for Single Schedules. We
+further conduct experiments to evaluate advantages of the
+PO in single schedule without accumulated results from
+previous schedules. As shown in Fig. 6, for different SIs, the
+proﬁt created by PO is higher while the resource cost is
+lower than HGS. We notice a trend in proﬁt enhancement
+with the increase of SIs as more queries are admitted and
+PO and HGS gain better knowledge to make scheduling
+decisions. Experiment results show that PO can generate
+less resource cost and create higher proﬁt not only for single
+schedules, but also for each BDAA and the entire query
+workload for all scheduling scenarios with detailed analysis
+shown. In summary, we conclude that PO is the best proﬁt
+optimization algorithm for the AaaS platform compared to
+HGS, AILP, and AGS for Scheduling Scenario 1.
+4.2.3
+Resource Conﬁguration
+The resource conﬁguration to execute the query workload
+of PO and HGS is shown in Table 3. The results show that,
+for all scheduling scenarios, PO can efﬁciently reduce the
+numbers of VMs. This is because that PO can make full utili-
+zation of the capacity of created resources. To achieve this,
+PO gives priority to utilize earlier created VMs, which maxi-
+mizes their utilization and helps to reduce the load in latter
+created VMs for VM termination during periodic checks.
+Creating more VMs will cause more delays [23] to serve
+requests that may cause deadline violations and higher
+costs. Thus, PO better serves our objectives of SLA guaran-
+tee and cost saving.
+4.2.4
+Algorithm Running Time (ART)
+We record the ART for PO, HGS, AILP and AGS to execute
+the query workload, as shown in Fig. 7. For realtime sched-
+uling, a small number of queries are scheduled based
+on their arrivals. Thus, ART is not a limiting factor for all
+algorithms since it only takes a few seconds to schedule
+queries. For periodic scheduling, it takes few seconds for
+AGS and HGS to schedule queries for all SIs. For AILP,
+ART increases rapidly with the increase of SI, which tends
+to reach a constant value, which is the timeout to run the
+algorithm. For PO, ART is greatly reduced compared to
+AILP. For 1 hour scheduling intervals, it takes an average
+237 seconds to ﬁnish scheduling, which is sufﬁcient fast to
+solve the scheduling problem. Thus, ART is not a limiting
+factor for PO to serve as the scheduling algorithm for the
+AaaS platform to solve the proﬁt optimization problem.
+In summary, we conclude that PO is the best proﬁt op-
+timization algorithm of the AaaS platform compared to
+HGS, AILP, and AGS for Scheduling Scenario 1, which can
+use less resources, generate less resource cost and create
+higher proﬁt not only for each schedule, but also for each
+BDAA and the entire query workload for all realtime and
+periodic scheduling.
+4.3
+SLA and Data Splitting Based Resource
+Scheduling
+To overcome the limits of Scheduling Scenario 2 that users
+have tight deadline and budget constraints of queries, data
+splitting and sampling are utilized to enable approximate
+query processing to trade-off accuracy for faster response
+times and reduced resource costs. It is noted that the SPO
+Fig. 6. Proﬁts and resource costs of PO and HGS algorithms for single
+schedules.
+TABLE 3
+Resource Conﬁguration
+Scheduling Scenario
+HGS
+PO
+Real Time
+56  r3. large
+36  r3. large
+SI ¼ 10
+50  r3. large
+33  r3. large
+SI ¼ 20
+42  r3. large
+30  r3. large
+SI ¼ 30
+37  r3. large
+25  r3. large
+1  r3. xlarge
+1  r3. xlarge
+SI ¼ 40
+32  r3. large,
+1  r3. xlarge
+26  r3. large
+SI ¼ 50
+27  r3. large
+22  r3. large,
+2  r3. xlarge
+2  r3. xlarge
+SI ¼ 60
+25  r3. large,
+19  r3. large,
+1  r3. xlarge
+1  r3. xlarge
+Fig. 5. Proﬁts and resource costs of different BDAAs.
+Fig. 7. ART of PO, HGS, AILP, and AGS algorithms.
+ZHAO ET AL.: SLA-BASED PROFIT OPTIMIZATION RESOURCE SCHEDULING FOR BIG DATA ANALYTICS-AS-A-SERVICE PLATFORMS...
+1247
+Authorized licensed use limited to: the Leddy Library at the University of Windsor. Downloaded on April 15,2026 at 14:58:21 UTC from IEEE Xplore.  Restrictions apply. 
+
+algorithm serves general purpose by supporting different
+data splitting and sampling techniques. To illustrate the efﬁ-
+ciency and effectiveness of our proposed SPO algorithm, we
+apply a normal distribution based data splitting method
+based on our previous work that supports splitting-based
+big data processing [7]. The ND splitting technique can be
+replaced by other efﬁcient data processing techniques as
+long as we can proﬁle the applications to know resource
+conﬁgurations and processing times of the data splitting
+and sampling methods so that the resource scheduler can
+make the SLA-based proﬁt optimization decisions. We will
+continue investigating efﬁcient data splitting and samping
+techniques to support the AaaS platforms as part of the
+future work.
+The ND-based splitting technique works on normal dis-
+tributed or near normal distributed datasets that contain at
+least one numeric column and more numeric columns. It
+applies a ND based splitting algorithm to generate split data-
+sets as data representatives to improve the accuracy of data
+analytics. The ND-based method can be efﬁciently applied to
+data analysis for medical datasets and enable AaaS platforms
+to return query results based on a single representative data
+sample. The representative character of ND-based datasets is
+evidenced by various medical datasets such as birth weight
+distribution and body mass index. Applying ND-based split-
+ting to analyze data representatives can provide relatively
+comprehensive and accurate information than randomly
+splitting. The inclusive character of ND-based data samples
+can improve time efﬁciency, reduce resource costs, and
+improve accuracy of big data analytics.
+The datasets utilized for ND based scheduling are health
+datasets, which contain the patient information and their
+hospital records provided by the online sources with
+records of patients’ marriage status, in-hospital duration,
+etc [7]. The original health datasets are not sufﬁciently large
+to apply the data splitting based scheduling method to
+show its performance beneﬁts. Thus, the required resources
+for data splitting are enlarged to a suitable scale based on
+the original datasets. In this study, we generate 1 TB query
+workload based on big data benchmark with splitting time
+of health data source as the experimental data. We conduct
+the following experiments to evaluate the performance of
+data splitting based resource scheduling and non data-
+splitting based resource scheduling.
+4.3.1
+Admission Control and SLA Guarantees
+As indicated in Fig. 8, the admission rates of SPO for differ-
+ent scheduling scenarios are in the range of [88, 90 percent],
+which is approximately 6 percent higher compared to the
+admission rates of PO in the range of [82, 84 percent]. The
+ﬂuctuation of the admission rates is caused by the Poisson
+arrival of the queries. The results show an overall signiﬁ-
+cantly increased query admission rate. The reason is that
+data-splitting based resource scheduling enables the AaaS
+platform to admit queries whose analytical solutions can
+not be generated due to tight deadlines and budgets con-
+straints. Higher query admission rates bring more beneﬁts
+to the AaaS platform with regards to market share enlarge-
+ment and proﬁt enhancement.
+4.3.2
+Proﬁt Enhancement and Cost Saving
+As shown in Fig. 9, we analyze the proﬁt enhancement and
+cost saving, which are the key performance indicators of
+scheduling algorithms SPO and PO.
+1) Average Proﬁts and Resource Costs. With a 6 percent
+higher acceptance rate, SPO creates an average proﬁt of
+$7272, which is 2.6 times that of PO with an average
+resource cost of $1033, which is 20 percent that of PO. The
+results indicate a signiﬁcant proﬁt enhancement and cost
+saving advantage of applying SPO. The reason is that data
+splitting based scheduling leads to higher query admission
+rate for higher query incomes as well as a lower resource
+costs by processing data samples, which subsequently lead
+to a signiﬁcant enhancement of proﬁt.
+2) Proﬁts and Costs for Different Scenarios. Results
+show SPO performs signiﬁcantly better than PO for all
+scheduling scenarios including realtime scheduling and
+periodic scheduling with SI from 10 minutes to 2 hours,
+the proﬁts generated by SPO are in the range of [$7217,
+$7351] while the proﬁts created by PO are in the range of
+[$2559, $2863] based on the Amazon EC2 pricing model.
+The resource costs of PO are [$5246, $4941] while the
+resource costs of SPO are [$1002, $1088].
+3) Performance Evaluation for Single Schedules. We
+further analyze the performance of PO and SPO for one
+schedule that is not affected by other scheduling intervals
+or accumulated results. As shown in Fig. 10, we can see a
+more rapid increasing trend of proﬁts created by SPO than
+PO while the resource costs of PO increase much higher
+than SPO as the scheduling interval increases from realtime
+to a period of 120 minutes. The results show that for the
+same scheduling intervals and same query arrival rates,
+SPO steadily outperforms PO in terms of cost saving and
+proﬁt
+enhancement
+for
+all
+scheduling
+scenarios.
+We
+also identify that for realtime scheduling and periodic
+Fig. 8. Admission rates of PO and SPO algorithms.
+Fig. 9. Resource costs and proﬁts of PO and SPO algorithms.
+1248
+IEEE TRANSACTIONS ON CLOUD COMPUTING, VOL. 9, NO. 3, JULY-SEPTEMBER 2021
+Authorized licensed use limited to: the Leddy Library at the University of Windsor. Downloaded on April 15,2026 at 14:58:21 UTC from IEEE Xplore.  Restrictions apply. 
+
+scheduling with SI of 10 and 20, the proﬁts created by PO
+includes negative values that indicate that the accepted
+queries can not fully utilize the cloud resources and the
+query income can not cover the resource costs. Thus, fully
+utilizing cloud resources with appropriate SI is important
+for proﬁt enhancement.
+4) Performance Evaluation for Different BDAAs. We
+use SI ¼ 80 as the scheduling interval to analyze the perfor-
+mance of PO and SPO. It is noted that at SI ¼ 80, SPO gener-
+ates the lowest proﬁts while PO creates the highest proﬁts.
+As shown in Fig. 11, as BDAA1 does not enable approxi-
+mate query processing due to its accuracy requirements, the
+proﬁt created by SPO is equal to the proﬁt created by PO.
+For BDAA2, BDAA3, and BDAA4, approximate query proc-
+essing is allowed to enable quicker responses and less
+resource costs without strict accuracy requirements. The
+query acceptance rates of different BDAAs are shown in
+Table 4. Even for the best performance of PO while at the
+worst performance of SPO, for BDAA2, BDAA3, and
+BDAA4, with higher admission rates 10.6, 11.0, and 6.4 per-
+cent accordingly, the proﬁts of SPO are 1.8, 1.9, and 1.7
+times improved over PO while the resource costs of SPO are
+5.3, 6.7, and 6.5 times lower than PO. We conclude that for
+the other SIs, SPO can better outperform PO for cost saving
+and proﬁt enhancement.
+4.3.3
+Resource Conﬁguration and Tight Deadline
+Constraints
+We identify that SPO always utilizes a higher number of
+cloud resources for both realtime scheduling and periodic
+scheduling, as shown in Table 5. The reason is that SPO
+admits a higher number of queries than PO. For queries
+with tight deadlines, new resources are required to execute
+them simultaneously to avoid deadline violations. PO and
+SPO both make optimal resource scheduling solutions. For
+PO, as a proﬁt optimization algorithm, it has already made
+the optimal scheduling solution to maximize the proﬁts,
+minimize query processing times, and maximize resource
+utilization based on relatively less admitted queries com-
+pared to SPO. For SPO, although data splitting based sam-
+pling enables the processing of smaller data samples to save
+resource costs whilst reducing the required resource times,
+the beneﬁts of resource time deduction due to less query
+processing can not beat the tight deadline constraints of
+query processing. Despite the fact that creating fewer
+resources is beneﬁtial and preferable for AaaS platforms,
+SPO creates a higher number of cloud resources for SLA
+guarantees to meet tight deadline requirements.
+4.3.4
+Workload Running Time
+Query workload running is the time for the AaaS platform to
+ﬁnish processing the entire query workload. Results indicate
+that SPO can ﬁnish processing the query workload within
+500 hours for both realtime and periodic scheduling, as
+shown in Fig. 12. However, for PO it takes from 1750 hours
+to 2500 hours to process the queries, which is 3 to 5 times that
+of SPO. The results show that SPO can signiﬁcantly reduce
+query processing times, which better serves the goals of
+Fig. 10. Proﬁts and resource costs of PO and SPO algorithms for single
+schedules.
+Fig. 11. Proﬁts and resource costs of PO and SPO algorithms for BDAAs
+with SI ¼ 80.
+TABLE 4
+Query Admission and SLA Guarantee
+Rate
+BDAA1
+BDAA2
+BDAA3
+BDAA4
+SPO
+65.3
+98.9
+99.0
+95.2
+PO
+65.3
+89.5
+89.2
+89.5
+TABLE 5
+Resource Conﬁguration
+Scheduling Scenario
+PO
+SPO
+Realtime
+63  r3. large
+75  r3. large
+SI ¼ 10
+59  r3. large
+72  r3. large
+SI ¼ 20
+57 r3. large
+66  r3. large
+SI ¼ 30
+60  r3. large
+63 r3. large
+SI ¼ 40
+53  r3. large
+58 r3. large
+SI ¼ 50
+52  r3. large
+59 r3. large
+SI ¼ 60
+51  r3. large
+55  r3. large
+SI ¼ 70
+50 r3. larger
+53  r3.larger
+1  r3.xlarge
+1  r3. xlarge
+SI ¼ 80
+49 r3. large
+53 r3. large
+SI ¼ 90
+49 r3.larger
+52 r3.large,
+1  r3. xlarge
+1  r3. xlarge
+SI ¼ 100
+43  r3.large,
+46 r3.large,
+2  r3. xlarge
+2  r3. xlarge
+SI ¼ 110
+41 r3.1large,
+45  r3.large,
+SI ¼ 120
+1  r3. xlarge
+1  r3.xlarge
+ZHAO ET AL.: SLA-BASED PROFIT OPTIMIZATION RESOURCE SCHEDULING FOR BIG DATA ANALYTICS-AS-A-SERVICE PLATFORMS...
+1249
+Authorized licensed use limited to: the Leddy Library at the University of Windsor. Downloaded on April 15,2026 at 14:58:21 UTC from IEEE Xplore.  Restrictions apply. 
+
+AaaS platforms for performance enhancements and improve
+user satisfaction.
+4.3.5
+Algorithm Running Time
+For ART, as shown in Fig. 13, we observe that both PO and
+SPO can produce scheduling solutions in a timely manner for
+both realtime and periodic scheduling with SI from 10 minutes
+and 120 minutes. The average ART for PO for different SIs
+is between [0.011, 0.767] seconds, while the ART for SPO is
+between [0.007, 225.313] seconds. We note that ART for PO
+exhibits a relatively stable trend while we notice a signiﬁcant
+increase in the average ART of SPO for SI ¼ 72. Through
+further analysis of the experiement results, we identify two
+scheduling intervals reached by the system-deﬁned schedul-
+ing timeout. The returned scheduling solutions of SPO may
+be sub-optimal solutions it has found thusfar to fulﬁll SLA
+requirements.
+For unexpected extreme high numbers of query arrivals,
+if there is no optimal solution found, both PO and SPO can
+switch to heuristic methods to generate scheduling solu-
+tions to fulﬁll tight deadline requirements as the heuristic
+algorithms that have been reﬁned multiple times can deliver
+near-optimal scheduling solutions. The ART is not a limit-
+ing factor for both SPO and PO to deliver timely and
+satisfactory scheduling solutions for all use cases.
+We focus on reducing the ART of the optimization sched-
+uling algorithms through a reﬁned problem formulation
+that introduces less variables and constraints in the ILP
+model with reduced input scales by applying several heu-
+ristic algorithms to input near-optimal resource conﬁgura-
+tions to PO and SPO. The reduced problem and input scale
+enable PO and SPO to generate timely proﬁt optimization
+scheduling solutions for large query arrivals.
+5
+RELATED WORK
+Analyzing big data to ﬁnd potential insights in the data is
+essential for individuals, organizations, and governments to
+make better decisions. AaaS platforms aim to deliver on-
+demand analytics services to various domains of users at
+lower cost with SLA guarantees in clouds. Our research
+focuses on providing effective and efﬁcient scheduling algo-
+rithms to support the AaaS platform. We compare our work
+with most related works and detail the comparisons based
+on various parameters in Table 6.
+Zhao et al. [6] propose an admission control and resource
+scheduling algorithm to increase proﬁts for AaaS providers
+by offering a cost-effective and SLA-guaranteed resource
+scheduling solution. Zhao et al. [8] further propose a proﬁt-
+optimization scheduling algorithm to maximize proﬁts for
+the AaaS platform while minimizing query response times
+with SLA guarantees. This work futher address the chal-
+lenge of resource scheduling for big data processing with
+limited deadlines and budgets by proposing a data-splitting
+and task-dependency based admission control and proﬁt
+optimization algorithm.
+Mian et al. [24] focus on resource provisioning for data
+analytic workloads in a public cloud that aims to ﬁnd cost-
+effective conﬁguration using heuristic scheduling algorithms.
+Their work schedules queries for one application while
+allowing SLA violations to trade-for a cheaper resource cost,
+which is different from our SLA guaranteeing perspective.
+Sfrent et al. [25] propose asymptotic scheduling for many
+tasks computing in big data platforms to maximize the num-
+ber of the jobs that can be processed and do not consider
+SLA guarantees. Sun et al. [5] propose a general-purpose
+analytic framework to provision cost-effective solution for
+multi-tenancy scenarios. However, they do not consider
+admission control or address scheduling algorithms with
+SLA guarantees.
+There are extensive works on workﬂow scheduling.
+Kllapi et al. [26] address the traditional workﬂow schedul-
+ing problem with time and money optimality. Zulkernine
+et al. [27] propose a conceptual architecture of cloud-based
+Analytics-as-a-Service, which does not consider admission
+control. Zhang et al. [28] propose multi-objective scheduling
+for many tasks to reduce overhead times and ﬁnding a near
+optimal solution.
+Resource provisioning for MapReduce tasks is a well-
+explored research area, which targets at a speciﬁc application
+model and does not serve general data analytics purposes.
+Tang et al. [29] propose a self-adaptive scheduling algorithm
+to reduce the start time of the reduce task of MapReduce.
+Alrokayan et al. [30] adopt Lambda architecture and focus
+Fig. 12. Workload running times of PO and SPO algorithms
+Fig. 13. ART of PO and SPO algorithms.
+TABLE 6
+Related Works
+Parameter
+6 7 8 24 26 30 31 27 49 50 51 52 53 Our Work
+AaaS
+Y N Y N N N N Y N N N N N
+Y
+Cost saving
+Y Y Y Y Y Y Y Y N Y Y Y Y
+Y
+Budget
+Y N Y N Y Y Y N N N N N N
+Y
+Deadline
+Y N Y N Y Y Y N N N N N N
+Y
+Admission control
+Y N Y N N N N N N N Y N N
+Y
+Scalable provision
+Y N Y Y N N N Y Y Y Y N N
+Y
+Automatic provision Y N Y N N N N N N N N Y N
+Y
+Data Locality Aware Y N Y Y N N Y N Y Y N N Y
+Y
+Data splitting
+N Y N N N N N N N N N N N
+Y
+Diff-dependencies
+N N N N N N N N N N N N N
+Y
+SLA guarantee
+Y N Y N N Y N Y N N Y Y N
+Y
+Proﬁt optimization
+N N Y N N N N N N N N N N
+Y
+Y: Covered; N: Not Covered.
+1250
+IEEE TRANSACTIONS ON CLOUD COMPUTING, VOL. 9, NO. 3, JULY-SEPTEMBER 2021
+Authorized licensed use limited to: the Leddy Library at the University of Windsor. Downloaded on April 15,2026 at 14:58:21 UTC from IEEE Xplore.  Restrictions apply. 
+
+their work on the batch layer to offer cost-aware and SLA-
+based algorithms for scheduling MapReduce tasks. Bicer et al.
+[31] propose a modeling-driven resource allocation frame-
+work to support time and cost sensitive execution for MapRe-
+duce applications.
+There have been serveral cloud enterprises delivering data
+analytics services. Amazon offers data analytics web services
+such as Elastic MapReduce [32] that is a service to enable eas-
+ily and cost-effectively process of big data. Amazon charges
+users for the cloud resources and the managed MapReduce
+services. Google offers Big Query [33], which is a fully man-
+aged Database-as-a-Service for large-scale data analytics. IBM
+provides BigInsights [34], which is a Hadoop-as-a-Service
+to offers the performance and security of an on-premises
+deployment.
+There have been a number of research works focus on
+leveraging Database-as-a-Service. Relational Cloud [35] is a
+project that investigates technologies and challenges related
+to Database-as-a-Service in clouds. Agarwal et al. [36] pro-
+pose BlinkDB for approximate query processing on large
+datasets with bounded response time and bounded errors.
+Narasayya et al. [37] propose SQLVM to provision multi-
+tenant
+relational
+Database-as-a-Service
+in
+multi-tenant
+Microsoft Azure SQL Database. Ahmad et al. [38] propose
+interaction-aware scheduling for report generation work-
+loads to maximize database performance.
+Li et al. [39] propose Big Provision, a provisioning frame-
+work, to effectively conﬁgure big data analytics systems.
+Chen et al. [40] address the challenges of delivering conti-
+nuous Analytics-as-a-Service for realtime events. Wong et al.
+[41] propose Thrifty for parallel processing Database-
+as-a-Service to achieve a lower total cost with SLA guaran-
+tees on query results.
+There are several widely used data analytics frameworks
+that support big data processing. The big data analytic
+frameworks that are studied in our work are Shark, Hive,
+Impala, and Tez/Stinger, which are built on top of the
+Hadoop Distributed File System [42]. Hadoop is an open-
+source software framework for reliable, scalable, and
+distributed computing. Shark is a new module in Spark,
+which allows interactive SQL on Hadoop systems [43].
+Spark is an open-source fast computing framework to pro-
+vide an easy-to-use programming model and leverages
+various applications [44]. Hive provides ad hoc query proc-
+essing and summarizing of data on a data warehouse infra-
+structure [45]. Impala brings scalable parallel database
+technology to Hadoop, enabling multi-tenancy and low-
+latency SQL queries [46]. Tez offers fast processing speed
+and data scalability to execute batch and interactive tasks
+[47]. Ousterhout et al. [48] systematically identify the perfor-
+mance bottlenecks of data analytics frameworks to quantify
+bottlenecks to enable researchers and practitioners make
+performance improvements.
+There have been a number of related works for resource
+scheduling focus on different perspectives, scenarios, and
+techniques. Wang et al. [49] proposed a data-aware work
+stealing technique that is able to achieve efﬁcient load bal-
+ancing with data-aware scheduling. Xia et al. [50] studied a
+collaboration- and fairness-aware big data management
+problem to fairly place continuously generated data to dis-
+tributed datacenters. Garg et al. [51] manage resources for
+heterogeneous workload in a datacenter and schedule
+resources for mixed workloads. Garcia et al. [52] introduce
+Cloudcompaas, a SLA-aware PaaS cloud platform to man-
+age the complete resource lifecycle and offers a generic SLA
+model for cloud providers. However, this work does not
+consider big data analytics but general cloud computing
+applications. Among the related research works, Gu et al.
+[53] study the cost minimization problem for big data
+processing in distributed cloud datacenters. However, this
+work does not consider QoS requirements, SLA, or cost
+optimization.
+There are an extensive number of works focusing on
+delivering speciﬁc Analytics-as-a-Services, which enriches
+the BDAAs and services of AaaS platforms. Zhang et al. [7]
+propose ND-based data splitting methods for large medical
+data processing in clouds. This approach splits large data-
+sets to obtain smaller representative data for processing
+thereby offering higher ﬂexibility, less resource costs, and
+faster response times. Tordini et al. [54], [55] proposed data
+splitting techniques to process next generation sequencing
+datasets for complex workﬂows, which keep a high level of
+query accuracy.
+6
+CONCLUSION AND FUTURE DIRECTIONS
+Resource scheduling has signiﬁcant meaning for AaaS plat-
+forms to maximize proﬁts while delivering satisfactory
+AaaS to users with SLA guarantees. We model and formu-
+late the data-splitting based resource scheduling problem.
+Moreover, we propose the admission control and proﬁt
+optimization resource scheduling algorithms, which enable
+big data analytics with limited budgets and tight deadlines
+and provide proﬁt optimized scheduling solutions with
+minimized query times and SLA guarantees. Furthermore,
+we conduct extensive experiments to evaluate the perfor-
+mance of the proposed algoritms under different schedul-
+ing scenarios including realtime and periodic scheduling
+with varied SIs. Experimental evaluations show the admis-
+sion control algorithm allows effective query admission
+while PO performs signiﬁcantly better than HGS, AILP,
+and AGS in cost saving and proﬁt enhancement in single
+schedule, for each BDAA, and for the entire query work-
+load. PO can better serve the proﬁt maximization objectives
+while delivering AaaS services with SLA guarantees for
+query processing with full accuracy requirements for
+Scheduling Scenario 1.
+Moreover, we evaluate the performance of SPO with
+comparison to PO. The results show SPO signiﬁcantly
+increases the proﬁts, reduces the resource costs, increases
+query admission rates, and decreases query processing
+times. SPO is a promising scheduling algorithm that lever-
+ages big data processing with limited budgets and tight
+deadlines and enables users to obtain time and cost effective
+analytical solutions for efﬁcient decision making for Sched-
+uling Scenario 2.
+As part of the future work, we will continue working on
+1) studying approximation query processing, 2) proposing
+effective data splitting and sampling techniques, 3) propos-
+ing SLA-based resource scheduling algorithms to allow
+query processing on large datasets with faster response
+times and reduced resource costs.
+ZHAO ET AL.: SLA-BASED PROFIT OPTIMIZATION RESOURCE SCHEDULING FOR BIG DATA ANALYTICS-AS-A-SERVICE PLATFORMS...
+1251
+Authorized licensed use limited to: the Leddy Library at the University of Windsor. Downloaded on April 15,2026 at 14:58:21 UTC from IEEE Xplore.  Restrictions apply. 
+
+ACKNOWLEDGMENTS
+The authors wish to thank Dr. Bingsheng He and the
+reviewers of 2016 IEEE International Conference on Big
+Data for their helpful feedback.
+REFERENCES
+[1]
+S. Lavalle, E. Lesser, R. Shockley, M. S. Hopkins, and N. Kruschwitz,
+“Big data, analytics and the path from insights to value,” MIT Sloan
+Mana. Rev., vol. 52, no. 2, pp. 21–32, 2011.
+[2]
+X. Jin, B. W. Wah, X. Cheng, and Y. Wang, “Signiﬁcance and chal-
+lenges of big data research,” Big Data Res., vol. 2, no. 2, pp. 59–64,
+2015.
+[3]
+I. A. T. Hashem, I. Yaqoob, N. Badrul Anuar, S. Mokhtar, A. Gani,
+and S. Ullah Khan, “The rise of ‘big data’ on cloud computing:
+Review and open research issues,” Inf. Syst., vol. 47, pp. 98–115, 2014.
+[4]
+C. Ji, Y. Li, W. Qiu, U. Awada, and K. Li, “Big data processing in
+cloud computing environments,” in Proc. Int. Symp. Pervasive Syst.
+Algorithms Netw., 2012, pp. 17–23.
+[5]
+X. Sun, B. Gao, L. Fan, and W. An, “A cost-effective approach to
+delivering analytics as a service,” in Proc. IEEE 19th Int. Conf. Web
+Services, 2012, pp. 512–519.
+[6]
+Y. Zhao, R. N. Calheiros, G. Gange, K. Ramamohanarao, and
+R. Buyya, “SLA-Based resource scheduling for big data analytics
+as a service in cloud computing environments,” in Proc. 44th IEEE
+Int. Conf. Parallel Process., 2015, pp. 510–519.
+[7]
+H. Zhang, Y. Zhao, C. Pang, and J. He, “Splitting large medical
+data sets based on normal distribution in cloud environment,”
+IEEE Trans. Cloud Comput., 2015, doi: 10.1109/TCC.2015.2462361.
+[8]
+Y. Zhao, R. N. Calheiros, J. Bailey, and R. Sinnott, “SLA-based
+proﬁt optimization for resource management of big data analytics-
+as-a-service platforms in cloud computing environments,” in Proc.
+IEEE Int. Conf. Big Data, 2016, pp. 432–441.
+[9]
+[Online]. Available: http://spark.apache.org
+[10] R. Benayoun, J. De Montgolﬁer, J. Tergny, and O. Laritchev,
+“Linear programming with multiple objective functions: Step
+method (STEM),” Math. Program., vol. 1, pp. 366–375, 1971.
+[11] M. Benichou, J. Gauthier, and P. Girodet, “Experiments in mixed-
+integer linear programming,” Math. Program., vol. 1, no. 1, pp. 76–94,
+1971.
+[12] H. Isermann, “Linear lexicographic optimization,” OR Spektrum,
+vol. 4, pp. 223–228, 1982.
+[13] [Online]. Available: http://aws.amazon.com/ec2/instance-types/
+[14] [Online]. Available: https://amplab.cs.berkeley.edu/benchmark/
+[15] M. K. A. B. V. Bittorf, T. Bobrovytsky, C. C. A. C. J. Erickson, M. G. D.
+Hecht, M. J. I. J. L. Kuff, D. K. A. Leblang, N. L. I. P. H. Robinson,
+D. R. S. Rus, J. R. D. T. S. Wanderman, and M. M. Yoder, “Impala: A
+modern, open-source SQL engine for hadoop,” in Proc. 7th Biennial
+Conf. Innovative Data Syst. Res., 2015.
+[16] S. Shenker, I. Stoica, M. Zaharia, and R. Xin, “Shark: SQL and rich
+analytics at scale,” in Proc. ACM SIGMOD Int. Conf. Mana. Data,
+2013, pp. 13–24.
+[17] A. Thusoo, J. Sarma, N. Jain, and Z. Shao, “Hive: A warehousing
+solution over a map-reduce framework,” Proc. VLDB Endowment,
+vol. 2, no. 2, pp. 1626–1629, 2009.
+[18] B. Saha, H. Shah, S. Seth, G. Vijayaraghavan, A. Murthy, and C. Curino,
+“Apache tez: A unifying framework for modeling and building data
+processing applications,” in Proc. ACM SIGMOD Int. Conf. Mana. Data,
+2015, pp. 1357–1369.
+[19] J. Schad, J. Dittrich, and J.-A. Quiane-Ruiz, “Runtime measure-
+ments in the cloud: Observing, analyzing, and reducing variance,”
+Proc. VLDB Endow, vol. 3, no. 1–2, pp. 460–471, 2010.
+[20] R. N. Calheiros and R. Buyya, “Cost-effective provisioning and
+scheduling of deadline-constrained applications in hybrid clouds,”
+in Proc. Int. Conf. Web Inf. Syst. Engineering, 2012, pp. 171–184.
+[21] [Online]. Available: https://www.ibm.com/developerworks/
+downloads/ws/ilogcplex/
+[22] R. N. Calheiros, R. Ranjan, A. Beloglazov, C. A. F. De Rose, and
+R. Buyya, “CloudSim: A toolkit for modeling and simulation of
+cloud computing environments and evaluation of resource pro-
+visioning algorithms,” Softw.: Practice Experience, vol. 41, no. 1,
+pp. 23–50, 2011.
+[23] M. Mao and M. Humphrey, “A performance study on the VM
+startup time in the cloud,” in Proc. IEEE Fifth Int. Conf. Cloud Com-
+put., 2012, pp. 423–430.
+[24] R. Mian, P. Martin, and J. Vazquez-Poletti, “Provisioning data
+analytic workloads in a cloud,” Future Generation Comput. Syst.,
+vol. 29, no. 6, pp. 1452–1458, 2013.
+[25] A. Sfrent and F. Pop, “Asymptotic scheduling for many task com-
+puting in big data platforms,” Inf. Sci., vol. 319, pp. 71–91, 2015.
+[26] H. Kllapi, E. Sitaridi, M. M. Tsangaris, and Y. Ioannidis, “Schedule
+optimization for data processing ﬂows on the cloud,” in Proc. Int.
+Conf. Mana. Data - SIGMOD, 2011, pp. 289–300.
+[27] F. Zulkernine, P. Martin, Y. Zou, M. Bauer, F. Gwadry-Sridhar,
+and A. Aboulnaga, “Towards cloud-based analytics-as-a-service
+(CLAaaS) for big data analytics in the cloud,” in Proc. IEEE Int.
+Congr. Big Data, 2013, pp. 62–69.
+[28] F. Zhang, J. Cao, K. Li, S. U. Khan, and K. Hwang, “Multi-objective
+scheduling of many tasks in cloud platforms,” Future Generation
+Comput. Syst., vol. 37, pp. 309–320, 2014.
+[29] Z. Tang, L. Jiang, J. Zhou, K. Li, and K. Li, “A self-adaptive sched-
+uling algorithm for reduce start time,” Future Generation Comput.
+Syst., vol. 43–44, pp. 51–60, 2015.
+[30] M. Alrokayan, A. Vahid Dastjerdi and R. Buyya, “SLA-aware provi-
+sioning and scheduling of cloud resources for big data analytics,” in
+Prof. IEEE Int. Conf. Cloud Comput. Emerging Markets, 2014, pp. 1–8.
+[31] T. Bicer, D. Chiu, and G. Agrawal, “Time and cost sensitive data-
+intensive computing on hybrid clouds,” in Proc. 12th IEEE/ACM
+Int. Symp. Cluster Cloud Grid Comput., 2012, pp. 636–643.
+[32] [Online]. Available: https://aws.amazon.com/elasticmapreduce/
+[33] [Online]. Available: https://Cloud.google.com/bigquery/
+[34] [Online]. Available: http://www-03.ibm.com/software/products/
+en/ibm-biginsights-for-apache-hadoop
+[35] [Online]. Available: http://relationalcloud.com
+[36] S. Agarwal, B. Mozafari, A. Panda, H. Milner, S. Madden, and
+I. Stoica, “BlinkDB: Queries with bounded errors and bounded
+response times on very large data,” in Proc. 8th ACM Eur. Conf.
+Comput. Syst., 2013, Art. no. 29.
+[37] V. Narasayya, S. Das, M. Syamala, B. Chandramouli, and
+S. Chaudhuri, “SQLVM: Performance isolation in multi-tenant
+relational database-as-a-service,” in Proc. 6th Biennial Conf. Innova-
+tive Data Syst. Res., 2013.
+[38] M.
+Ahmad,
+A.
+Aboulnaga,
+S.
+Babu,
+and
+K.
+Munagala,
+“Interaction-aware scheduling of report-generation workloads,”
+VLDB J., vol. 20, no. 4, pp. 589–615, 2011.
+[39] H. Li, K. Lu, and S. Meng, “BigProvision: A provisioning frame-
+work for big data analytics,” IEEE Netw., vol. 29, no. 5, pp. 50–56,
+Sep.-Oct. 2015.
+[40] Q. Chen, M. Hsu, and H. Zeller, “Experience in continuous analyt-
+ics as a service,” in Proc. 14th Int. Conf. Extending Database Technol.,
+2011, Art. no. 509.
+[41] P. Wong, Z. He, and E. Lo, “Parallel analytics as a service,” in Proc.
+Int. Conf. Mana. Data - SIGMOD, 2013, Art. no. 25.
+[42] K. Shvachko, H. Kuang, S. Radia, and R. Chansler, “The hadoop
+distributed ﬁle system,” in Proc. IEEE 26th Symp. Mass Storage
+Syst. Technol., 2010, pp. 1–10.
+[43] C. Engle, A. Lupher, R. Xin, M. Zaharia, M. J. Franklin, S. Shenker,
+and I. Stoica, “Shark,” in Proc. Int. Conf. Mana. Data, 2012, Art. no. 689.
+[44] M. Zaharia, M. Chowdhury, T. Das, A. Dave, and J. Ma, “Fast and
+interactive analytics over hadoop data with spark,” USENIX
+Login, vol. 37, no. 4: pp. 45–51, 2012.
+[45] A. Thusoo, J. Sen Sarma, N. Jain, Z. Shao, P. Chakka, S. Anthony,
+H. Liu, P. Wyckoff, and R. Murthy, “Hive,” Proc. VLDB Endow-
+ment, vol. 2, no. 2, pp. 1626–1629, Aug. 2009.
+[46] T. Liu, M. Martonosi, T. Liu, and M. Martonosi, “Impala: A mid-
+dleware system for managing autonomic, parallel sensor systems
+ting,” in Proc. 9th ACM SIGPLAN Symp. Principles Practice Parallel
+Program., 2003, Art. no. 107.
+[47] [Online]. Available: http://zh.hortonworks.com/hadoop/tez/
+[48] K. Ousterhout, P. Wendell, M. Zaharia, and I. Stoica, “Sparrow :
+Distributed, low latency scheduling,” in Proc. ACM Symp. Operat-
+ing Syst. Principles, 2013, pp. 69–84k.
+[49] K. Wang, X. Zhou, T. Li, D. Zhao, M. Lang, and I. Raicu,
+“Optimizing load balancing and data-locality with data-aware
+scheduling,” in Proc. IEEE Int. Conf. Big Data, 2015, pp. 119–128.
+[50] Q. Xia, Z. Xu, W. Liang, and A. Y. Zomaya, “Collaboration- and
+fairness-aware big data management in distributed clouds,” IEEE
+Trans. Parallel Distrib. Syst., vol. 27, no. 7, pp. 1941–1953, Jul. 2015.
+[51] S. K. Garg, A. N. Toosi, S. K. Gopalaiyengar, and R. Buyya,
+“SLA-based virtual machine management for heterogeneous
+workloads in a cloud datacenter,” J. Netw. Comput. Appl., vol. 45,
+pp. 108–120, 2014.
+1252
+IEEE TRANSACTIONS ON CLOUD COMPUTING, VOL. 9, NO. 3, JULY-SEPTEMBER 2021
+Authorized licensed use limited to: the Leddy Library at the University of Windsor. Downloaded on April 15,2026 at 14:58:21 UTC from IEEE Xplore.  Restrictions apply. 
+
+[52] A. G. Garcia, I. Blanquer Espert, and V. Hernandez Garcıa, “SLA-
+driven dynamic cloud resource management,” Future Generation
+Comput. Syst., vol. 31, pp. 1–11, 2014.
+[53] L. Gu, D. Zeng, P. Li, and S. Guo, “Cost minimization for big data
+processing in geo-distributed data centers,” IEEE Trans. Emerging
+Topics Comput., vol. 2, no. 3, pp. 314–323, Sep. 2014.
+[54] F. Tordini, M. Aldinucci, P. Viviani, I. Merelli, and P. Lio, “Scientiﬁc
+workﬂows on clouds with heterogeneous and preemptible
+instances,” in Proc. Int. Conf. Parallel Comput., 2017, pp. 605–614.
+[55] F. Tordini, “A cloud solution for multiomics data integration,” in
+Proc. 16th IEEE Int. Conf. Scalable Comput. Commun., 2016, pp. 559–566.
+Yali Zhao received the bachelor’s degree in soft-
+ware engineering, the master’s degree in software
+engineering, the master’s degree in enterprise
+computing
+and
+engineering,
+she
+is
+currently
+working toward the PhD degree in the University of
+Melbourne, Australia. Her research interest is SLA-
+based resource scheduling for big data analytic-as-
+a-service in cloud computing environments.
+Rodrigo N. Calheiros is a lecturer in the School
+of Computing, Engineering and Mathematics,
+Western Sydney University, Australia. He works
+in the ﬁeld of Cloud computing and related areas
+since 2008, and since then he carried out R&D
+supporting research in the area. His research
+interests also include big data, internet of things,
+and their application.
+Graeme Gange is a lecturer at Monash Univer-
+sity. His research interests include discrete opti-
+mization, particularly integration of constraint
+programming, SAT and SMT techniques, as well
+as development of static analysis and program
+veriﬁcation techniques.
+James Bailey received the PhD degree from the
+University of Melbourne, in 1998. He is currently an
+Australian Research Council Future fellow in
+the Department of Computing and Information
+Systems, University of Melbourne. He has previ-
+ously held appointments at Kings College, Birkbeck
+College, and The University of London. His
+research interests are in the area of data mining
+and machine learning, with a focus on both funda-
+mental topics such as contrast pattern mining
+and data clustering, as well as application
+aspects in areas such as health informatics and
+bioinformatics.
+Richard O. Sinnott received the BSc degree
+in theoretical physics (Hons), the MSc degree in
+software engineering and the PhD degree in
+computing science. He is the director of eRe-
+search at the University of Melbourne and profes-
+sor of Applied Computing Systems. He has been
+lead software engineer/architect on an extensive
+portfolio of national and international projects,
+with speciﬁc focus on research domains requiring
+ﬁner-grained access control (security). Prior to
+coming to Melbourne, he was the Technical
+director of the UK National e-Science Centre; director of e-Science at
+the University of Glasgow; deputy director (Technical) for the Bioinfor-
+matics Research Centre also at the University of Glasgow, and for a
+while the technical director of the National Centre for e-Social Science.
+He has more than 300 peer-reviewed publications across a range of
+computing and application-speciﬁc domains.
+" For more information on this or any other computing topic,
+please visit our Digital Library at www.computer.org/csdl.
+ZHAO ET AL.: SLA-BASED PROFIT OPTIMIZATION RESOURCE SCHEDULING FOR BIG DATA ANALYTICS-AS-A-SERVICE PLATFORMS...
+1253
+Authorized licensed use limited to: the Leddy Library at the University of Windsor. Downloaded on April 15,2026 at 14:58:21 UTC from IEEE Xplore.  Restrictions apply. 
