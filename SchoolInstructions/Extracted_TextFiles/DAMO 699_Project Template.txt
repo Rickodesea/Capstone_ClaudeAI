@@ -1,0 +1,674 @@
+DAMO 699 – Capstone Project 
+Final Report Template 
+ 
+Title Page (Cover Page) 
+Project Title 
+Course: DAMO 699 – Capstone Project 
+Program: Master of Data Analytics 
+Student Names 
+Group Number 
+Supervisor Name 
+Institution: University of Niagara Falls 
+Date of Submission 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+Table of Contents 
+(Generated automatically in Word after headings are applied) 
+Example: 
+1. Introduction 
+2. Problem Definition and Analytical Objectives 
+3. Literature and Context 
+4. Data Description and Preparation 
+5. Analytical Methodology 
+6. Results and Findings 
+7. Discussion and Implications 
+8. Limitations 
+9. Conclusion and Recommendations 
+10. References 
+11. Appendices 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Table of Figures 
+(Insert automatically in Word if figure captions are used) 
+Example: 
+Figure 1: Dataset Overview 
+Figure 2: Data Cleaning Workflow 
+Figure 3: Model Performance Comparison 
+Figure 4: Key Results Visualization 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Table of Tables 
+Example: 
+Table 1: Summary Statistics 
+Table 2: Feature Importance Results 
+Table 3: Model Performance Metrics 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+1. Introduction 
+Purpose of the Study 
+Introduce the project and explain the general purpose of the analysis. 
+Explain: 
+• 
+the context of the problem 
+• 
+why the topic is important 
+• 
+who the relevant stakeholders are 
+Structure of the Report 
+Briefly explain how the report is organized. 
+Example: 
+This report presents the analytical investigation conducted for the capstone project. The report 
+begins with the problem context and analytical objectives, followed by a description of the data, 
+analytical methods, results, and recommendations. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+2. Problem Definition and Analytical Objectives 
+Problem Context 
+Clearly describe the real-world problem or decision-making challenge. 
+Examples: 
+• 
+customer churn 
+• 
+demand forecasting 
+• 
+fraud detection 
+• 
+operational inefficiency 
+• 
+market segmentation 
+Research Question or Analytical Objective 
+State the main analytical objective. 
+Examples: 
+• 
+identifying key drivers of an outcome 
+• 
+predicting future behavior 
+• 
+detecting patterns in data 
+• 
+evaluating performance metrics 
+Hypotheses (if applicable) 
+If the project uses statistical inference, state the hypotheses. 
+Example: 
+H1: Advertising spending is positively associated with sales. 
+If the project uses machine learning or predictive analytics, hypotheses may not be required. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+3. Literature and Context 
+(Optional but recommended for graduate-level work) 
+Background Context 
+Provide brief background information on the topic. 
+Explain: 
+• 
+industry context 
+• 
+prior research 
+• 
+analytical approaches used in similar problems 
+Conceptual Framework 
+Explain how analytics helps address the problem. 
+Example: 
+• 
+predictive analytics for forecasting 
+• 
+clustering for segmentation 
+• 
+regression for identifying relationships 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+4. Data Description and Preparation 
+Data Sources 
+Describe where the data came from. 
+Examples: 
+• 
+open data portals 
+• 
+company datasets 
+• 
+survey data 
+• 
+APIs 
+Include: 
+• 
+time range 
+• 
+number of observations 
+• 
+variables collected 
+Data Cleaning and Preparation 
+Explain steps taken to prepare the data. 
+Examples: 
+• 
+handling missing values 
+• 
+removing duplicates 
+• 
+transforming variables 
+• 
+feature engineering 
+• 
+normalization or scaling 
+Include relevant visuals or summary tables. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+5. Analytical Methodology 
+Analytical Approach 
+Explain the analytical methods used in the project. 
+Examples: 
+• 
+regression analysis 
+• 
+classification models 
+• 
+clustering algorithms 
+• 
+time-series forecasting 
+• 
+simulation models 
+Explain why the chosen methods are appropriate for the problem. 
+ 
+Model Development (if applicable) 
+Explain how models were built. 
+Include: 
+• 
+training and testing approach 
+• 
+variable selection 
+• 
+model tuning 
+ 
+Model Evaluation 
+Explain how results were evaluated. 
+Examples: 
+• 
+accuracy 
+• 
+RMSE 
+• 
+precision/recall 
+• 
+AUC 
+• 
+statistical significance 
+ 
+ 
+ 
+
+6. Results and Findings 
+Present the key findings of the analysis. 
+Use: 
+• 
+charts 
+• 
+graphs 
+• 
+tables 
+• 
+model outputs 
+Each figure should include a short interpretation. 
+Example: 
+Figure 4 shows that the model achieved an accuracy of 82%, indicating strong predictive 
+performance. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+7. Discussion and Implications 
+Explain what the results mean. 
+Discuss: 
+• 
+key insights 
+• 
+interpretation of patterns 
+• 
+implications for decision-makers 
+Example: 
+The results indicate that customer engagement metrics are strong predictors of churn risk. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+8. Limitations 
+Discuss the limitations of the study. 
+Examples: 
+• 
+limited data 
+• 
+potential bias 
+• 
+model assumptions 
+• 
+time constraints 
+This section shows analytical maturity. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+9. Conclusion and Recommendations 
+Summarize the project. 
+Include: 
+• 
+main findings 
+• 
+key insights 
+• 
+practical recommendations 
+Example: 
+Organizations should prioritize improving customer engagement metrics to reduce churn risk. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+10. References 
+All sources must follow APA formatting. 
+Example: 
+Smith, J. (2022). Predictive analytics in retail forecasting. Journal of Data Science, 14(3), 245–
+260. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+11. Appendices 
+Include supporting materials that are too detailed for the main report. 
+Examples: 
+Appendix A: Data Dictionary 
+Appendix B: SQL Queries 
+Appendix C: Code Snippets 
+Appendix D: Additional Visualizations 
+Appendix E: Model Output Tables 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+Recommended Report Length 
+Final report: 20 – 25 pages (main report) 
+Include: 
+• 
+charts 
+• 
+tables 
+• 
+visualizations 
+• 
+analytical explanations 
+Professional Writing Expectations 
+Students should: 
+• 
+write in clear academic language 
+• 
+avoid excessive technical jargon without explanation 
+• 
+interpret results rather than only presenting output 
+ 
+Submission Requirements 
+The final submission must include: 
+1. Final Report (PDF or Word) 
+2. Clean dataset 
+3. Code or notebooks 
+4. Visualizations or dashboards 
+5. GitHub repository (if applicable) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+ 
+ 
+ 
+ 
+ 

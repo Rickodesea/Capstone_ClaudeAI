@@ -1,0 +1,202 @@
+DAMO 699:  Capstone Project  
+ 
+Poster Presentation Guidelines 
+The capstone poster presentation is the final stage of your applied analytics project. It is 
+designed to simulate a professional research or industry showcase, where you 
+communicate complex analytical work clearly, concisely, and visually. 
+Your poster should demonstrate not only technical competence, but also clarity of 
+reasoning, analytical rigor, and professional communication. 
+ 
+1. Poster Size & Format Requirements 
+• 
+Recommended Size: 
+o 36 inches (height) × 48 inches (width)  
+o Landscape orientation is strongly recommended. 
+• 
+Alternative Acceptable Size (if printing constraints apply): 
+o 24 inches × 36 inches (minimum acceptable size) 
+• 
+Format: 
+o Printed, full-color poster or black and white poster  
+o Professional layout (PowerPoint, Canva, Adobe Illustrator, or similar 
+software) 
+o Fonts must be readable from at least 3–4 feet away 
+ 
+2. Required Poster Sections 
+Your poster must include the following clearly labeled sections: 
+1. Title, including:  
+• 
+Project title 
+• 
+Your name(s) 
+• 
+Course name 
+2. Research Problem / objective of your 
+capstone project 
+• This will vary depending on 
+your project, please consult 
+with your supervisor if 
+unsure.  
+
+• 
+Instructor name 
+• 
+Institution (students are free 
+to use the UNF logo) 
+• 
+Date 
+ 
+ 
+3. Research Question(s) and/or 
+Hypotheses 
+ 
+4. Data Description or preprocessing 
+performed 
+ 
+5. Analytical approach used (e.g., 
+regression, classification, clustering, 
+forecasting, etc.) 
+• 
+Justification for chosen method 
+• 
+Model diagnostics (if applicable) 
+ 
+6. Key Findings 
+• 
+Major statistical results 
+• 
+Significant relationships 
+• 
+Model performance metrics 
+• 
+Clear interpretation (not just output 
+screenshots) 
+ 
+7. Visualizations 
+• 
+Graphs must be: 
+o Clean 
+o Properly labeled 
+o Interpreted 
+• 
+Every chart must support a claim. 
+ 
+8. Strategic / Practical Implications 
+• 
+What do the findings mean? 
+• 
+What should decision-makers do? 
+ 
+9. Limitations & Future Research 
+• 
+Data limitations 
+• 
+Model limitations 
+• 
+Suggestions for future 
+improvements 
+ 
+ 
+ 
+
+Avoid overcrowding with raw output. Present summarized results visually. 
+ 
+ 
+3. Design Expectations 
+Your poster should: 
+• 
+Use consistent formatting 
+• 
+Avoid dense paragraphs 
+• 
+Use bullet points for clarity 
+• 
+Maintain visual balance (text vs visuals) 
+• 
+Use high contrast between background and text 
+• 
+Avoid excessive decorative elements 
+• 
+Think professional conference standard. 
+ 
+4. Presentation Expectations 
+• 
+Each group will stand beside their poster. 
+• 
+You must be prepared to: 
+o Explain your project clearly in 5–7 minutes 
+o Answer questions  
+o Defend your choices 
+o Interpret results without reading directly from the poster 
+• 
+Professional attire is expected. 
+ 
+5. Setup Requirement (Mandatory) 
+All students must: 
+• 
+Arrive at least 30 minutes early on the day of the presentation 
+• 
+Use this time to: 
+
+o Set up your poster 
+o Ensure proper placement 
+o Test any additional materials (if applicable) 
+o Late arrival may impact your presentation grade. 
+ 
+6. Assessment Criteria (High-Level Overview) 
+Your poster presentation will be evaluated based on: 
+• 
+Analytical rigor 
+• 
+Clarity of research design 
+• 
+Proper use of data 
+• 
+Interpretation accuracy 
+• 
+Visual communication quality 
+• 
+Professionalism during Q&A 
+• 
+Overall coherence of the project 
+ 
+Poster Printing: TPH The Printing House  
+Location: 6700 Morrison St Unit 3, Niagara Falls, Canada  
+(walking distance from campus)  
+Price: $25 +tax for coloured poster  
+ 
+Format: Please save your file as a PDF  
+IMPORTANT: Must bring your poster to the printer no later than Wednesday March 18 in 
+order to pick up the poster by Friday. Please note that they are not open on the weekend, 
+so students presenting in the morning, you will need to pick up your poster by Friday.  
+ 
+*Please note you are not required to use this location, but can use another location of 
+your choice* 
+ 
+ 
+ 
+ 
+ 
+
+If you are using PowerPoint for the presentation: 
+ 
+ 
+Template source and guide: https://www.posternerd.com/sciposters-
+templates?srsltid=AfmBOor6Xvxv7SKLKTW-3opQb8FbudpO7pY-39bUv0IkP2ALOUo5dZdp 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Samples: 
+ 
+ 
+
+ 
+ 

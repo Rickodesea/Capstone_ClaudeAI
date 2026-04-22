@@ -1,0 +1,119 @@
+DAMO 699 – Capstone Project 
+Student Guide  
+Student Guide and Project Timeline 
+The capstone project is a term-long group research and analytics project. The project progresses 
+through several stages, including proposal development, preliminary analysis, draft reporting, and 
+final presentation. As a group, you are expected to maintain an active GitHub project repository 
+throughout the course. Supervisors will review the repository to monitor progress and provide 
+feedback. 
+Expected Learning Outcomes 
+By completing the capstone project, students will demonstrate the ability to: 
+1. define a research or analytical problem 
+2. collect and prepare data for analysis 
+3. apply appropriate analytical or machine learning methods 
+4. interpret results and communicate insights 
+5. collaborate effectively within a team 
+6. present findings through written reports and professional presentations 
+ 
+Capstone Project Timeline 
+Week 
+Activity 
+Student Responsibilities 
+1 
+Capstone 
+Introduction 
+• Attend the capstone introduction session.  
+• By mid-week or after your week 1 online class, you will 
+form your groups. Maximum group size is 4 students.  
+• In week 1, you will be required to watch the recorded 
+workshop on academic writing and complete the 
+ungraded assessment.  
+ 
+2 
+Proposal 
+Development 
+• In week 2, you will watch recorded workshop on 
+conducting a literature review and complete the ungraded 
+assessment.   
+• The Capstone Project Proposal is due at the end of the 
+week.  
+• The proposal must clearly define the research question, 
+dataset, and proposed analytical approach. 
+3 
+Project 
+Implementation 
+Begins 
+• Students begin working on their project. This includes 
+collecting data, cleaning datasets, and performing initial 
+exploratory analysis.  
+
+• If your project proposal was not approved by your 
+supervisor, then you must revise and resubmit the 
+proposal within 48 of receiving it. In addition to R&R, 
+you will need to meet with your supervisor to finalize the 
+project scope. 
+ 
+4 
+Work 
+Independently  
+• Groups will work on the project, and if needed they will 
+meet with their supervisor. 
+•  
+5 
+Preliminary 
+Analysis 
+• By this week, students must update their GitHub 
+repository with preliminary project work. 
+•  This may include data preprocessing, feature 
+engineering, baseline models, or early analysis results. 
+•  The supervisor will review the repository and provide 
+feedback. 
+• Second online class will be held.  
+6 -9 
+Work 
+Independently  
+• Groups will work on the project, and if needed they will 
+meet with their supervisor. 
+10 
+Final Submission 
+• The final capstone report is due on Sunday of Week 10. 
+• Students must also submit their GitHub repository 
+contains all final project materials. 
+11 
+Poster 
+Presentation 
+• Groups will present their project during the Capstone 
+Poster Presentation session. 
+• Reflection paper due (Wednesday)  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+GitHub Repository Requirement 
+Each group must maintain a GitHub project repository throughout the course. 
+
+The repository should include: 
+• 
+datasets (when permitted) 
+• 
+cleaned datasets 
+• 
+code used for analysis 
+• 
+notebooks or scripts 
+• 
+data visualizations 
+• 
+project documentation 
+• 
+draft and final reports 
+Supervisors will periodically review the repository to evaluate progress and provide feedback. 
+Maintaining a well-organized repository is part of professional data analytics practice and 
+ensures that the project is reproducible and transparent. 
+ 
+ 

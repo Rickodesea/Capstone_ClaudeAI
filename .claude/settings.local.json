@@ -13,7 +13,11 @@
       "Bash(pandoc Enhanced_Proposal_Draft.md -o Enhanced_Proposal_A1_Final.docx --reference-doc=Enhanced_Proposal_A1_Final.docx)",
       "Bash(pandoc Enhanced_Proposal_Draft.md -o Enhanced_Proposal_A1_Final.docx)",
       "Bash(python update_model_column.py)",
-      "Bash(python generate_proposal_doc.py)"
+      "Bash(python generate_proposal_doc.py)",
+      "Bash(python generate_work_division_doc.py)",
+      "Bash(python3 *)",
+      "Bash(python generate_section5_doc.py)",
+      "Bash(python generate_impl_doc.py)"
     ],
     "deny": [],
     "ask": []

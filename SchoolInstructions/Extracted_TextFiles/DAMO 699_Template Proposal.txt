@@ -1,0 +1,224 @@
+DAMO 699 – Capstone Project Proposal Template 
+ 
+Title Page 
+Capstone Project Title 
+Course: DAMO 699 – Capstone Project 
+Program: Master of Data Analytics 
+Student Names 
+Group Number 
+Supervisor Name 
+Institution: University of Niagara Falls 
+Submission Date 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+1. Introduction 
+Project Context 
+Provide a brief overview of the industry, sector, or context of the project. 
+Explain: 
+• 
+the background of the problem 
+• 
+why the issue is relevant or important 
+• 
+who the stakeholders are 
+Example topics may include: 
+• 
+customer behavior 
+• 
+operational efficiency 
+• 
+financial forecasting 
+• 
+market segmentation 
+• 
+public policy outcomes 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+2. Problem Definition 
+Clearly describe the real-world problem or analytical challenge that the project will investigate. 
+Your explanation should include: 
+• 
+the nature of the problem 
+• 
+why the problem matters 
+• 
+how data analytics can help address the issue 
+This section should demonstrate that the project is analytically meaningful and feasible. 
+ 
+3. Analytical Objective 
+Clearly state the primary objective of the project. 
+Your project may aim to: 
+• 
+explain relationships between variables 
+• 
+predict future outcomes 
+• 
+identify patterns or clusters 
+• 
+detect anomalies or inefficiencies 
+• 
+evaluate operational processes 
+ 
+Research Question 
+State the central question guiding the project. 
+Example: 
+• 
+What factors influence customer churn in subscription services? 
+• 
+Can predictive models forecast product demand? 
+• 
+What patterns exist in customer purchasing behavior? 
+ 
+Hypotheses (If Applicable) 
+If the project involves statistical inference, you may include hypotheses. 
+Example: 
+
+H1: Increased advertising expenditure is associated with higher sales. 
+For predictive analytics or machine learning projects, formal hypotheses may not be required. 
+ 
+4. Proposed Data Sources 
+Describe the data you expect to use. 
+Include: 
+• 
+where the data will come from 
+• 
+whether the data is public, proprietary, or collected by the team 
+• 
+the approximate size of the dataset 
+• 
+key variables expected in the dataset 
+Example sources: 
+• 
+government open data portals 
+• 
+company datasets 
+• 
+survey data 
+• 
+API-based datasets 
+• 
+publicly available databases 
+Explain why these data sources are appropriate for the analytical objective. 
+ 
+5. Proposed Analytical Approach 
+Explain the analytical methods that may be used in the project. 
+Possible approaches include: 
+• 
+statistical analysis 
+• 
+regression modeling 
+• 
+classification models 
+• 
+clustering or segmentation 
+• 
+anomaly detection 
+• 
+time-series forecasting 
+• 
+simulation or optimization 
+Explain briefly: 
+• 
+why the method is appropriate 
+
+• 
+how it may help answer the research question 
+This section does not require final model selection, but should show a clear analytical direction. 
+ 
+6. Expected Outcomes and Contributions 
+Explain what the project aims to produce. 
+Examples include: 
+• 
+predictive insights 
+• 
+identification of key drivers of an outcome 
+• 
+customer segmentation profiles 
+• 
+operational efficiency insights 
+• 
+policy or strategic recommendations 
+Describe how decision-makers or organizations could benefit from the findings. 
+ 
+7. Project Plan and Timeline 
+Briefly describe how the project will progress during the term. 
+Example phases: 
+1. Problem definition and proposal approval 
+2. Data collection and cleaning 
+3. Exploratory data analysis 
+4. Model development or analytical implementation 
+5. Results interpretation and visualization 
+6. Final report and presentation preparation 
+ 
+8. Ethical Considerations 
+Confirm that the project follows appropriate ethical standards. 
+Students must confirm: 
+• 
+completion of TCPS certification 
+• 
+responsible use of data 
+• 
+protection of sensitive information if applicable 
+
+ 
+9. References 
+Provide preliminary references in APA format. 
+Example: 
+Smith, J. (2021). Predictive analytics in retail markets. Journal of Data Science, 15(2), 115–134. 
+ 
+Proposal Length 
+Maximum 5 pages 
+(excluding cover page and references) 
+The proposal should provide a clear and feasible plan for the capstone project but does not 
+require full analysis at this stage. 
+ 
+ 
+ 

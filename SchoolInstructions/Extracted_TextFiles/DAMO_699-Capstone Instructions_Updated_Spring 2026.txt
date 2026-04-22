@@ -1,0 +1,649 @@
+DAMO 699 - Capstone Project 
+I. Capstone Project Overview 
+Objective 
+This capstone project is designed to synthesize and apply the advanced data analytics knowledge 
+and skills developed throughout the Master of Data Analytics program. Working in teams of three 
+to four students, you will simulate the role of data analytics consultants investigating and 
+addressing a real-world problem within a selected industry, sector, or country. 
+Projects may involve predictive analytics, statistical inference, machine learning, or exploratory 
+data analysis, depending on the nature of the research problem and the available data. 
+ 
+Learning Outcomes 
+1. Analyze a real-world problem using appropriate data analytics methods. 
+2. Select and implement analytical approaches suited to the project objectives. 
+3. Apply the analytics lifecycle to initiate, plan, execute, monitor, and communicate a data 
+analytics project. 
+4. Use appropriate analytics terminology, tools, and techniques to design and implement a 
+structured analytical investigation. 
+ 
+Project Components 
+Project Components and Instructions 
+1. Team Formation and Topic Selection 
+• 
+Form a team of 3–4 students. 
+• 
+Select an industry, sector, country, or organizational context relevant to your project. 
+• 
+Identify a meaningful analytical problem or decision-making challenge that can be 
+explored using data. 
+ 
+2. Problem Definition and Analytical Framing 
+• 
+Clearly define the problem or analytical objective. 
+• 
+Develop research questions, analytical objectives, or predictive goals that guide the 
+investigation. 
+
+Examples may include: 
+• 
+explaining relationships between variables 
+• 
+predicting outcomes or trends 
+• 
+identifying patterns or segments 
+• 
+detecting anomalies 
+• 
+evaluating operational processes 
+ 
+3. Data Collection and Preparation 
+• 
+Identify and collect appropriate datasets relevant to the analytical objective. 
+• 
+Clean, preprocess, and structure the data for analysis. 
+If appropriate, students may: 
+• 
+develop a relational database using SQL 
+• 
+integrate data systems with visualization tools such as Power BI 
+4. Analytical Methods 
+Select and apply appropriate analytical techniques based on the project objective. These may 
+include: 
+• 
+statistical analysis and inference 
+• 
+predictive modeling 
+• 
+machine learning methods 
+• 
+clustering or segmentation 
+• 
+simulation or optimization 
+• 
+anomaly detection 
+• 
+time-series analysis 
+Students must justify why the selected methods are appropriate for the analytical problem. 
+5. Diagnostics and Model Evaluation 
+Where applicable, students should: 
+• 
+evaluate model performance 
+• 
+conduct diagnostic checks 
+• 
+assess robustness or validity of results 
+• 
+interpret analytical outputs appropriately 
+6. Data Visualization and Communication 
+
+Students must communicate their results clearly through: 
+• 
+charts and visualizations 
+• 
+dashboards 
+• 
+summary tables 
+Visualizations should support analytical interpretation and decision-making. 
+7. Final Report and Presentation 
+Teams will compile their findings, analysis, and recommendations into a comprehensive final 
+report. 
+The report must clearly document: 
+• 
+the problem context 
+• 
+data sources 
+• 
+analytical approach 
+• 
+key findings 
+• 
+practical implications or recommendations 
+Students will also deliver a professional presentation summarizing the project methodology and 
+insights. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+Proposal Section 
+II. Capstone Project Proposal 
+The proposal represents the initial project design stage and is due at the end of Week 2. 
+The proposal should outline the analytical problem, proposed data sources, and planned 
+analytical approach. 
+Aim of Investigation  
+Define the main objective of the project. 
+Clearly state: 
+• 
+the analytical problem or decision-making issue 
+• 
+the research question, analytical objective, or predictive goal 
+• 
+the type of analysis you intend to conduct 
+Examples may include: 
+• 
+identifying factors influencing an outcome 
+• 
+predicting a future trend 
+• 
+segmenting customers or users 
+• 
+detecting anomalies or inefficiencies 
+• 
+evaluating operational performance 
+ 
+Research Question / Analytical Objective 
+Clearly state the central question or objective guiding the project. 
+Examples: 
+• 
+What factors are associated with customer churn? 
+• 
+Can machine learning models predict demand fluctuations? 
+• 
+What patterns exist in customer purchasing behavior? 
+ 
+Hypotheses (If Applicable) 
+
+If the project involves statistical inference, teams may propose hypotheses. However, hypotheses 
+are not required for projects focused on predictive modeling, machine learning, or exploratory 
+analytics. 
+Criterion 
+Fail 0–39 
+Developing 
+40–59 
+Satisfactory 
+60–71 
+Good 72–
+84 
+Excellent 85–
+100 
+Problem 
+Identification 
+and Context 
+(CLO 1) 
+Problem 
+unclear or 
+poorly 
+defined. 
+Context 
+missing or 
+irrelevant. 
+Problem 
+identified 
+but lacks 
+clarity, 
+justification, 
+or analytical 
+relevance. 
+Problem 
+defined with 
+basic context 
+and 
+explanation. 
+Problem 
+clearly 
+defined with 
+relevant 
+context and 
+explanation 
+of 
+importance. 
+Problem is 
+exceptionally 
+well defined 
+with strong 
+contextual 
+analysis and 
+relevance to 
+real-world 
+decision 
+making. 
+Research 
+Question / 
+Analytical 
+Objective 
+(CLO 1) 
+No clear 
+research 
+question or 
+objective. 
+Research 
+question 
+stated but 
+vague or 
+poorly 
+aligned with 
+the problem. 
+Research 
+question or 
+analytical 
+objective is 
+present and 
+generally 
+aligned with 
+the problem. 
+Clear and 
+well-
+structured 
+analytical 
+objective 
+aligned with 
+the project 
+problem. 
+Insightful and 
+well-formulated 
+analytical 
+objective 
+demonstrating 
+strong 
+analytical 
+framing. 
+Data Sources 
+and 
+Feasibility 
+(CLO 2) 
+Data sources 
+not identified 
+or unrealistic. 
+Data sources 
+identified 
+but 
+feasibility 
+unclear. 
+Appropriate 
+data sources 
+identified 
+with basic 
+explanation. 
+Data 
+sources 
+clearly 
+justified and 
+feasible for 
+analysis. 
+Data sources 
+well justified 
+with strong 
+explanation of 
+relevance, 
+feasibility, and 
+potential 
+limitations. 
+Analytical 
+Approach 
+and Project 
+Plan (CLO 2, 
+CLO 3) 
+No clear 
+analytical 
+plan or 
+methodology. 
+Analytical 
+approach 
+mentioned 
+but unclear 
+or 
+incomplete. 
+Basic 
+analytical 
+approach 
+described 
+with partial 
+explanation. 
+Analytical 
+methods 
+and 
+workflow 
+clearly 
+described 
+and 
+appropriate. 
+Comprehensive 
+and well-
+justified 
+analytical 
+approach 
+aligned with 
+project 
+objectives and 
+analytics 
+lifecycle. 
+Project 
+Organization 
+and 
+Professional 
+Poor 
+structure, 
+unclear 
+writing, and 
+Some 
+organization 
+but writing 
+lacks clarity 
+Generally 
+organized 
+with 
+acceptable 
+Well 
+organized 
+with clear 
+Exceptionally 
+clear, 
+professional 
+writing with 
+
+Writing 
+(CLO 4, 
+CLO 5) 
+major 
+formatting 
+issues. 
+or 
+coherence. 
+academic 
+writing. 
+professional 
+writing. 
+strong 
+organization 
+and APA 
+formatting. 
+ 
+Final Report Section 
+III. Capstone Final Report and Dataset 
+During the main phase of the capstone project, teams will: 
+• 
+collect and prepare data 
+• 
+implement appropriate analytical methods 
+• 
+evaluate results 
+• 
+communicate insights through visualizations and written analysis 
+Depending on the project, teams may use: 
+• 
+statistical modeling 
+• 
+predictive analytics 
+• 
+machine learning 
+• 
+clustering or segmentation 
+• 
+simulation models 
+• 
+optimization methods 
+• 
+time-series forecasting 
+The final report should demonstrate a complete analytics workflow, from problem definition 
+through interpretation of results. 
+ 
+Analytical Methods Requirement 
+Each project should apply multiple analytical techniques appropriate to the research objective. 
+These may include: 
+• 
+regression or statistical inference methods 
+• 
+predictive modeling 
+• 
+classification algorithms 
+• 
+clustering or segmentation 
+• 
+association rule mining 
+• 
+simulation or optimization models 
+• 
+anomaly detection 
+• 
+time-series forecasting 
+
+Students should justify why the selected methods are appropriate for the analytical problem. 
+ 
+Criterion 
+Fail 0–39 
+Developing 
+40–59 
+Satisfactor
+y 60–71 
+Good 72–84 
+Excellent 85–
+100 
+Problem 
+Analysis and 
+Context (CLO 
+1) 
+Problem 
+poorly 
+defined with 
+little 
+analytical 
+context. 
+Problem 
+identified but 
+explanation 
+is weak or 
+incomplete. 
+Problem 
+explained 
+with some 
+analytical 
+context. 
+Problem 
+clearly 
+analyzed 
+with strong 
+contextual 
+explanation. 
+Exceptional 
+analysis of the 
+problem 
+demonstrating 
+deep 
+understanding 
+of the domain 
+and analytical 
+implications. 
+Data 
+Collection and 
+Preparation 
+(CLO 2) 
+Data 
+preparation 
+unclear or 
+incorrect. 
+Limited 
+description 
+of data 
+preparation 
+steps. 
+Basic data 
+cleaning 
+and 
+preparation 
+described. 
+Data 
+preparation 
+clearly 
+documented 
+and 
+appropriate. 
+Comprehensiv
+e data 
+preparation 
+demonstrating 
+strong 
+analytical 
+rigor and 
+transparency. 
+Analytical 
+Methods and 
+Implementatio
+n (CLO 2) 
+Methods 
+inappropriate 
+or poorly 
+applied. 
+Methods 
+partially 
+applied or 
+insufficiently 
+justified. 
+Appropriate 
+analytical 
+methods 
+applied with 
+basic 
+explanation. 
+Analytical 
+methods 
+clearly 
+implemented 
+and justified. 
+Sophisticated 
+analytical 
+implementatio
+n 
+demonstrating 
+strong 
+methodologic
+al reasoning. 
+Interpretation 
+and Insights 
+(CLO 1, CLO 
+2) 
+Results 
+unclear or 
+incorrectly 
+interpreted. 
+Limited 
+interpretation 
+of results. 
+Basic 
+interpretatio
+n of 
+analytical 
+results. 
+Clear 
+interpretatio
+n connecting 
+results to the 
+research 
+problem. 
+Insightful 
+interpretation 
+demonstrating 
+strong 
+analytical 
+reasoning and 
+decision 
+relevance. 
+Application of 
+Analytics 
+Lifecycle 
+(CLO 3) 
+No clear 
+project 
+workflow or 
+lifecycle 
+structure. 
+Lifecycle 
+partially 
+addressed 
+but 
+incomplete. 
+Basic 
+evidence of 
+analytics 
+workflow. 
+Analytics 
+lifecycle 
+clearly 
+demonstrate
+d. 
+Full analytics 
+lifecycle 
+clearly 
+documented 
+and 
+effectively 
+applied. 
+
+Data 
+Visualization 
+and 
+Communicatio
+n (CLO 4) 
+Visualization
+s unclear or 
+missing. 
+Visualization
+s present but 
+poorly 
+designed. 
+Basic charts 
+and visuals 
+included. 
+Clear and 
+effective 
+visualization
+s supporting 
+analysis. 
+Highly 
+effective 
+visualizations 
+communicatin
+g insights 
+professionally
+. 
+Professional 
+Structure and 
+Technical 
+Writing (CLO 
+4, CLO 5) 
+Disorganized 
+writing and 
+major 
+formatting 
+issues. 
+Some 
+organization 
+but 
+inconsistent 
+writing 
+quality. 
+Adequate 
+organization 
+and writing 
+clarity. 
+Clear, 
+professional 
+report 
+structure and 
+writing. 
+Exceptionally 
+well written 
+report 
+demonstrating 
+graduate-level 
+communicatio
+n and clarity. 
+ 
+ 

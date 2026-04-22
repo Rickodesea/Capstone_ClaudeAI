@@ -409,7 +409,7 @@ tb(s,
 # SLIDE 6 — RESEARCH FOUNDATION (was SLIDE 5)
 # ══════════════════════════════════════════════════════════════════════════════
 s = slide()
-header(s, "Research Foundation", "18 papers reviewed — each maps to a specific system component")
+header(s, "Research Foundation", "21 papers reviewed — each maps to a specific system component")
 
 # Component map
 comp_map = [
@@ -436,6 +436,9 @@ comp_map = [
         "Jiang Zhi (2025) — Clovers simulator + real trace datasets",
         "Perera (2025) — RL risks; model drift; justifies our RF approach",
         "Atropos / Hu (2025) — overload fallback: target culprit, not victim",
+        "Borg (Verma 2015) — production-scale overcommit; 20-30% savings from sharing",
+        "Quasar (Delimitrou 2014) — <20% CPU util with static reservations",
+        "Heracles (Lo 2015) — memory contention is primary bottleneck; ~90% util achievable",
     ]),
 ]
 for i, (title, col, items) in enumerate(comp_map):
@@ -488,6 +491,9 @@ rows = [
     ("Perera 2025", "RL model drift + interpretability risks", "Model justification", "RF interpretability arg.", "None — review paper"),
     ("Pinnapareddy 2025", "Bin packing + cost tools in K8s", "Motivation + tooling", "Kubecost for eval", "None — practitioner"),
     ("Patchamatla", "K8s on OpenStack; VM-container deploy", "Deployment context", "Architecture reference", "None — experimental"),
+    ("Borg — Verma 2015", "Large-scale cluster mgmt; overcommit via sharing", "Prior art; overcommit justif.", "20-30% infra savings evidence", "None — engineering framework"),
+    ("Quasar — Delimitrou 2014", "QoS-aware sched.; ML profiling replaces static rsv", "Underutilization validation", "QoS-aware allocation framing", "Prediction: collab. filtering"),
+    ("Heracles — Lo 2015", "Memory bandwidth is primary co-location bottleneck", "Memory-first justification", "Memory contention evidence", "Sched. optimizer: feedback ctrl"),
 ]
 
 row_h = 0.31

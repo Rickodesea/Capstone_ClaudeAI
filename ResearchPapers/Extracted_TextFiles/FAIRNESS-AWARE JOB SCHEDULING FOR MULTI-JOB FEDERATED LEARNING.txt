@@ -1,0 +1,664 @@
+arXiv:2401.02740v3  [cs.LG]  8 Feb 2024
+FAIRNESS-AWARE JOB SCHEDULING FOR MULTI-JOB FEDERATED LEARNING
+Yuxin Shi1,2,3, Han Yu1
+1School of Computer Science and Engineering, Nanyang Technological University (NTU), Singapore
+2Alibaba-NTU Singapore Joint Research Institute, NTU, Singapore. 3Alibaba Group, Hangzhou, China
+{shiy0029, han.yu}@ntu.edu.sg
+ABSTRACT
+Federated learning (FL) enables multiple data owners (a.k.a.
+FL clients) to collaboratively train machine learning models
+without disclosing sensitive private data.
+Existing FL re-
+search mostly focuses on the monopoly scenario in which
+a single FL server selects a subset of FL clients to update
+their local models in each round of training.
+In practice,
+there can be multiple FL servers simultaneously trying to
+select clients from the same pool. In this paper, we propose
+a ﬁrst-of-its-kind Fairness-aware Federated Job Scheduling
+(FairFedJS) approach to bridge this gap. Based on Lya-
+punov optimization, it ensures fair allocation of high-demand
+FL client datasets to FL jobs in need of them, by jointly
+considering the current demand and the job payment bids,
+in order to prevent prolonged waiting.
+Extensive experi-
+ments comparing FairFedJS against four state-of-the-art
+approaches on two datasets demonstrate its signiﬁcant advan-
+tages. It outperforms the best baseline by 31.9% and 1.0%
+on average in terms of scheduling fairness and convergence
+time, respectively, while achieving comparable test accuracy.
+Index Terms— Multi-Job Federated Learning, Fairness,
+Job Scheduling, Lyapunov Optimization
+1. INTRODUCTION
+The success of artiﬁcial intelligence (AI) hinges on the avail-
+ability of sufﬁcient data to train effective machine learning
+(ML) models [1]. However, direct access to distributively
+owned datasets risks infringing on user privacy and violation
+of laws such as the General Data Protection Regulation [2].
+To this end, federated learning (FL) [3, 4] has emerged as an
+alternative collaborative ML paradigm that operates without
+the need for direct access to sensitive local data in order to
+address privacy concerns. With FL come new challenges. Ex-
+isting FL research mostly focuses on the monopoly scenario
+This research is supported by National Research Foundation, Singapore
+and DSO National Laboratories under the AI Singapore Programme (AISG
+Award No: AISG2-RP-2020-019); Alibaba Group through Alibaba Innova-
+tive Research (AIR) Program and Alibaba-NTU Singapore Joint Research
+Institute (JRI), Nanyang Technological University, Singapore; and the RIE
+2020 Advanced Manufacturing and Engineering (AME) Programmatic Fund
+(No. A20G8b0102), Singapore.
+in which one FL server selects data owners (a.k.a. FL clients)
+from a common pool to perform local model updates in each
+round of FL training [5, 6, 7]. However, in practice, there can
+be multiple FL servers competing for FL clients at any given
+time [8]. The problem of FL job scheduling with multiple FL
+servers remains open [9].
+A limited number of works have emerged to explore this
+problem [9, 10, 11]. Tan et al. [11] proposed a reputation-
+based approach to help multiple federations optimize the costs
+for recruiting clients without compromising utility. It focuses
+on dealing with multi-task FL in which the tasks proposed by
+multiple federations share some common parts of the model.
+Zhou et al. [9] introduced a new concept called Multi-job FL,
+which deals with the simultaneous training of multiple in-
+dependent jobs without exchanging models across jobs [12].
+Since one client is assumed to be able to accept only one job at
+a time, [9] proposed two scheduling methods to assign clients
+to different FL jobs, while minimizing costs.
+However, these approaches did not consider the schedul-
+ing of the FL jobs. In multi-job FL, clients possess diverse
+capabilities. This implies that each client can own multiple
+datasets (e.g., images, speech). Consequently, a single client
+can undertake multiple types of jobs. However, following the
+common assumption that each client can only handle one job
+at a time, competition might arise among FL servers for ac-
+cess to reliable clients. FL servers adjust their job payment
+bids to gain priority for client selection in such a competi-
+tive situation. On the other hand, clients with data types that
+are in high demand shall adapt the acceptance of jobs to opti-
+mize their beneﬁts. Nevertheless, there is a lack of decision-
+support methods to efﬁciently manage this process.
+In this paper, we bridge this important gap by proposing
+the Fairness-aware Federated Job Scheduling (FairFedJS)
+approach. Based on Lyapunov optimization [13, 14], it en-
+sures fair allocation of high-demand FL client datasets to FL
+jobs in need of them, by jointly considering the current de-
+mand and the job payment bids, in order to prevent prolonged
+waiting. It offers FL servers the ﬂexibility to adapt their pay-
+ments according to current demand and supply for FL jobs
+to achieve their desired ordering in the FL job schedules in
+a human-over-the-loop manner. Extensive experiments com-
+paring FairFedJS against four state-of-the-art approaches
+
+on two real-world datasets demonstrate its signiﬁcant advan-
+tages. Speciﬁcally, it achieves 31.9% higher scheduling fair-
+ness and 1.0% faster convergence on average compared to the
+best-performing baseline, with comparable test accuracy. To
+the best of our knowledge, FairFedJS is the ﬁrst fairness-
+aware job scheduling approach for multi-job FL.
+2. PRELIMINARIES
+In this paper, we focus on an environment consisting of
+multiple FL servers (a.k.a., job publishers) and multiple FL
+clients. We introduce a multi-job FL framework consisting of
+two components: 1) a multi-job scheduler and 2) a payment
+model. These components help task publishers optimize their
+payments for future rounds of FL training.
+Settings: We study an FL system involving N FL clients
+and K FL jobs published. Each client i can only accept one
+job at a given time slot t. i can own multiple datasets Di,m
+where m indicates the data type (e.g., image, speech, search
+history). i can indicate the costs ci,m for using its different
+datasets. Each FL job requires a type of data for model train-
+ing. A job k is published with the number of clients it re-
+quires, nk,m, and its payment, pk(t), for recruiting them.
+Cost Model: The average cost incurred for mobilizing
+a set of clients with data type m is expressed as ˆcm(t) =
+1
+Nm
+PNm
+i=1 ci,m(t). The average reliability value for clients
+with data type m is expressed as ˆrm(t) =
+1
+Nm
+PNm
+i=1 ri,m(t).
+The cost for mobilizing a set of clients for a job k is:
+ck(t) =
+M
+X
+m=1
+ˆcm(t)
+ˆrm(t)ak,m(t).
+(1)
+where ak,m(t) ≥0 is the supply of clients with dataset m
+for job k. The total revenue f(t) for the FL system is lin-
+early related to the collective payment for all jobs, deﬁned
+as f(t) = PK
+k=1
+ak(t)
+nk pk(t), where ak(t) = PM
+m=1 ak,m(t)
+and nk = PM
+m=1 nk,m when a job requires multiple datasets.
+Since we focus on the horizontal FL [4] setting where a job
+only requires one data type (i.e., m = 1 for each job k), ak(t)
+and nk can be simpliﬁed as ak(t) = ak,m(t) and nk = nk,m.
+FL Client Selection: For each job, clients are selected
+considering both their reputation values [15, 16] and data fair-
+ness [17]. The criteria for selecting a client i with dataset type
+m for job k is expressed as:
+γi,k,m = ri,m(t) −βFi,k,m(t)
+(2)
+where ri,m(t) is the reputation of client i regarding its dataset
+of type m. Fi,k,m(t) is the fairness achieved by the system if
+client i is selected to contribute its dataset of type m to job k
+at t. β > 0 is a normalization factor. During client selection,
+a job aims to select clients with the highest γi,k,m values.
+The reputation model of choice is built upon the Beta Rep-
+utation System (BRS) [18]. It manages a distinct client rep-
+utation table for each speciﬁc data type m. BRS calculates
+each client’s reputation based on its previous performance
+track records. The reputation score ri,m ∈[0, 1] regarding
+data type m for a client i is expressed as:
+ri,m = E[Beta(ai,m, bi,m)] =
+ai,m + 1
+ai,m + bi,m + 2.
+(3)
+The update policy for the reputation model is based on ac-
+curacy improvement after the local model update from i,
+wi,k,m(t), is aggregated into the global model for job k in
+the previous round, wk,m(t −1). If the accuracy increases,
+anew
+i,m = ai,m + 1; otherwise, bnew
+i,m = bi,m + 1.
+The data fairness of client i to job k at t is deﬁned as:
+Fi,k,m(t) = si,k,m(t) −
+1
+|Nm|
+X
+i∈Nm
+si,k,m(t)
+(4)
+where si,k,m(t) is the frequency of selection for client i with
+data type m to join job k. Nm is the set of all clients with data
+type m. If Fi,k(t) < 0, it means the number of times client i
+was selected for its dataset of type m is below average. Thus,
+jobs shall give preference to clients with low Fi,k,m(t) values
+during client selection to maintain data fairness.
+The reason for considering data fairness in client selection
+is that, if a job always only selects clients with a high repu-
+tation, this might cause oversampling of clients from speciﬁc
+groups. As a result, the global FL model can become biased
+towards the data owned by high-reputation clients. This can
+reduce the generalizability of FL models [19].
+Payment Model: We adopt the Derivative Follower Pric-
+ing Strategy (DF) [20]. DF optimizes payment efﬁciency. It
+ensures that the majority of payments are allocated towards
+client acquisition, while a smaller portion remains un-utilized,
+contributing to the earnings of FL system. It is expressed as:
+pk(t + 1) = pk(t) + δsign1sign2
+(5)
+where sign1 = sign(πk(t) −πk(t + 1)) and sign2 =
+sign(pk(t) −pk(t + 1)). πk(t) is the utility improvement in
+t. δ > 0 is step size for payment change. sign1sign2 > 0
+means that the utility improvement is positively correlated to
+the payment value. Hence, the task publisher increases pk by
+one step. Otherwise, pk is decreased by one step.
+3. THE FairFedJS APPROACH
+The proposed FairFedJS approach aims to promote
+fair treatment of FL jobs and optimize the revenue of the FL
+system under the multi-job FL setting. To achieve this design
+goal, we leverage Lyapunov optimization to convert the dual
+objectives into one single objective function [21].
+To this end, we ﬁrst introduce a virtual queue that reﬂects
+the availability of clients with dataset type m at time t. The
+queuing dynamic can be expressed as:
+Qm(t + 1) = max[0, Qm(t) + µm(t) −am(t)].
+(6)
+
+It reﬂects the net demand for clients with dataset type m (i.e.,
+the longer the queue length, the higher the demand). µm(t) =
+PK
+k=1nk,m is the demand for clients with dataset type m for
+this round. am(t) = PK
+k=1ak,m(t) is the supply of clients
+with dataset type m, where am,k(t) is the number of clients
+with m that are available to be mobilized for job k in round t.
+Based on the deﬁnition of am(t) and µm(t), Qm(t + 1) can
+be converted into Qm(t + 1) = PK
+k=1Qk,m(t + 1).
+We leverage Lyapunov optimization to bound every in-
+crement of Qm(t). We deﬁne a quadratic Lyapunov function
+L(Θ(t)) = 1
+2
+PM
+m=1Q2
+m(t). It is designed to measure the un-
+fairness when allocating clients with different data types to
+FL jobs. A smaller value of L(Θ) is desirable as it indicates
+that the level of unfairness in job scheduling is low.
+Then, we formulate the Lyapunov drift, ∆(Θ(t)), to
+measure the expected increase of L(Θ(t) in one time step,
+∆(Θ(t)) = E[L(Θ(t + 1)) −L(Θ(t))|Θ(t)].
+By mini-
+mizing ∆(Θ(t)), we aim to limit the growth of all Qm(t)
+by dynamically assigning clients with multiple datasets to
+different types of jobs based on the dataset demand.
+Let
+θ = 1
+2(µmax
+m
+)2 + 1
+2(amax
+m
+)2 ≥0, ∆(Θ(t)) is expressed as:
+∆(Θ(t)) ⩽
+M
+X
+m=1
+(Qm(t)[µm(t) −am(t)] + θ) .
+(7)
+Another objective is to optimize the revenue of the FL
+system. It is desirable for the FL system to encourage the
+FL jobs to increase payments for recruiting clients in order to
+enhance their scheduling priority. To this end, we deﬁne the
+Algorithm 1 FairFedJS
+Require: Total training rounds T , job ordering Vt, FL
+model wk,m(t), selected client set Ak,m(t), data fairness
+Fi,k,m(t) of client i for job k, i’s reputation ri,m(t).
+1: for t ≤T do
+2:
+{p1(t), . . . , pK(t)} ←generate payments for each job
+k following Eq. (5);
+3:
+Compute all Ψk(t) following Eq. (11);
+4:
+Vt ←order jobs in ascending order on Ψk(t);
+5:
+for task k ∈Vt do
+6:
+for each active client i do
+7:
+γi,k,m = ri,m(t) −βFi,k,m(t);
+8:
+end for
+9:
+Ak,m(t) ←select clients based on γi,k,m;
+10:
+ak,m(t) = |Ak,m(t)|;
+11:
+end for
+12:
+FL training of Job k with Ak,m(t)
+13:
+Update ri,m(t) & Fi,k,m(t) using Eq. (3) & Eq. (4);
+14:
+Update Qm(t + 1) following Eq. (6);
+15: end for
+expected utility for the FL system at time t, δ(t), as:
+δ(t) =
+K
+X
+k=1
+ak(t)
+nk
+pk(t) −ck(t).
+(8)
+It reﬂects the income for the FL system after distributing the
+remuneration to the selected FL clients.
+To jointly optimize the dual objectives of scheduling fair-
+ness and revenue maximization, we design a (drift - utility)
+objective function as ∆(Θ(t)) −σδ(t).
+σ > 0 is a con-
+trol parameter that enables system administrators to indicate
+their preference between these two objectives. By substitut-
+ing Eq. (7) and Eq. (8) into this objective function, we have:
+1
+T
+T −1
+X
+t=0
+(∆(Θ(t)) −σE[U(t)|Θ(t)]) ⩾
+θ + 1
+T
+T −1
+X
+t=0
+[
+M
+X
+m=1
+(Qm(t)µm(t) −Qm(t)am(t))
+−σ
+K
+X
+k=1
+(ak(t)
+nk
+pk(t) −ck(t))]
+= θ + 1
+T
+T −1
+X
+t=0
+{[
+M
+X
+m=1
+K
+X
+k=1
+Qk,m(t)nk,m(t) −Qk,m(t)ak,m(t)]
+−[σ
+K
+X
+k=1
+(
+PM
+m=1 ak,m(t)
+nk
+pk(t) −
+M
+X
+m=1
+ˆcm(t)
+ˆrm(t)ak,m(t))]}.
+(9)
+As FairFedJS only controls the scheduling choices
+At
+= {a1,m(t), a2,m(t), . . . , aK,m(t)} for each training
+round, we focus on the terms containing ak,m(t). Thus, we
+have PK
+k=1[PM
+m=1 −Qk,m(t)ak,m(t)−σ pk(t)
+nk
+PM
+m=1 ak,m(t)+
+σ PM
+m=1
+ˆcm(t)
+ˆrm(t)ak,m(t)]. Since we assume that each horizon-
+tal FL job requires only one type of dataset (i.e., m = 1 for
+each job k), the objective function can be simpliﬁed as:
+min
+At
+K
+X
+k=1
+ak(t)
+
+−Qk(t) −σ pk(t)
+nk
++ σ ˆcm(t)
+ˆrm(t)
+
+.
+(10)
+To solve Eq. (10), we ﬁrst propose the Job Scheduling
+Index (JSI), Ψk(t), for every individual job as:
+Ψk(t) = −Qk(t) −σ pk(t)
+nk
++ σ ˆcm(t)
+ˆrm(t).
+(11)
+FairFedJS arranges FL jobs in ascending order of on their
+JSI values. This ranking serves the purpose of streamlining
+job scheduling. Higher-ranked jobs (with lower JSI values)
+are given priority in the client selection process. A job selects
+clients with consideration of both their reputation values and
+their data fairness values.
+Algorithm 1 illustrates how FairFedJS performs job
+scheduling. One advantage of FairFedJS is its ability to
+
+Table 1. Performance comparison results under IID and Non-IID scenarios. The best performance is indicated with bold text.
+The second best performance is indicated with underline.
+Method
+Dataset
+IID setting
+Non-IID setting
+Acc(%)
+SF
+Convergence
+(rounds)
+Acc(%)
+SF
+Convergence
+(rounds)
+Random
+Cifar-10
+57.80
+17.34
+95.5
+52.19
+21.52
+125
+FMNIST
+86.88
+83.68
+ALT
+Cifar-10
+57.82
+15.06
+101.0
+51.93
+12.23
+98
+FMNIST
+86.30
+80.68
+UB
+Cifar-10
+57.64
+15.83
+89.2
+50.51
+14.23
+126
+FMNIST
+86.49
+84.00
+MJ-FL
+Cifar-10
+57.69
+5.14
+84.0
+51.47
+7.96
+96.7
+FMNIST
+86.47
+81.23
+FairFedJS
+Cifar-10
+57.68
+3.89
+83.1
+51.84
+4.82
+95.8
+FMNIST
+86.60
+83.74
+enable jobs to adjust their payments in order to modify their
+scheduling priority.
+When a job increases its payment at
+round t, its JSI decreases correspondingly. Consequently, this
+adjustment enhances its priority in the schedule.
+4. EXPERIMENTAL EVALUATION
+We study FairFedJS through comparative experiments.
+Settings:
+We conduct experiments with two public
+datasets: 1) Fashion-MNIST and 2) CIFAR-10.
+We em-
+ploy diverse models to simulate various job types, setting up
+six concurrent jobs. Three of these jobs (i.e., MLP, CNN,
+ResNet) utilize the Fashion-MNIST dataset, while the re-
+maining three (i.e., MLP, CNN, ResNet) utilize the CIFAR-
+10 dataset. Each job involves 10 clients. We have a total of 50
+FL clients: 20 with Fashion-MNIST, 20 with CIFAR-10, and
+the remaining 10 with both datasets. Images are randomly
+sampled from training sets and distributed to clients, each
+receiving 1,400 samples. To simulate different data quality
+levels, we investigate two experimental scenarios with IID
+data and Non-IID data, following the data settings in [7]. In
+addition, we assign random costs, denoted as ci,m ∈[1, 3],
+for each dataset m belonging to client i. For job payments,
+we initialize them randomly from [10, 12, . . ., 28, 30], updat-
+ing them in each round according to the proposed payment
+update policy in Eq. (5), with a step size of δ = 2.
+Comparison Baselines: We compare FairFedJS with
+4 existing approaches: 1) Random (Rand): In each round,
+the job selection order is scheduled randomly. 2) Alternat-
+ing (ALT): The job selection order in the current round is the
+reverse of that in the previous round. 3) Utility-Based (UB):
+The job selection order in the current round is based on their
+utility in the previous round. Jobs with lower utility in the
+previous round are more eager to boost their selection order
+in the current round. 4) MJ-FL [9]: In the original context,
+MJ-FL (BODS-based) optimizes the scheduling policy based
+on its cost function. In our context, we adapt it to use client
+reputation value instead of time cost.
+Evaluation Metrics: The performance of the comparison
+approaches is assessed based on convergencetime (in terms of
+round number) and test accuracy. Moreover, we evaluate job
+scheduling fairness (SF) by examining the variance of queue
+lengths as SF =
+q PT
+t=1
+PM
+m=1(Qm(t)−Q(t))2
+T
+. Q(t) is the
+average queue length at round T . SF measures the long-term
+variations in all queue lengths. A higher SF indicates that the
+demands for certain dataset types are not promptly fulﬁlled,
+leading to extended waiting time for jobs requiring such data.
+We closely monitor SF when the demand for clients is higher
+than the supply. A high SF value implies low fairness.
+Results Discussion: Table 1 shows the average perfor-
+mance of comparison approaches.
+The results show that
+FairFedJS signiﬁcantly outperforms all the baselines
+in terms of scheduling fairness (SF).
+It achieves 31.9%
+lower SF on average than the best-performing baseline
+MJ-FL. This demonstrates that our key design of incorpo-
+rating the availability queue length of client datasets into
+job scheduling criteria effectively enhances scheduling fair-
+ness. FairFedJS achieves comparable test accuracy with
+the baselines, and beats the best baseline MJ-FL by 1.0% in
+terms of convergence time.
+5. CONCLUSIONS AND FUTURE WORK
+In this paper, we propose a fairness-aware job scheduling
+approach FairFedJS for multi-job FL. By leveraging Lya-
+punov optimization, it ensures fair allocation of high-demand
+FL client datasets to FL jobs by considering both current
+demand and job payment bids, preventing prolonged waiting.
+Extensive experiments highlight that FairFedJS outper-
+forms the best baselines with an average improvement of
+31.9% in scheduling fairness and 1.0% in convergence time
+while achieving comparable test accuracy. It makes the most
+advantageous trade-offs among test accuracy, convergence
+rate and fairness compared to the state-of-the-art approaches.
+To the best of our knowledge, it is the ﬁrst fairness-aware job
+scheduling approach designed for multi-job FL.
+In subsequent research, we plan to adapt FairFedJS to
+vertical FL [22] and federated transfer learning [23] scenarios
+where each job may require multiple types of data.
+
+6. REFERENCES
+[1] Chen Chen, Nana Hou, Yuchen Hu, Shashank Shirol,
+and Eng Siong Chng,
+“Noise-robust speech recogni-
+tion with 10 minutes unparalleled in-domain data,” in
+ICASSP, 2022, pp. 4298–4302.
+[2] Paul Voigt and Axel von dem Bussche, The EU Gen-
+eral Data Protection Regulation (GDPR): A Practical
+Guide, Springer Publishing Company, Incorporated, 1st
+edition, 2017.
+[3] Peter Kairouz et al., “Advances and open problems in
+federated learning,” Foundations and Trends in Machine
+Learning, vol. 14, no. 1-2, pp. 1–210, 2021.
+[4] Qiang Yang, Yang Liu, Yong Cheng, Yan Kang, Tian-
+jian Chen, and Han Yu, Federated Learning, Springer,
+Cham, 2020.
+[5] T. Nishio and Ryo Yonetani, “Client selection for fed-
+erated learning with heterogeneous resources in mobile
+edge,” in ICC, 2019, pp. 1–7.
+[6] Tiansheng Huang, Weiwei Lin, Wentai Wu, Ligang
+He, Keqin Li, and Albert Y Zomaya, “An efﬁciency-
+boosting client selection scheme for federated learning
+with fairness guarantee,” IEEE Transactions on Parallel
+and Distributed Systems, vol. 32, no. 7, pp. 1552–1564,
+2020.
+[7] Yuxin Shi, Zelei Liu, Zhuan Shi, and Han Yu, “Fairness-
+aware client selection for federated learning,” in ICME,
+2023, pp. 324–329.
+[8] Yiqiang Chen, Wang Lu, Xin Qin, Jindong Wang, and
+Xing Xie, “MetaFed: Federated learning among federa-
+tions with cyclic knowledge distillation for personalized
+healthcare,” IEEE Transactions on Neural Networks and
+Learning Systems, 2023.
+[9] Chendi Zhou, Ji Liu, Juncheng Jia, Jingbo Zhou, Yang
+Zhou, Huaiyu Dai, and Dejing Dou, “Efﬁcient device
+scheduling with multi-job federated learning,” in AAAI,
+2022, pp. 9971–9979.
+[10] Bin Wang, Jun Fang, Hongbin Li, Xiaojun Yuan, and
+Qing Ling, “Confederated learning: Federated learning
+with decentralized edge servers,” IEEE Transactions on
+Signal Processing, vol. 71, pp. 248–263, 2023.
+[11] Xavier Tan, Wei Yang Bryan Lim, Dusit Niyato, and
+Han Yu,
+“Reputation-aware opportunistic budget op-
+timization for auction-based federation learning,”
+in
+IJCNN, 2023, pp. 1–8.
+[12] Ji Liu, Juncheng Jia, Beichen Ma, Chendi Zhou, Jingbo
+Zhou, Yang Zhou, Huaiyu Dai, and Dejing Dou, “Multi-
+job intelligent scheduling with cross-device federated
+learning,”
+IEEE Transactions on Parallel and Dis-
+tributed Systems, vol. 34, no. 2, pp. 535–551, 2022.
+[13] Han Yu et al.,
+“Mitigating herding in hierarchical
+crowdsourcing networks,” Scientiﬁc Reports, vol. 6, no.
+4, 2016.
+[14] Han Yu et al., “Algorithmic management for improv-
+ing collective productivity in crowdsourcing,” Scientiﬁc
+Reports, vol. 7, no. 12541, 2017.
+[15] Han Yu, Chunyan Miao, Bo An, Zhiqi Shen, and
+Cyril Leung, “Reputation-aware task allocation for hu-
+man trustees,”
+in The 13th International Conference
+on Autonomous Agents and Multi-Agent Systems (AA-
+MAS’14), 2014, pp. 357–364.
+[16] Han Yu, Zhiqi Shen, Chunyan Miao, Bo An, and Cyril
+Leung, “Filtering trust opinions through reinforcement
+learning,” Decision Support Systems, vol. 66, pp. 102–
+113, 2014.
+[17] Yuxin Shi, Han Yu, and Cyril Leung, “Towards fairness-
+aware federated learning,” IEEE Transactions on Neural
+Networks and Learning Systems, 2023.
+[18] Audun Josang and Roslan Ismail,
+“The beta reputa-
+tion system,” in Proceedings of the 15th Bled Electronic
+Commerce Conference, 2002, pp. 2502–2511.
+[19] Yae Jee Cho, Jianyu Wang, and Gauri Joshi, “Client se-
+lection in federated learning: Convergence analysis and
+power-of-choice selection strategies,”
+arXiv preprint
+arXiv:2010.01243, 2020.
+[20] Prithviraj Dasgupta and Rajarshi Das, “Dynamic pric-
+ing with limited competitor information in a multi-agent
+economy,” in CoopIS, 2000, pp. 299–310.
+[21] Sean P. Meyn and Richard L. Tweedie, Markov chains
+and stochastic stability, Springer Science & Business
+Media, 2012.
+[22] Anran Li, Hongyi Peng, Lan Zhang, Jiahui Huang, Qing
+Guo, Han Yu, and Yang Liu, “FedSDG-FS: Efﬁcient and
+secure feature selection for vertical federated learning,”
+in INFOCOM, 2023.
+[23] Siwei Feng, Boyang Li, Han Yu, Yang Liu, and Qiang
+Yang, “Semi-supervised federated heterogeneous trans-
+fer learning,” Knowledge-Based Systems, vol. 252, pp.
+doi:10.1016/j.knosys.2022.109384, 2022.

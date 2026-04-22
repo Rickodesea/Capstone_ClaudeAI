@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Optimization Model — Final Formulation</title>
+<script>
+  window.MathJax = {
+    tex: { inlineMath: [['$','$'], ['\\(','\\)']], displayMath: [['$$','$$'], ['\\[','\\]']] },
+    options: { skipHtmlTags: ['script','noscript','style','textarea','pre'] }
+  };
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js" async></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,300;0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&family=Outfit:wght@400;500;600;700&display=swap');
+
+  :root {
+    --bg: #0d1117;
+    --s1: #161c27;
+    --s2: #1c2336;
+    --border: #242f45;
+    --text: #dde6f5;
+    --muted: #647898;
+    --blue: #5ca0f8;
+    --green: #4fc99a;
+    --amber: #f2be5c;
+    --red: #e07070;
+    --purple: #a880f8;
+    --teal: #3fd6d0;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Source Serif 4', Georgia, serif; font-size: 17px; line-height: 1.8; padding: 2rem 1rem 6rem; }
+  .wrap { max-width: 900px; margin: 0 auto; }
+
+  header { border-bottom: 1px solid var(--border); padding-bottom: 1.5rem; margin-bottom: 3rem; }
+  header h1 { font-family: 'Outfit', sans-serif; font-size: 1.65rem; font-weight: 700; color: var(--blue); letter-spacing: -0.02em; }
+  header p  { font-family: 'Outfit', sans-serif; font-size: 0.88rem; color: var(--muted); margin-top: 0.3rem; }
+
+  .defn-badge {
+    display: inline-block;
+    background: #0d1a2a; border: 1px solid #1a3d5a;
+    color: var(--teal); border-radius: 5px;
+    font-family: 'Outfit', sans-serif; font-size: 0.72rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.07em;
+    padding: 0.15rem 0.55rem; margin-bottom: 0.8rem;
+  }
+
+  .sec-head { font-family: 'Outfit', sans-serif; font-size: 1rem; font-weight: 700; color: var(--blue); margin: 3.5rem 0 1.2rem; padding-left: 1rem; border-left: 3px solid var(--blue); }
+  .sub-head  { font-family: 'Outfit', sans-serif; font-size: 0.77rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 1.8rem 0 0.7rem; }
+
+  p { margin-bottom: 0.85rem; }
+
+  .card { background: var(--s1); border: 1px solid var(--border); border-radius: 10px; padding: 1.5rem 1.8rem; margin-bottom: 1.4rem; }
+  .math-box { background: var(--s2); border-radius: 8px; padding: 1rem 1.4rem; margin: 0.8rem 0; overflow-x: auto; }
+  .note { font-family: 'Outfit', sans-serif; font-size: 0.86rem; color: var(--muted); padding: 0.65rem 1rem; border-left: 2px solid var(--border); margin-top: 0.9rem; }
+  .note strong { color: var(--text); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin: 0.5rem 0 1rem; }
+  th { font-family: 'Outfit', sans-serif; font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+  td { padding: 0.45rem 0.75rem; border-bottom: 1px solid #1b2338; vertical-align: top; }
+  td:first-child { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: var(--amber); white-space: nowrap; width: 200px; }
+  td:last-child { color: var(--muted); font-size: 0.88rem; }
+  td strong { color: var(--text); }
+
+  .src { display: inline-block; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 0.71rem; padding: 0.1rem 0.4rem; margin-left: 0.3rem; }
+  .src-cm  { background: #0a1a2a; border: 1px solid #1a4570; color: var(--teal); }
+  .src-ml  { background: #160a2a; border: 1px solid #3d1a70; color: var(--purple); }
+
+  /* Feedback cards */
+  .fb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; margin: 1rem 0; }
+  @media (max-width:640px) { .fb-grid { grid-template-columns: 1fr; } }
+  .fb { border-radius: 10px; padding: 1.3rem 1.5rem; border: 1px solid; }
+  .fb-sla  { background: #160c0c; border-color: #401818; }
+  .fb-fair { background: #0c160f; border-color: #184028; }
+  .fb-title { font-family: 'Outfit', sans-serif; font-size: 0.88rem; font-weight: 700; margin-bottom: 0.9rem; }
+  .fb-sla  .fb-title { color: var(--red); }
+  .fb-fair .fb-title { color: var(--green); }
+
+  /* Objective box */
+  .obj-box { background: #070e1c; border: 2px solid var(--blue); border-radius: 12px; padding: 2rem 2.2rem; margin: 1.5rem 0; }
+  .obj-label { font-family: 'Outfit', sans-serif; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--blue); margin-bottom: 0.5rem; }
+
+  /* Constraint list */
+  .clist { list-style: none; }
+  .clist li { display: flex; gap: 1rem; align-items: flex-start; padding: 0.6rem 0; border-bottom: 1px solid var(--border); }
+  .clist li:last-child { border-bottom: none; }
+  .ctag { font-family: 'JetBrains Mono', monospace; font-size: 0.76rem; color: var(--blue); white-space: nowrap; min-width: 30px; padding-top: 0.2rem; }
+
+  /* System flow */
+  .flow { background: var(--s1); border: 1px solid var(--border); border-radius: 10px; padding: 1.4rem 1.8rem; margin-bottom: 1.4rem; }
+  .flow-row { display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap; margin: 0.35rem 0; font-family: 'Outfit', sans-serif; font-size: 0.86rem; }
+  .fb-box { border-radius: 6px; padding: 0.28rem 0.75rem; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; white-space: nowrap; }
+  .c-blue  { background: #0e1d35; border: 1px solid #2050a0; color: var(--blue); }
+  .c-teal  { background: #0a1f1f; border: 1px solid #1a5050; color: var(--teal); }
+  .c-red   { background: #1f0a0a; border: 1px solid #501a1a; color: var(--red); }
+  .c-green { background: #0a1f12; border: 1px solid #1a5030; color: var(--green); }
+  .c-amber { background: #1f180a; border: 1px solid #50400a; color: var(--amber); }
+  .arrow { color: var(--muted); font-size: 1rem; }
+
+  hr { border: none; border-top: 1px solid var(--border); margin: 3rem 0; }
+
+  .alpha-table { background: var(--s2); border-radius: 8px; overflow: hidden; margin: 0.8rem 0; }
+  .alpha-table table { margin: 0; }
+  .alpha-table td { border-bottom: 1px solid var(--border); }
+  .alpha-table tr:last-child td { border-bottom: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Optimization Model — Mathematical Formulation</h1>
+  <p>DAMO 699 Capstone · Group 3 · Multi-Tenant Cluster Memory Scheduling · Single-Objective LP</p>
+</header>
+
+<!-- TERMINOLOGY NOTE -->
+<div class="card">
+  <div class="defn-badge">Terminology</div>
+  <p>
+    Throughout this document the term <strong>job</strong> refers to a containerized workload unit submitted by a tenant for execution on the cluster. In Kubernetes, this corresponds to a <strong>pod</strong> — the smallest schedulable unit. We use <em>job</em> for generality, as the model is scheduler-agnostic and not specific to Kubernetes.
+  </p>
+</div>
+
+<!-- SYSTEM OVERVIEW -->
+<div class="sec-head">§0 — System Architecture</div>
+<div class="flow">
+  <p style="font-family:'Outfit',sans-serif;font-size:0.88rem;color:var(--muted);margin-bottom:1rem;">
+    The optimization model is a single-objective LP. It receives real-time state from the cluster manager each scheduling round and outputs a placement assignment. SLA and fairness shape its inputs — they are not objectives inside the LP.
+  </p>
+  <div class="flow-row">
+    <span class="fb-box c-teal">Cluster Manager</span>
+    <span class="arrow">→</span>
+    <span class="fb-box c-blue">$U_n$</span>
+    <span class="arrow">+</span>
+    <span class="fb-box c-red">$\bar{v}_n$</span>
+    <span class="arrow">+</span>
+    <span class="fb-box c-green">$\bar{W}_t$</span>
+    <span class="arrow">→</span>
+    <span class="fb-box c-amber">LP: place jobs, maximize $Z$</span>
+    <span class="arrow">→</span>
+    <span class="fb-box c-blue">$x_{jn}$</span>
+    <span class="arrow">→</span>
+    <span class="fb-box c-teal">Cluster Manager submits</span>
+  </div>
+</div>
+
+<!-- §1 DECISION VARIABLE -->
+<div class="sec-head">§1 — Decision Variable</div>
+<div class="card">
+  <div class="math-box">$$x_{jn} \in \{0,1\}$$</div>
+  <p style="font-family:'Outfit',sans-serif;font-size:0.9rem;color:var(--muted);">
+    $x_{jn} = 1$ if job $j$ is assigned to node $n$; $x_{jn} = 0$ otherwise. This placement matrix is the sole output of the optimizer. Everything else in the model is either a fixed parameter, a constraint, or a feedback input.
+  </p>
+</div>
+
+<!-- §2 SETS -->
+<div class="sec-head">§2 — Sets</div>
+<div class="card">
+  <table>
+    <tr><th>Symbol</th><th>Definition</th></tr>
+    <tr><td>$\mathcal{J}$</td><td>All jobs currently in the pending queue at this scheduling round</td></tr>
+    <tr><td>$\mathcal{N}$</td><td>All nodes available in the cluster</td></tr>
+    <tr><td>$\mathcal{T}$</td><td>All tenants sharing the cluster</td></tr>
+    <tr><td>$\mathcal{J}_t$</td><td>Jobs belonging to tenant $t$, where $\mathcal{J}_t \subseteq \mathcal{J}$ and $\bigcup_{t \in \mathcal{T}} \mathcal{J}_t = \mathcal{J}$</td></tr>
+  </table>
+</div>
+
+<!-- §3 PARAMETERS -->
+<div class="sec-head">§3 — Parameters</div>
+<div class="card">
+
+  <div class="sub-head">Node Memory — Fixed</div>
+  <table>
+    <tr><th>Symbol</th><th>Meaning</th></tr>
+    <tr><td>$M_n$</td><td>Physical RAM installed on node $n$</td></tr>
+    <tr><td>$\tau_n$</td><td><strong>Memory tax</strong> — fixed overhead consumed by the OS, kubelet, and monitoring agents. Not available to tenant jobs.</td></tr>
+  </table>
+
+  <div class="sub-head">Node Memory — Dynamic (updated each scheduling round)</div>
+  <table>
+    <tr><th>Symbol</th><th>Source</th><th>Meaning</th></tr>
+    <tr>
+      <td>$\bar{v}_n \in [0,1]$</td>
+      <td><span class="src src-cm">cluster mgr</span></td>
+      <td>
+        <strong>Rolling SLA violation rate</strong> on node $n$ — fraction of the last $K$ scheduling rounds in which actual memory on node $n$ exceeded $M_n^{\text{eff}}$. Computed and passed by the cluster manager.
+        <div class="math-box">$$\bar{v}_n^{(t)} = \frac{1}{K}\sum_{k=0}^{K-1} \mathbb{1}\!\left[\text{overload on node } n \text{ at round } t - k\right]$$</div>
+        $\bar{v}_n = 0$: no recent violations. $\bar{v}_n = 1$: every recent round was overloaded.
+      </td>
+    </tr>
+    <tr>
+      <td>$\theta_n = \gamma \cdot \bar{v}_n$</td>
+      <td>derived</td>
+      <td>
+        <strong>Per-node memory threshold</strong> — a safety buffer derived from recent SLA violations. Increases with $\bar{v}_n$, directly reducing usable capacity on that node.
+        $\gamma \in (0,1)$ is a tunable scaling coefficient controlling how aggressively violations reduce available capacity.
+        <div class="math-box">$$\theta_n = \gamma \cdot \bar{v}_n$$</div>
+      </td>
+    </tr>
+    <tr>
+      <td>$M_n^{\text{eff}}$</td>
+      <td>derived</td>
+      <td>
+        <strong>Effective usable memory</strong> — the hard ceiling for all tenant jobs on node $n$, after removing the OS tax and the SLA-driven threshold:
+        <div class="math-box">$$M_n^{\text{eff}} = M_n(1 - \theta_n) - \tau_n = M_n(1 - \gamma \cdot \bar{v}_n) - \tau_n$$</div>
+        No violations ($\bar{v}_n = 0$): $M_n^{\text{eff}} = M_n - \tau_n$ — full usable capacity.<br/>
+        Rising violations: $\theta_n$ grows, $M_n^{\text{eff}}$ shrinks — the node is treated more conservatively each round until violations subside.
+      </td>
+    </tr>
+    <tr>
+      <td>$U_n$</td>
+      <td><span class="src src-cm">cluster mgr</span></td>
+      <td><strong>Currently used memory</strong> on node $n$, measured in real time. Provided as input each round. The model does not track this itself.</td>
+    </tr>
+    <tr>
+      <td>$R_n = M_n^{\text{eff}} - U_n$</td>
+      <td>derived</td>
+      <td><strong>Remaining available memory</strong> on node $n$ — the capacity available to newly assigned jobs this round.</td>
+    </tr>
+  </table>
+
+  <div class="sub-head">Fairness Feedback — Dynamic (from cluster manager)</div>
+  <table>
+    <tr><th>Symbol</th><th>Source</th><th>Meaning</th></tr>
+    <tr>
+      <td>$\bar{W}_t$</td>
+      <td><span class="src src-cm">cluster mgr</span></td>
+      <td><strong>Average scheduling delay</strong> for tenant $t$ — mean time between job submission and job assignment, accumulated over all of tenant $t$'s completed jobs. Cluster manager records arrival and scheduling timestamps per job.</td>
+    </tr>
+    <tr>
+      <td>$\bar{W} = \frac{1}{|\mathcal{T}|}\displaystyle\sum_{t \in \mathcal{T}} \bar{W}_t$</td>
+      <td>derived</td>
+      <td>Cluster-wide average scheduling delay across all tenants.</td>
+    </tr>
+    <tr>
+      <td>$\omega_t$</td>
+      <td>derived</td>
+      <td>
+        <strong>Tenant priority weight</strong> — scales the placement value of tenant $t$'s jobs in the objective function. Tenants waiting longer than average receive higher weight, so their jobs contribute more to the objective, making the optimizer prefer placing them.
+        <div class="math-box">$$\omega_t = 1 + \alpha \cdot \max\!\left(0,\; \frac{\bar{W}_t - \bar{W}}{\bar{W}}\right)$$</div>
+        $\omega_t \geq 1$ always — no tenant is penalized for having low wait. When all tenants have equal wait, $\omega_t = 1$ for all $t$ and the objective reduces to unweighted utilization.
+      </td>
+    </tr>
+  </table>
+
+  <div class="note" style="margin-top:0.5rem;">
+    <strong>What is $\alpha$?</strong><br/>
+    $\alpha$ is a <em>fairness responsiveness coefficient</em> — it controls how strongly the model corrects wait-time imbalances between tenants. It is a tunable parameter set before the simulation.
+    <div class="alpha-table" style="margin-top:0.7rem;">
+      <table>
+        <tr><th>$\alpha$ value</th><th>Effect</th><th>Example: tenant waiting 50% longer than average</th></tr>
+        <tr><td>$\alpha = 0$</td><td>Fairness weighting disabled. All tenants treated identically.</td><td>$\omega_t = 1$</td></tr>
+        <tr><td>$\alpha = 1$</td><td>Moderate correction. Weight scales linearly with excess wait.</td><td>$\omega_t = 1.5$</td></tr>
+        <tr><td>$\alpha = 2$</td><td>Aggressive correction. Underserved tenants strongly preferred.</td><td>$\omega_t = 2.0$</td></tr>
+      </table>
+    </div>
+    A higher $\alpha$ makes the model correct fairness imbalances faster but may sacrifice some utilization efficiency to do so. Running simulations with different $\alpha$ values is a natural part of the evaluation.
+  </div>
+
+  <div class="sub-head">Job Parameters (from prediction layer)</div>
+  <table>
+    <tr><th>Symbol</th><th>Source</th><th>Meaning</th></tr>
+    <tr>
+      <td>$\hat{m}_j$</td>
+      <td><span class="src src-ml">prediction layer</span></td>
+      <td><strong>P95 predicted memory</strong> for job $j$ — the 95th percentile of the highest predicted memory spike over the job's expected lifetime. Used in the placement constraint and objective.</td>
+    </tr>
+    <tr>
+      <td>$\hat{l}_j$</td>
+      <td><span class="src src-ml">prediction layer</span></td>
+      <td><strong>Predicted job lifetime</strong>. Used internally by the prediction layer to determine the time horizon over which $\hat{m}_j$ is estimated. Not used directly in the LP.</td>
+    </tr>
+  </table>
+</div>
+
+<hr/>
+
+<!-- §4 FEEDBACK LOOPS -->
+<div class="sec-head">§4 — Feedback Loops</div>
+<p style="font-family:'Outfit',sans-serif;font-size:0.9rem;color:var(--muted);margin-bottom:1.2rem;">
+  SLA and fairness are not objectives inside the LP — they are observed outcomes tracked by the cluster manager and fed back as adaptive parameters that reshape the LP's inputs each round.
+</p>
+
+<div class="fb-grid">
+  <div class="fb fb-sla">
+    <div class="fb-title">🔴 SLA Feedback → Node Capacity</div>
+    <p style="font-family:'Outfit',sans-serif;font-size:0.87rem;color:var(--muted);">
+      When actual memory on node $n$ exceeds $M_n^{\text{eff}}$ at runtime (actual usage > effective capacity), the cluster manager records one overload event. It computes the rolling violation rate $\bar{v}_n$ over the last $K$ rounds and passes it to the model.
+    </p>
+    <p style="font-family:'Outfit',sans-serif;font-size:0.87rem;color:var(--muted);margin-top:0.6rem;">
+      The model derives $\theta_n = \gamma \cdot \bar{v}_n$ and reduces $M_n^{\text{eff}}$ accordingly. As violations persist, the node's effective capacity shrinks, making it harder to assign new jobs there. As violations subside, $\bar{v}_n$ falls, $\theta_n$ drops, and capacity recovers.
+    </p>
+    <div class="note">
+      <strong>One overload event = one SLA violation.</strong> Violations are counted, not prevented, by this mechanism. The model reacts by becoming more conservative — it cannot retroactively fix an overload.
+    </div>
+  </div>
+
+  <div class="fb fb-fair">
+    <div class="fb-title">🟢 Fairness Feedback → Job Priority</div>
+    <p style="font-family:'Outfit',sans-serif;font-size:0.87rem;color:var(--muted);">
+      The cluster manager records arrival and scheduling time for each completed job, computes per-job delay $d_j = s_j - a_j$, and accumulates average wait time $\bar{W}_t$ per tenant. This is passed to the model each round.
+    </p>
+    <p style="font-family:'Outfit',sans-serif;font-size:0.87rem;color:var(--muted);margin-top:0.6rem;">
+      The model derives $\omega_t$ for each tenant. Tenants with above-average wait receive higher weight in the objective — their jobs contribute more to $Z$, so the optimizer naturally prefers placing them. Fairness improves as a side effect of weighted maximization.
+    </p>
+    <div class="note">
+      <strong>Fairness as a KPI:</strong> Variance of $\bar{W}_t$ across tenants (or Gini coefficient) is reported as a simulation outcome metric — not minimized inside the LP.
+    </div>
+  </div>
+</div>
+
+<hr/>
+
+<!-- §5 OBJECTIVE -->
+<div class="sec-head">§5 — Optimization Objective</div>
+
+<div class="obj-box">
+  <div class="obj-label">Single Objective — Maximize Weighted Memory Utilization</div>
+  <div class="math-box" style="font-size:1.08em;">
+    $$\max \quad Z = \sum_{j \in \mathcal{J}} \sum_{n \in \mathcal{N}} \omega_{t(j)} \cdot \hat{m}_j \cdot x_{jn}$$
+  </div>
+  <p style="font-family:'Outfit',sans-serif;font-size:0.9rem;color:var(--muted);margin-top:0.8rem;">
+    where $t(j)$ denotes the tenant of job $j$, and $\omega_{t(j)}$ is that tenant's current priority weight.
+  </p>
+  <div class="note">
+    <strong>What this does:</strong> Places jobs onto nodes such that the total P95 predicted memory assigned is as large as possible, weighted by tenant priority. A job from a tenant with higher $\omega_t$ contributes more to $Z$ — the optimizer prefers it over an equally-sized job from a lower-weight tenant. When all $\omega_t = 1$, this is pure memory utilization maximization.
+  </div>
+  <div class="note" style="margin-top:0.6rem;">
+    <strong>Why not maximize admission count?</strong> Placing many small jobs with low memory consumption could score well on job count but poorly on utilization. Maximizing $\hat{m}_j \cdot x_{jn}$ directly targets memory efficiency — the primary research objective.
+  </div>
+</div>
+
+<!-- §6 CONSTRAINTS -->
+<div class="sec-head">§6 — Constraints</div>
+<div class="card">
+  <ul class="clist">
+    <li>
+      <span class="ctag">C1</span>
+      <div>
+        <strong>One node per job.</strong> Each job is assigned to at most one node per scheduling round:
+        <div class="math-box">$$\sum_{n \in \mathcal{N}} x_{jn} \leq 1 \quad \forall j \in \mathcal{J}$$</div>
+        <span style="font-family:'Outfit',sans-serif;font-size:0.85rem;color:var(--muted);">$\leq 1$ (not $= 1$) — a job may remain unscheduled if no node has sufficient remaining capacity. Unscheduled jobs return to the queue for the next round, accumulating delay that increases $\bar{W}_t$ and eventually raises their $\omega_t$.</span>
+      </div>
+    </li>
+    <li>
+      <span class="ctag">C2</span>
+      <div>
+        <strong>Memory capacity per node.</strong> Total P95 predicted memory of jobs assigned to node $n$ may not exceed its remaining available capacity:
+        <div class="math-box">$$\sum_{j \in \mathcal{J}} \hat{m}_j \cdot x_{jn} \leq R_n \quad \forall n \in \mathcal{N}$$</div>
+        <span style="font-family:'Outfit',sans-serif;font-size:0.85rem;color:var(--muted);">$R_n = M_n^{\text{eff}} - U_n$ incorporates the OS tax, the SLA-driven threshold $\theta_n$, and current usage. This is a hard constraint — no job can be assigned if it would push P95 load past $R_n$.</span>
+        <div class="note" style="margin-top:0.6rem;">
+          <strong>Overcommitment lives here.</strong> Tenants declare memory (often inflated). The prediction layer produces $\hat{m}_j$ (P95, much lower than declared). The model admits a job if $\hat{m}_j$ fits within $R_n$ — even if the declared amount would not. This is overcommitment: the model accepts more jobs than the declared values would allow, because it trusts the predictions over the declarations. An SLA violation (overload) occurs if the 5% tail of the prediction materializes at runtime.
+        </div>
+      </div>
+    </li>
+    <li>
+      <span class="ctag">C3</span>
+      <div>
+        <strong>Binary domain:</strong>
+        <div class="math-box">$$x_{jn} \in \{0,1\} \quad \forall j \in \mathcal{J},\; n \in \mathcal{N}$$</div>
+        <span style="font-family:'Outfit',sans-serif;font-size:0.85rem;color:var(--muted);">This makes the problem a Mixed-Integer Linear Program (MILP). For large instances, $x_{jn} \in [0,1]$ (LP relaxation with rounding) is an acceptable approximation for simulation scale.</span>
+      </div>
+    </li>
+  </ul>
+</div>
+
+<!-- FULL MODEL SUMMARY -->
+<div class="sec-head">§7 — Complete Model</div>
+<div class="card" style="background:#070e1c; border-color:#2040a0;">
+  <div class="math-box" style="font-size:1.03em;">
+    $$\max \quad Z = \sum_{j \in \mathcal{J}} \sum_{n \in \mathcal{N}} \omega_{t(j)} \cdot \hat{m}_j \cdot x_{jn}$$
+  </div>
+  <div class="sub-head" style="margin-top:1.2rem;">Subject to</div>
+  <div class="math-box">
+    $$\text{C1:} \quad \sum_{n \in \mathcal{N}} x_{jn} \leq 1 \quad \forall j \in \mathcal{J}$$
+    $$\text{C2:} \quad \sum_{j \in \mathcal{J}} \hat{m}_j \cdot x_{jn} \leq R_n \quad \forall n \in \mathcal{N}$$
+    $$\text{C3:} \quad x_{jn} \in \{0,1\} \quad \forall j \in \mathcal{J},\; n \in \mathcal{N}$$
+  </div>
+  <div class="sub-head" style="margin-top:1.2rem;">Where</div>
+  <div class="math-box">
+    $$\theta_n = \gamma \cdot \bar{v}_n \qquad M_n^{\text{eff}} = M_n(1-\theta_n) - \tau_n \qquad R_n = M_n^{\text{eff}} - U_n$$
+    $$\omega_t = 1 + \alpha \cdot \max\!\left(0,\;\frac{\bar{W}_t - \bar{W}}{\bar{W}}\right)$$
+  </div>
+  <div class="note" style="margin-top:1rem;">
+    <strong>Inputs each round:</strong> $U_n$ (current node usage), $\bar{v}_n$ (SLA violation rate per node), $\bar{W}_t$ (average wait per tenant), $\hat{m}_j$ (P95 predicted memory per job) — all from the cluster manager or prediction layer.<br/><br/>
+    <strong>Tunable parameters:</strong> $\gamma$ (SLA threshold sensitivity), $\alpha$ (fairness responsiveness), $K$ (violation rolling window), $\tau_n$ (memory tax per node).
+  </div>
+</div>
+
+</div>
+</body>
+</html>

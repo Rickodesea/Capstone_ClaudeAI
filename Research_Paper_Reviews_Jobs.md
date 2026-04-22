@@ -101,6 +101,65 @@ DRF is your **fairness backbone**. Use it as the fairness algorithm in your sche
 
 ---
 
+### 4a. Beltre, Saha & Govindaraju (2019) — KubeSphere: Multi-Tenant Fair Scheduling for Kubernetes
+
+**What it's about:**
+A policy-driven meta-scheduler layer built on top of Kubernetes to address multi-tenant fairness. The default Kubernetes monolithic scheduler processes requests in arrival order with no awareness of per-tenant demand or queue waiting time. KubeSphere intercepts task submissions, places them in per-tenant queues, and dispatches them to the k8s master based on one of three fairness policies:
+
+1. **DRF-Aware** — gives priority to the tenant with the lowest Dominant Share (DS), computed as `DS_k = max(CPU fraction, memory fraction)` across all currently running tasks for that tenant.
+2. **Demand-Aware** — gives priority to tenants with the highest Dominant Demand Share (DDS), which measures the resource demand of tasks *waiting in queue* (not yet scheduled).
+3. **Demand-DRF-Aware** — combines both policies. DDS is used to prioritize tenants with high pending demand, but capped so no single tenant starves others. Experiment results: this policy kept each user's average waiting time deviation within ±4–13% of the cluster average, while DRF-Aware alone produced deviations as high as 157% above cluster average for some tenants.
+
+DDS formula: `DDS_k = max((total waiting task CPU) / node_CPU, (total waiting task memory) / node_RAM)`. This extends DRF to consider future demand, not just current consumption.
+
+Experiments: 4-node cluster (48 CPUs, 128 GB RAM each), 3 tenants with different task counts and arrival rates, 4 experimental configurations. Demand-DRF-Aware consistently outperformed standalone DRF-Aware and Demand-Aware across all configurations.
+
+**The Gap:**
+KubeSphere computes DDS on *declared* resource requests — not actual predicted usage. It is reactive: fairness is enforced based on the current and queued state, but no forward-looking prediction is applied. There is no SLA deadline constraint, no ML model, and no temporal peak overlap analysis.
+
+**How to build your capstone on it:**
+- Replace DRF (Ghodsi 2011) with Beltre et al.'s Demand-DRF-Aware formulation as the fairness constraint in the optimization model. Their result (DRF-Aware alone → 157% waiting time deviation; Demand-DRF-Aware → <13%) directly justifies why combining demand with dominance share is necessary.
+- Express the fairness constraint as: for each tenant k, `d_k = max(memory share_running + memory share_queued, CPU share_running + CPU share_queued) ≤ (1/|K|) + ε`. This is DDS applied as a hard constraint.
+- Cite this paper as direct motivation for why the optimization model must account for queued workloads in its fairness term — not just running workloads.
+
+| Optimization / Model Type | Has Predictive Model | Training / Implementation Details |
+|---|---|---|
+| Policy-based meta-scheduler: DRF-Aware, Demand-Aware, Demand-DRF-Aware | No | Yes — prototype on 4-node Kubernetes cluster; real task workloads; 4 experimental configurations |
+
+---
+
+### 4b. Shi & Yu (2024) — FairFedJS: Fairness-Aware Job Scheduling via Lyapunov Optimization
+
+**What it's about:**
+A fairness-aware job scheduling approach for multi-job Federated Learning (FL) environments. Multiple FL servers compete for the same pool of FL clients (data owners). FairFedJS uses **Lyapunov optimization** to jointly minimize scheduling unfairness and maximize system revenue. While the domain is FL, the optimization framework is directly applicable to any multi-job scheduling problem where fairness and throughput must be balanced.
+
+Key components:
+- **Virtual demand queue `Q_m(t)`** — tracks unmet demand for each resource type `m` over time. Queue length grows when demand exceeds supply.
+- **Lyapunov function** `L(Θ(t)) = ½ · ΣQ²_m(t)` — measures instantaneous unfairness. A smaller value means fewer unmet demands.
+- **Lyapunov drift** `ΔL(t) = E[L(t+1) − L(t)]` — minimizing the drift keeps queues stable, ensuring no resource type remains chronically undersupplied.
+- **Dual objective** — minimize `ΔL(t) − σ·U(t)` where `U(t)` is system utility (revenue / throughput) and `σ` controls the fairness-throughput trade-off.
+- **Job Scheduling Index (JSI)** `Ψ_k(t) = −Q_k(t) − σ·p_k(t)/n_k + σ·ĉ_m(t)/r̂_m(t)` — jobs are ordered by ascending JSI; lower JSI = higher priority.
+- Jobs with higher payment bids (or higher priority class in a non-FL context) can lower their JSI to gain scheduling priority.
+
+Results: FairFedJS achieved 31.9% lower scheduling fairness variance than the best baseline (MJ-FL) and 1.0% faster convergence, with comparable accuracy. Experiments on CIFAR-10 and Fashion-MNIST under IID and non-IID data distributions.
+
+**The Gap:**
+The paper is scoped to federated learning client scheduling. "Clients" are data owners, not nodes or servers — the scarce resource is client participation, not memory or CPU. There are no memory/CPU capacity constraints. The payment model is FL-specific.
+
+**How to build your capstone on it:**
+The Lyapunov framework is the transferable contribution:
+- **Virtual queue per tenant** — instead of per data-type demand, define `Q_k(t)` as the queue length of jobs waiting for placement for tenant `k`. Minimizing queue growth over time → no tenant is chronically delayed.
+- **Drift-utility objective** — map directly: minimize `ΔL(t) − σ · utilization(t)`. This is the capstone's fairness-utilization trade-off formalized.
+- **JSI adaptation** — replace payment bid with job priority class (Guaranteed > Burstable > BestEffort) and replace client cost with RF-predicted memory usage. Lower JSI = higher priority = scheduled first.
+- This grounds the capstone's fairness constraint mathematically: the Gini coefficient improvement target (0.25 → 0.10) is equivalent to reducing the variance of `Q_k(t)` across tenants over time. The Lyapunov framework gives you a formal proof that the constraint is satisfiable.
+- Cite Shi & Yu (2024) alongside Beltre et al. (2019) to show that the fairness model has dual grounding: architectural (KubeSphere experiments showing DDS > DRF) and mathematical (Lyapunov queue stability).
+
+| Optimization / Model Type | Has Predictive Model | Training / Implementation Details |
+|---|---|---|
+| Lyapunov optimization: drift-utility dual objective + virtual queue per resource | No | Yes — Algorithm 1 (FairFedJS pseudocode); evaluated on CIFAR-10 and Fashion-MNIST with 6 concurrent jobs |
+
+---
+
 ### 5. Cortez et al. / Resource Central (SOSP 2017) — Workload Prediction at Azure
 
 **What it's about:**
@@ -355,6 +414,129 @@ Two contributions: (1) **Admission control formalization** — Zhao's formal acc
 | Optimization / Model Type | Has Predictive Model | Training / Implementation Details |
 |---|---|---|
 | Scheduler optimizer: admission control LP + profit maximization LP | No — no predictive model | Yes — simulation with real cloud workloads, comparison vs. state-of-the-art baselines |
+
+---
+
+### 19. Verma et al. (2015) — Large-Scale Cluster Management at Google with Borg
+
+**What it's about:**
+The engineering paper behind Google's production cluster manager, **Borg**, which manages tens of thousands of machines across multiple clusters. Borg accepts two workload types: long-running services (latency-sensitive) and batch jobs. Its primary utilization technique is **overcommitment and machine sharing** — multiple workloads share the same physical nodes, assuming not all will peak simultaneously. The paper demonstrates that separating workloads into isolated clusters (instead of sharing) would require 20–30% more machines (Section 5.2). Scheduling works via a two-step feasibility + scoring mechanism; high-priority tasks can preempt lower-priority ones.
+
+**The Gap:**
+No ML-based prediction — overcommitment is managed with static policies and reactive preemption. No formal fairness algorithm across tenants. No SLA enforcement beyond prioritization. Not container-native (Borg predates Docker/Kubernetes). Does not solve the declared-vs-actual usage gap with prediction.
+
+**How to build your capstone on it:**
+This is the direct ancestor of Kubernetes (K8s was explicitly designed to incorporate lessons from Borg). It validates the overcommitment premise at production scale: if Google shares machines to save 20–30% infrastructure, safe overcommitment is worth pursuing. The utilization numbers (~10–50% reported for many workloads) match what the modern literature (Chaudhari, Quasar, Heracles) documents. Use as foundational prior art to establish that the problem is real at scale, not hypothetical.
+
+| Optimization / Model Type | Has Predictive Model | Training / Implementation Details |
+|---|---|---|
+| None — engineering framework (priority + preemption) | No — static allocation policies | Yes — deployed and measured at Google production scale; multiple cluster trace datasets |
+
+---
+
+### 20. Delimitrou & Kozyrakis (2014) — Quasar: Resource-Efficient and QoS-Aware Cluster Management
+
+**What it's about:**
+A cluster manager that replaces static resource reservation with **performance-driven allocation**. Instead of asking tenants "how many CPUs/GB do you need?", Quasar profiles each workload using a small set of test runs, builds a collaborative filtering model of workload behavior under different resource configurations and interference conditions, and then allocates the minimum resources needed to meet the performance target (SLA). Demonstrated CPU utilization < 20% and memory ~40–50% in static reservation systems; Quasar closes this gap.
+
+**The Gap:**
+Collaborative filtering profiling requires test runs for new workloads — not feasible for dynamic job streams with many unique tenants. No formal multi-tenant fairness mechanism. No memory-specific overcommitment strategy. No temporal usage profile modeling (pulse model). Not Kubernetes-native.
+
+**How to build your capstone on it:**
+Two takeaways: (1) **Validates the underutilization problem** — Quasar directly measures and confirms that static reservation leads to <20% CPU utilization, supporting our motivation. (2) **QoS-aware framing** — the idea of defining allocation targets in terms of *performance requirements* rather than *resource amounts* is the same framing as our SLA constraint. Our RF model does what Quasar's profiling does, but with historical tenant data instead of live test runs — no test-run overhead.
+
+| Optimization / Model Type | Has Predictive Model | Training / Implementation Details |
+|---|---|---|
+| Scheduler optimizer: QoS-constraint-driven allocation + assignment | Yes — Prediction: collaborative filtering (workload performance profiling) | Yes — implemented and evaluated on a real cluster with 38 workloads; reported utilization measurements |
+
+---
+
+### 21. Lo et al. (2015) — Heracles: Improving Resource Efficiency at Scale
+
+**What it's about:**
+A co-location system for Google search infrastructure that addresses the fundamental problem of **memory bandwidth contention** when latency-sensitive (LC) and best-effort (BE) workloads share the same node. The system dynamically monitors the SLA of the LC workload and adjusts five resource isolation controls — CPU allocation, LLC (last-level cache) partitioning, memory bandwidth throttling, network bandwidth, and DRAM access — every few seconds. When LC SLA is safe, it allows BE workloads to increase utilization. When LC SLA degrades, it throttles BE. Achieves ~90% server utilization while maintaining < 5% SLA violation for LC workloads (matching our target).
+
+**The Gap:**
+Single-node co-location only — no cluster-wide scheduling or placement decisions. Only two workload classes (LC vs BE) — not multi-tenant fairness across many tenants. No ML prediction — pure reactive feedback. No admission decision — always co-locates, then manages post-admission. Memory bandwidth (DRAM) is the metric, not memory capacity (GB).
+
+**How to build your capstone on it:**
+**The strongest paper supporting your memory-first framing.** Heracles provides direct empirical evidence that memory (DRAM bandwidth) is the primary co-location interference mechanism — more impactful than CPU, cache, or network. While our model focuses on memory capacity (GB) rather than bandwidth, both are memory-related and Heracles's findings justify elevating memory as the primary constraint in our model. The ~90% utilization + <5% SLA violation result matches our target numbers — cite this as evidence the target is achievable. The reactive feedback control mechanism is what our runtime enforcement layer (cgroups + Prometheus) does at the cluster level.
+
+| Optimization / Model Type | Has Predictive Model | Training / Implementation Details |
+|---|---|---|
+| Scheduler optimizer: feedback-based dynamic resource control (reactive) | No — monitoring-based only | Yes — deployed in production at Google; evaluated on real search workloads with multiple interference scenarios |
+
+---
+
+### 22. Beltre, Saha & Govindaraju (2019) — KubeSphere: Multi-Tenant Fair Scheduling for Kubernetes
+
+**What it's about:**
+A policy-driven meta-scheduler layer built on top of Kubernetes to enforce multi-tenant fairness. The default K8s monolithic scheduler processes requests in arrival order with no awareness of per-tenant demand or queue waiting time. KubeSphere intercepts task submissions, places them in per-tenant queues, and dispatches them to the K8s master based on one of three fairness policies:
+
+1. **DRF-Aware** — gives priority to the tenant with the lowest Dominant Share (DS), computed as `DS_k = max(CPU fraction, memory fraction)` across all currently running tasks for that tenant.
+2. **Demand-Aware** — gives priority to tenants with the highest Dominant Demand Share (DDS), which measures the resource demand of tasks waiting in queue (not yet scheduled).
+3. **Demand-DRF-Aware** — combines both. DDS is used to prioritize tenants with high pending demand, but capped so no single tenant starves others. Results: this policy kept per-tenant average waiting time deviation within ±4–13% of the cluster average, while DRF-Aware alone produced deviations as high as 157% above cluster average for some tenants.
+
+DDS formula: `DDS_k = max((total waiting task CPU) / node_CPU, (total waiting task memory) / node_RAM)`. This extends DRF to consider future demand, not just current consumption.
+
+Experiments: 4-node cluster (48 CPUs, 128 GB RAM each), 3 tenants with different task counts and arrival rates, 4 experimental configurations.
+
+**The Gap:**
+KubeSphere computes DDS on declared resource requests — not predicted usage. It is reactive: no forward-looking prediction, no SLA deadline constraint, no ML model, no temporal peak overlap analysis.
+
+**How to build your capstone on it:**
+- Replace standalone DRF with Beltre et al.'s Demand-DRF-Aware formulation as the fairness constraint in the Optimization Layer. Their result directly justifies why combining demand with dominant share is necessary over DRF alone.
+- Compute DDS on RF-predicted utilization rather than declared requests, extending their approach with prediction.
+- The constraint becomes: for each tenant k, `d_k = max(memory share_running + memory share_queued, CPU share_running + CPU share_queued) ≤ (1/|K|) + ε`.
+
+| Optimization / Model Type | Has Predictive Model | Training / Implementation Details |
+|---|---|---|
+| Policy-based meta-scheduler: DRF-Aware, Demand-Aware, Demand-DRF-Aware | No | Yes — prototype on 4-node Kubernetes cluster; real task workloads; 4 experimental configurations |
+
+---
+
+### 23. Shi & Yu (2024) — FairFedJS: Fairness-Aware Job Scheduling via Lyapunov Optimization
+
+**What it's about:**
+A fairness-aware job scheduling approach for multi-job Federated Learning (FL) environments where multiple FL servers compete for the same pool of FL clients. Uses **Lyapunov optimization** to jointly minimize scheduling unfairness and maximize system revenue. The optimization framework is transferable to any multi-job scheduling problem requiring fairness and throughput trade-offs.
+
+Key components:
+- **Virtual demand queue `Q_m(t)`** — tracks unmet demand for resource type m. Queue grows when demand exceeds supply.
+- **Lyapunov function** `L(Θ(t)) = ½ · ΣQ²_m(t)` — measures instantaneous unfairness. Smaller value = fewer unmet demands.
+- **Lyapunov drift** `ΔL(t) = E[L(t+1) − L(t)]` — minimizing the drift keeps queues stable; no resource type remains chronically undersupplied.
+- **Dual objective** — minimize `ΔL(t) − σ·U(t)` where U(t) is system utility and σ controls the fairness-throughput trade-off.
+- **Job Scheduling Index (JSI)** `Ψ_k(t) = −Q_k(t) − σ·p_k(t)/n_k + σ·ĉ_m(t)/r̂_m(t)` — jobs ordered by ascending JSI; lower JSI = higher priority.
+
+Results: 31.9% lower scheduling fairness variance than the best baseline (MJ-FL); 1.0% faster convergence. Evaluated on CIFAR-10 and Fashion-MNIST with 6 concurrent jobs.
+
+**The Gap:**
+The domain is federated learning client scheduling. "Clients" are data owners, not nodes — the resource being allocated is client participation, not memory/CPU. No memory/CPU capacity constraints. Payment model is FL-specific.
+
+**How to build your capstone on it:**
+The Lyapunov framework is the transferable contribution:
+- **Virtual queue per tenant** — define `Q_k(t)` as the queue length of jobs waiting for placement for tenant k. Minimizing queue growth over time → no tenant is chronically delayed.
+- **Drift-utility objective** — maps directly to: minimize unfairness drift + maximize utilization.
+- **JSI adaptation** — replace payment bid with job priority class (Guaranteed > Burstable > BestEffort); replace client cost with RF-predicted memory usage.
+- Provides the formal mathematical grounding for the Gini coefficient target: reducing Gini from 0.25 → 0.10 is equivalent to reducing variance of `Q_k(t)` across tenants over time.
+
+| Optimization / Model Type | Has Predictive Model | Training / Implementation Details |
+|---|---|---|
+| Lyapunov optimization: drift-utility dual objective + virtual queue per resource | No | Yes — Algorithm 1 (FairFedJS pseudocode); evaluated on CIFAR-10 and Fashion-MNIST with 6 concurrent jobs |
+
+---
+
+### Design Insight: Fairness as Objective vs. Constraint in Optimization Models
+
+This is relevant to anyone extending the capstone optimization model. Fairness can be formulated two ways in a scheduling optimization problem, and the choice matters.
+
+**As an objective (what this capstone uses):**
+Fairness is one term in the objective function — for example, maximize `w1 * utilization + w2 * fairness - w3 * SLA violations`. The optimizer trades off fairness against utilization based on the weights. No tenant is guaranteed a fixed share; instead, the model finds the best overall balance. This approach is more flexible and appropriate when you want to maximize global efficiency while rewarding equitable outcomes. Shi and Yu (2024) and Beltre et al. (2019) both support this framing.
+
+**As a constraint (alternative formulation):**
+Fairness is a hard limit — for example, `d_k ≤ (1/|K|) + ε` for every tenant k (DDS constraint from Beltre et al., 2019). No placement is allowed if it would push any tenant's share over the threshold. This guarantees fairness floors but may reduce achievable utilization, since good placements can be blocked to protect a near-threshold tenant. This is closer to how DRF (Ghodsi et al., 2011) originally worked as an allocation rule.
+
+**When to use each:**
+Use fairness as an objective when tenants can tolerate some inequality in exchange for higher overall utilization — the optimizer finds the Pareto-optimal balance. Use fairness as a constraint when there is a contractual or regulatory requirement that no tenant's share falls below a guaranteed minimum (e.g., in SLA-heavy enterprise environments). A hybrid model uses both: a soft fairness objective for continuous improvement, and a hard fairness constraint as a floor guarantee. This hybrid would be a natural extension of the capstone model in future work.
 
 ---
 
@@ -719,6 +901,9 @@ The core argument for Random Forest remains: it is the only model in this litera
 | **Core** | Kovalenko & Zhdanova 2024 (Math Model) | Formal mathematical backbone — discrete optimization structure with explicit constraints to extend with prediction + DRF |
 | **Support** | Alatawi 2025 (RL Serverless) | Gini coefficient as fairness metric; RL comparison baseline to contrast your RF+DRF approach against |
 | **Support** | Zhao et al. 2021 (AaaS Admission) | Formal admission control formalization; profit=utilization framing for cloud provider stakeholders |
+| **Reference** | Verma et al. 2015 — Borg | Foundational prior art; validates overcommitment at production scale; ~20–30% infrastructure savings from sharing |
+| **Reference** | Delimitrou & Kozyrakis 2014 — Quasar | Validates underutilization problem (<20% CPU, ~40% memory); QoS-aware allocation framing |
+| **Support** | Lo et al. 2015 — Heracles | Strongest evidence that memory is the primary co-location bottleneck; ~90% utilization + <5% SLA achievable |
 
 ---
 
