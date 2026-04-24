@@ -17,7 +17,8 @@
       "Bash(python generate_work_division_doc.py)",
       "Bash(python3 *)",
       "Bash(python generate_section5_doc.py)",
-      "Bash(python generate_impl_doc.py)"
+      "Bash(python generate_impl_doc.py)",
+      "Bash(python -m pytest test_cluster_manager.py -v)"
     ],
     "deny": [],
     "ask": []
