@@ -37,12 +37,13 @@ from simulation_data import (
     Job, NodeState,
     generate_jobs, generate_nodes,
     simulate_p95, sample_spike_fraction,
-    compute_violation_rate, compute_effective_capacity,
-    compute_remaining, compute_omega,
+    compute_violation_rate,
+    compute_available_capacity, compute_remaining_avail, compute_remaining_eff,
+    compute_omega,
     REQUEST_MEM_MIN_MB, REQUEST_MEM_MAX_MB, REQUEST_PER,
     REQ_CPU_MIN, REQ_CPU_MAX,
     JOBS_PER_ROUND, NUM_NODES, NUM_TENANTS,
-    GAMMA, ALPHA, K_WINDOW, MAX_PLACEMENT_RETRIES,
+    K_WINDOW, MAX_PLACEMENT_RETRIES,
     NODE_MEM_MB, OS_TAX_MB,
     SPIKE_PROB, SPIKE_MAX_FRAC,
     MIN_LIFETIME_SEC, MAX_LIFETIME_SEC,
@@ -171,7 +172,7 @@ class TestNodeGeneration:
 class TestMathModelQuantities:
     """
     Verify the formulas from goal_programming_v4 §3 are computed correctly.
-    These are v̄_n, θ_n, M_eff, R_n, and ω_t.
+    These are v̄_n, M_n^avail, R_n^avail, R_n^eff, and ω_t.
     """
 
     # ── v̄_n (rolling violation rate) ─────────────────────────────────────
@@ -188,64 +189,58 @@ class TestMathModelQuantities:
         history = [True] * 5 + [False] * 5   # first half violated, second half clean
         assert compute_violation_rate(history, K=5) == 0.0   # only last 5 matter
 
-    # ── M_eff (effective capacity) ────────────────────────────────────────
+    # ── M_n^avail (available capacity) ───────────────────────────────────
 
-    def test_m_eff_no_violations(self):
-        """With v̄_n=0, M_eff = M_n - τ_n (full usable capacity)."""
+    def test_m_avail_formula(self):
+        """M_n^avail = M_n - τ_n (fixed, no violation scaling)."""
         n = NodeState(0, capacity_mb=1000.0, os_tax_mb=100.0)
-        assert compute_effective_capacity(n, v_bar=0.0) == 900.0
+        assert compute_available_capacity(n) == 900.0
 
-    def test_m_eff_shrinks_with_violations(self):
-        """M_eff decreases as v̄_n increases (SLA feedback tightens capacity)."""
-        n    = NodeState(0, capacity_mb=1000.0, os_tax_mb=100.0)
-        eff0 = compute_effective_capacity(n, v_bar=0.0, gamma=0.2)
-        eff1 = compute_effective_capacity(n, v_bar=0.5, gamma=0.2)
-        eff2 = compute_effective_capacity(n, v_bar=1.0, gamma=0.2)
-        assert eff0 > eff1 > eff2
+    # ── R_n^avail and R_n^eff ────────────────────────────────────────────
 
-    def test_m_eff_formula(self):
-        """M_eff = M_n*(1 - γ·v̄_n) - τ_n — verify the exact formula."""
-        n     = NodeState(0, capacity_mb=16_384.0, os_tax_mb=1_024.0)
-        v_bar = 0.4
-        gamma = 0.2
-        expected = 16_384.0 * (1 - gamma * v_bar) - 1_024.0
-        assert abs(compute_effective_capacity(n, v_bar, gamma) - expected) < 1e-6
-
-    # ── R_n (remaining capacity) ──────────────────────────────────────────
-
-    def test_remaining_capacity_basic(self):
-        """R_n = M_eff - U_n; clamped to 0 if negative."""
+    def test_r_avail_basic(self):
+        """R_n^avail = M_n^avail - U_n."""
         n = NodeState(0, capacity_mb=1000.0, os_tax_mb=100.0, used_mb=400.0)
-        m_eff = 900.0
-        assert compute_remaining(n, m_eff) == 500.0
+        m_avail = compute_available_capacity(n)
+        assert compute_remaining_avail(n, m_avail) == 500.0
 
-    def test_remaining_capacity_never_negative(self):
-        """R_n = 0 when U_n ≥ M_eff (no room for new jobs)."""
-        n = NodeState(0, capacity_mb=1000.0, os_tax_mb=100.0, used_mb=1000.0)
-        assert compute_remaining(n, m_eff=900.0) == 0.0
+    def test_r_eff_no_violations(self):
+        """R_n^eff = R_n^avail when v̄_n = 0 (no SLA penalty)."""
+        assert abs(compute_remaining_eff(500.0, v_bar=0.0) - 500.0) < 1e-9
+
+    def test_r_eff_full_violations(self):
+        """R_n^eff = 0 when v̄_n = 1 (node fully blocked)."""
+        assert compute_remaining_eff(500.0, v_bar=1.0) == 0.0
+
+    def test_r_eff_partial_violations(self):
+        """R_n^eff = R_n^avail * (1 - v̄_n) for intermediate v̄_n."""
+        assert abs(compute_remaining_eff(500.0, v_bar=0.4) - 300.0) < 1e-9
+
+    def test_r_eff_never_negative(self):
+        """R_n^eff is clamped to 0 even if R_n^avail is negative."""
+        assert compute_remaining_eff(-100.0, v_bar=0.0) == 0.0
 
     # ── ω_t (tenant priority weight) ─────────────────────────────────────
 
     def test_omega_equal_waits_give_weight_one(self):
         """When all tenants wait equally, every ω_t = 1."""
         W_t   = {0: 60.0, 1: 60.0, 2: 60.0}
-        omega = compute_omega(W_t, alpha=1.0)
+        omega = compute_omega(W_t)
         for w in omega.values():
             assert abs(w - 1.0) < 1e-9
 
     def test_omega_higher_wait_higher_weight(self):
         """A tenant with above-average wait gets ω_t > 1."""
         W_t   = {0: 120.0, 1: 10.0}   # tenant 0 waited much longer
-        omega = compute_omega(W_t, alpha=1.0)
+        omega = compute_omega(W_t)
         assert omega[0] > 1.0
         assert omega[1] == 1.0   # below average → no bonus (floor at 1)
 
-    def test_omega_alpha_zero_disables_fairness(self):
-        """α=0 → all ω_t = 1 regardless of wait times."""
-        W_t   = {0: 1000.0, 1: 1.0}
-        omega = compute_omega(W_t, alpha=0.0)
-        for w in omega.values():
-            assert abs(w - 1.0) < 1e-9
+    def test_omega_bounded_at_two(self):
+        """ω_t is capped at 2 even for extreme wait-time imbalances."""
+        W_t   = {0: 100_000.0, 1: 1.0}
+        omega = compute_omega(W_t)
+        assert omega[0] <= 2.0 + 1e-9
 
     def test_omega_empty_returns_empty(self):
         assert compute_omega({}) == {}
@@ -284,22 +279,23 @@ class TestOptimizer:
         assert len(placed) >= 1, "Optimizer placed nothing despite available capacity"
 
     def test_c2_node_capacity_respected(self):
-        """C2: total pred_mem_mb placed on each node must not exceed R_n."""
+        """C2: total pred_mem_mb placed on each node must not exceed R_n^eff."""
         rng   = np.random.default_rng(2)
         nodes = generate_nodes(rng)
         jobs  = generate_jobs(0, rng=rng)
         placements = solve(jobs, nodes, W_t={})
 
         for n in nodes:
-            v    = compute_violation_rate(n.violation_history, K_WINDOW)
-            meff = compute_effective_capacity(n, v, GAMMA)
-            R    = compute_remaining(n, meff)
+            v_bar   = compute_violation_rate(n.violation_history, K_WINDOW)
+            m_avail = compute_available_capacity(n)
+            r_avail = compute_remaining_avail(n, m_avail)
+            R_eff   = compute_remaining_eff(r_avail, v_bar)
             placed_mem = sum(
                 j.pred_mem_mb for j in jobs
                 if placements.get(j.job_id) == n.node_id
             )
-            assert placed_mem <= R + 1e-6, (
-                f"Node {n.node_id}: placed {placed_mem:.2f} MB > R_n={R:.2f} MB"
+            assert placed_mem <= R_eff + 1e-6, (
+                f"Node {n.node_id}: placed {placed_mem:.2f} MB > R_n^eff={R_eff:.2f} MB"
             )
 
     def test_c1_each_job_on_at_most_one_node(self):
@@ -333,12 +329,15 @@ class TestOptimizer:
 
         # Two identical jobs from different tenants
         job_high = Job("jh", tenant_id=0, req_mem_mb=10.0, req_cpu=1.0,
-                       pred_mem_mb=8.0, arrival_round=0, arrival_timestamp=now)
+                       pred_mem_mb=8.0, pred_cpu_p90=0.5,
+                       arrival_round=0, arrival_timestamp=now)
         job_low  = Job("jl", tenant_id=1, req_mem_mb=10.0, req_cpu=1.0,
-                       pred_mem_mb=8.0, arrival_round=0, arrival_timestamp=now)
+                       pred_mem_mb=8.0, pred_cpu_p90=0.5,
+                       arrival_round=0, arrival_timestamp=now)
 
-        # Tight node: R_n = 15 MB so only one 8 MB job fits (8+8=16 > 15)
-        tight_node = NodeState(node_id=99, capacity_mb=20.0, os_tax_mb=0.0, used_mb=5.0)
+        # Tight node: R_n^eff = 15 MB so only one 8 MB job fits (8+8=16 > 15)
+        tight_node = NodeState(node_id=99, capacity_mb=20.0, os_tax_mb=0.0,
+                               cpu_cores=100.0, used_mb=5.0)
 
         # Tenant 0 waited 120 s, tenant 1 waited 0 → ω_0 >> ω_1
         W_t = {0: 120.0, 1: 0.0}
@@ -581,13 +580,14 @@ class TestClusterManager:
             fill_job = Job(
                 job_id="fill",  tenant_id=0,
                 req_mem_mb=n.capacity_mb, req_cpu=1.0,
-                pred_mem_mb=n.capacity_mb, arrival_round=0,
-                arrival_timestamp=now,
+                pred_mem_mb=n.capacity_mb, pred_cpu_p90=0.0,
+                arrival_round=0, arrival_timestamp=now,
             )
             cm._running_jobs.append(RunningJob(
                 job          = fill_job,
                 node_id      = n.node_id,
                 act_mem_mb   = n.capacity_mb - n.os_tax_mb,   # fills usable space
+                act_cpu      = 0.0,
                 is_spike     = False,
                 start_time   = now,
                 lifetime_sec = 999_999,   # will not expire during test

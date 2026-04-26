@@ -43,7 +43,7 @@ Timestamps (simulated time)
 
 Feedback loops (goal_programming_v4 §4)
     SLA feedback   → v̄_n is updated once per batch; the optimizer uses it
-                     to shrink available capacity on struggling nodes (θ_n).
+                     to reduce R_n^eff on struggling nodes via S_{fn}.
     Fairness       → W_t is recomputed after every placement group; the
                      optimizer uses it to boost ω_t for waiting tenants.
 
@@ -66,11 +66,14 @@ import numpy as np
 from simulation_data import (
     Job, NodeState,
     generate_jobs, generate_nodes,
-    compute_violation_rate, compute_effective_capacity, compute_remaining,
+    compute_violation_rate, compute_available_capacity,
+    compute_remaining_avail, compute_remaining_eff,
     sample_spike_fraction,
-    JOBS_PER_ROUND, GAMMA, ALPHA, K_WINDOW,
-    MAX_PLACEMENT_RETRIES, MIN_LIFETIME_SEC, MAX_LIFETIME_SEC,
-    BATCH_DURATION_SEC,
+    JOBS_PER_ROUND, K_WINDOW,
+    MAX_PLACEMENT_RETRIES, MAX_JOBS_PER_SOLVE,
+    MIN_LIFETIME_SEC, MAX_LIFETIME_SEC, BATCH_DURATION_SEC,
+    NODE_MEM_MB, OS_TAX_MB, NODE_CPU_CORES, NUM_NODES, NUM_TENANTS,
+    SPIKE_PROB, SPIKE_MAX_FRAC, NUM_BATCHES, ENABLE_CPU_CONSTRAINT,
 )
 from optimizer_google_or import solve
 
@@ -99,6 +102,7 @@ class RunningJob:
     job:          Job
     node_id:      int
     act_mem_mb:   float   # actual memory (pred_mem + optional spike)
+    act_cpu:      float   # actual CPU allocated = pred_cpu_p90
     is_spike:     bool    # True  → spike occurred; act_mem > pred_mem
     start_time:   datetime
     lifetime_sec: float
@@ -131,7 +135,7 @@ class BatchResult:
         consecutive_failures   how many consecutive zero-placement calls at exit
                                0 = queue drained cleanly
                                ≥ MAX_PLACEMENT_RETRIES = gave up (nodes full)
-        node_violations        number of nodes where U_n > M_eff at batch start
+        node_violations        number of nodes where U_n > M_n^avail (SLA violation)
                                (SLA violation — exceeds safety threshold)
         spike_count            number of placed jobs whose act_mem > pred_mem
         physical_overflow_count number of nodes where U_n + τ_n > M_n
@@ -144,14 +148,15 @@ class BatchResult:
     queue_size_after:        int
     solver_calls:            int
     consecutive_failures:    int
-    node_violations:         int   # U_n > M_eff
+    node_violations:         int   # U_n > M_n^avail
     spike_count:             int   # act_mem > pred_mem
     physical_overflow_count: int   # U_n + τ_n > M_n  (critical)
     jobs_expired:            int
     nodes_assigned:          int  # Unique nodes that received a job THIS batch
     total_nodes_used:        int  # Total nodes with at least one running job
-    avg_eff_mem_pct:         float  # (U_n / M_eff) * 100
+    avg_eff_mem_pct:         float  # (U_n / M_n^avail) * 100
     avg_phys_mem_pct:        float  # (U_n / M_n) * 100
+    avg_phys_cpu_pct:        float  # (A_n / C_n) * 100
 
 
 @dataclass
@@ -161,7 +166,7 @@ class SimulationResult:
     total_generated:  int
     total_placed:     int
     final_queue_size: int
-    total_violations: int   # SLA: U_n > M_eff
+    total_violations: int   # SLA: U_n > M_n^avail
     total_spikes:     int   # job-level: act_mem > pred_mem
     total_overflows:  int   # critical: U_n + τ_n > M_n
     total_expired:    int   # jobs that completed naturally
@@ -174,16 +179,38 @@ class SimulationResult:
 
     def __str__(self) -> str:
         lines = [
-            f"SimulationResult — {self.num_batches} batches",
-            f"  generated : {self.total_generated}",
-            f"  placed    : {self.total_placed}  ({self.placement_rate():.1%})",
-            f"  queue left: {self.final_queue_size}",
-            f"  violations: {self.total_violations}  (U_n > M_eff)",
-            f"  spikes    : {self.total_spikes}      (act > pred)",
-            f"  overflows : {self.total_overflows}   (U_n + tax > capacity)",
-            f"  expired   : {self.total_expired}",
-            f"  W_t final : { {t: round(w, 1) for t, w in self.final_W_t.items()} } sec",
+            f"SimulationResult - {self.num_batches} batches",
+            f"  generated  : {self.total_generated}",
+            f"  placed     : {self.total_placed}  ({self.placement_rate():.1%})",
+            f"  queue left : {self.final_queue_size}",
+            f"  violations : {self.total_violations}  (U_n > M_n^avail)",
+            f"  spikes     : {self.total_spikes}  (act > pred)",
+            f"  overflows  : {self.total_overflows}  (U_n + tax > capacity)",
+            f"  expired    : {self.total_expired}",
         ]
+        if self.batch_results:
+            n = len(self.batch_results)
+            avg_placed  = sum(r.jobs_placed          for r in self.batch_results) / n
+            avg_queue   = sum(r.queue_size_after      for r in self.batch_results) / n
+            avg_eff     = sum(r.avg_eff_mem_pct        for r in self.batch_results) / n
+            avg_phys    = sum(r.avg_phys_mem_pct       for r in self.batch_results) / n
+            avg_cpu     = sum(r.avg_phys_cpu_pct       for r in self.batch_results) / n
+            avg_solves  = sum(r.solver_calls           for r in self.batch_results) / n
+            lines += [
+                f"  avg placed/batch  : {avg_placed:.1f}",
+                f"  avg queue/batch   : {avg_queue:.1f}",
+                f"  avg eff mem %     : {avg_eff:.1f}%",
+                f"  avg phys mem %    : {avg_phys:.1f}%",
+                f"  avg phys cpu %    : {avg_cpu:.1f}%",
+                f"  avg solver calls  : {avg_solves:.1f}",
+            ]
+        if self.final_W_t:
+            waits = list(self.final_W_t.values())
+            avg_w = sum(waits) / len(waits)
+            lines += [
+                f"  W_t final  : { {t: round(w, 1) for t, w in self.final_W_t.items()} } sec",
+                f"  wait spread: {min(waits):.1f}s to {max(waits):.1f}s  (avg {avg_w:.1f}s)",
+            ]
         return "\n".join(lines)
 
 
@@ -211,9 +238,27 @@ class ClusterManager:
     verbose : print a one-line summary after each batch
     """
 
-    def __init__(self, seed: Optional[int] = None, verbose: bool = True) -> None:
+    def __init__(
+        self,
+        seed:           Optional[int] = None,
+        verbose:        bool          = True,
+        jobs_per_round: Optional[int] = None,
+        k_window:       Optional[int] = None,
+    ) -> None:
+        """
+        Parameters
+        ----------
+        seed           : RNG seed for reproducibility  (None = non-deterministic)
+        verbose        : print per-batch summary and startup config
+        jobs_per_round : override JOBS_PER_ROUND
+        k_window       : override K_WINDOW  (violation rolling window)
+        """
         self.rng     = np.random.default_rng(seed)
         self.verbose = verbose
+
+        # Effective configuration (module defaults if not overridden)
+        self._jobs_per_round = jobs_per_round if jobs_per_round is not None else JOBS_PER_ROUND
+        self._k_window       = k_window       if k_window       is not None else K_WINDOW
 
         # ── Cluster state ──────────────────────────────────────────────────
         # Nodes are initialised with some pre-existing usage; recomputed
@@ -269,24 +314,33 @@ class ClusterManager:
         Returns a SimulationResult with per-batch and aggregate statistics.
         """
         batch_results: list[BatchResult] = []
+        batch_id = -1
 
         if self.verbose:
+            self._print_startup()
             print(
                 f"{'Batch':>5}  {'New':>6} {'Placed':>6}  {'Queue':>5}  "
                 f"{'Viols':>5} {'Spike':>5}  {'Ovrflw':>6}  "
                 f"{'Assign':>6}  {'Used':>5}  "
-                f"{'Eff Mem %':>10}  {'Phys Mem %':>10}"
+                f"{'Eff Mem %':>10}  {'Phys Mem %':>10}  {'Phys CPU %':>10}"
             )
-            print("─" * 100)
+            print("-" * 113)
 
-        for batch_id in range(num_batches):
-            result = self._run_batch(batch_id)
-            batch_results.append(result)
+        try:
+            for batch_id in range(num_batches):
+                result = self._run_batch(batch_id)
+                batch_results.append(result)
+                if self.verbose:
+                    self._print_batch(result)
+        except KeyboardInterrupt:
             if self.verbose:
-                self._print_batch(result)
+                print(
+                    f"\n[Interrupted]  Stopped after batch {batch_id}  "
+                    f"({len(batch_results)} batches completed)."
+                )
 
         if self.verbose:
-            print("─" * 100)
+            print("-" * 113)
 
         return SimulationResult(
             num_batches      = num_batches,
@@ -326,8 +380,8 @@ class ClusterManager:
         # but violation_history is NOT appended again — only once per batch.
         #
         # This implements the SLA feedback loop from §4:
-        #   violation → v̄_n rises → θ_n grows → M_eff shrinks → R_n shrinks
-        #   → optimizer places fewer jobs there → over time violations subside
+        #   violation → v̄_n rises → R_n^eff shrinks → fewer new jobs admitted
+        #   → over time violations subside as the node recovers
         node_violations_start = self._refresh_node_states(record_history=True)
 
         # ── Step 4: Generate new jobs and add to queue ────────────────────
@@ -361,25 +415,32 @@ class ClusterManager:
 
             # ── Call the MILP optimizer (goal_programming_v4 §5–§7) ───────
             #
+            # We cap the number of jobs sent to the solver at MAX_JOBS_PER_SOLVE
+            # to prevent the C++ solver from hanging with thousands of binary
+            # variables when JOBS_PER_ROUND is large.  Jobs are sorted oldest-
+            # first (by arrival_round) so the most urgent work is processed first.
+            #
             # Inputs from this manager:
-            #   job_queue : set J   — pending jobs with pred_mem_mb (m̂_j)
-            #   nodes     : set N   — current state including U_n and v̄_n
-            #   W_t       : W̄_t   — per-tenant average wait (→ ω_t weights)
+            #   queue_slice : subset of J  — oldest MAX_JOBS_PER_SOLVE jobs
+            #   nodes       : set N        — current state including U_n and v̄_n
+            #   W_t         : W̄_t         — per-tenant average wait (→ ω_t weights)
             #
             # The solver returns: job_id → node_id | None
+            queue_slice = sorted(
+                self.job_queue, key=lambda j: j.arrival_round
+            )[:MAX_JOBS_PER_SOLVE]
+
             placements = solve(
-                jobs  = self.job_queue,
+                jobs  = queue_slice,
                 nodes = self.nodes,
                 W_t   = self.W_t,
-                gamma = GAMMA,
-                alpha = ALPHA,
-                K     = K_WINDOW,
+                K     = self._k_window,
             )
             solver_calls += 1
 
-            # Split queue: placed vs still waiting
+            # Split queue_slice: placed vs still waiting
             placed_jobs: list[Job] = [
-                j for j in self.job_queue
+                j for j in queue_slice
                 if placements.get(j.job_id) is not None
             ]
 
@@ -466,17 +527,15 @@ class ClusterManager:
         active_node_ids = {rj.node_id for rj in self._running_jobs}
         total_nodes_used = len(active_node_ids)
 
-        # Calc mem %
+        # Calc mem % and CPU %
         eff_pcts = []
         phys_pcts = []
+        cpu_pcts = []
         for n in self.nodes:
-            # Physical usage: U_n / M_n
             phys_pcts.append((n.used_mb / n.capacity_mb) * 100)
-            
-            # Effective usage: U_n / M_eff
-            v_bar = compute_violation_rate(n.violation_history, K_WINDOW)
-            m_eff = compute_effective_capacity(n, v_bar, GAMMA)
-            eff_pcts.append((n.used_mb / max(1, m_eff)) * 100)
+            m_avail = compute_available_capacity(n)
+            eff_pcts.append((n.used_mb / max(1, m_avail)) * 100)
+            cpu_pcts.append((n.used_cpu / max(1, n.cpu_cores)) * 100)
 
         return BatchResult(
             batch_id                = batch_id,
@@ -492,7 +551,8 @@ class ClusterManager:
             nodes_assigned          = len(nodes_assigned_set),
             total_nodes_used        = total_nodes_used,
             avg_eff_mem_pct         = sum(eff_pcts) / len(eff_pcts),
-            avg_phys_mem_pct        = sum(phys_pcts) / len(phys_pcts), 
+            avg_phys_mem_pct        = sum(phys_pcts) / len(phys_pcts),
+            avg_phys_cpu_pct        = sum(cpu_pcts) / len(cpu_pcts),
         )
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -501,13 +561,13 @@ class ClusterManager:
 
     def _make_jobs(self, batch_id: int) -> list[Job]:
         """
-        Generate JOBS_PER_ROUND new jobs for this batch.
+        Generate self._jobs_per_round new jobs for this batch.
 
         Stamps each job's arrival_timestamp = sim_time so that wait times
         can be computed in seconds when the job is eventually scheduled.
         CPU fields are generated but not used in the optimizer.
         """
-        jobs = generate_jobs(batch_id, rng=self.rng)
+        jobs = generate_jobs(batch_id, num_jobs=self._jobs_per_round, rng=self.rng)
         for j in jobs:
             # arrival_timestamp is set here, when the job enters the queue.
             # scheduling_timestamp will be set in _start_job() when placed.
@@ -530,18 +590,20 @@ class ClusterManager:
         self._running_jobs = active
         return len(expired)
 
-    def _compute_node_used_mb(self) -> dict[int, float]:
+    def _compute_node_used_mb(self) -> tuple[dict[int, float], dict[int, float]]:
         """
-        Compute U_n for each node by summing act_mem_mb of all running jobs.
+        Compute U_n and A_n for each node from all running jobs.
 
-        This is the correct way to compute U_n — it's always consistent
-        with the actual active job set and automatically reflects expiry.
-        Returns a dict {node_id: used_mb}.
+        Always recomputed from scratch — self-correcting and consistent with
+        the active job set (expired jobs are absent, so memory is freed).
+        Returns (used_mb_by_node, used_cpu_by_node).
         """
         used: dict[int, float] = {n.node_id: 0.0 for n in self.nodes}
+        used_cpu: dict[int, float] = {n.node_id: 0.0 for n in self.nodes}
         for rj in self._running_jobs:
-            used[rj.node_id] += rj.act_mem_mb
-        return used
+            used[rj.node_id]     += rj.act_mem_mb
+            used_cpu[rj.node_id] += rj.act_cpu
+        return used, used_cpu
 
     def _refresh_node_states(self, record_history: bool) -> int:
         """
@@ -552,26 +614,24 @@ class ClusterManager:
 
         When record_history=True:
           Appends one bool per node to violation_history.
-          A violation = (U_n > M_eff), i.e. actual job memory exceeds the
-          safety-adjusted capacity.  This feeds the SLA feedback loop (§4):
+          A violation = (U_n > M_n^avail), i.e. actual job memory exceeds the
+          available capacity.  This feeds the SLA feedback loop (§4):
           the rolling rate v̄_n is computed from this history each solver call.
 
-        Returns the count of nodes currently in violation (U_n > M_eff).
+        Returns the count of nodes currently in violation (U_n > M_n^avail).
         """
-        used       = self._compute_node_used_mb()
+        used, used_cpu = self._compute_node_used_mb()
         violations = 0
 
         for n in self.nodes:
-            n.used_mb = used[n.node_id]   # update U_n
+            n.used_mb  = used[n.node_id]      # update U_n
+            n.used_cpu = used_cpu[n.node_id]  # update A_n
 
-            # Compute M_eff using the current violation rate v̄_n.
-            # Note: v̄_n itself is computed from violation_history, which we
-            # are ABOUT to extend (if record_history=True), so this read
-            # uses the history UP TO the previous batch — correct behaviour.
-            v_bar = compute_violation_rate(n.violation_history, K_WINDOW)
-            m_eff = compute_effective_capacity(n, v_bar, GAMMA)
+            # A violation occurs when actual job memory exceeds the fixed
+            # available capacity M_n^avail = M_n − τ_n.
+            m_avail = compute_available_capacity(n)
 
-            in_violation = n.used_mb > m_eff  # U_n > M_eff → SLA breach
+            in_violation = n.used_mb > m_avail  # U_n > M_n^avail → SLA breach
 
             if record_history:
                 # Append once per batch so K_WINDOW covers K past batches
@@ -603,8 +663,11 @@ class ClusterManager:
         # Determine actual memory consumption
         # Most of the time spike_frac = 0 (no spike).
         # About SPIKE_PROB = 10 % of the time, a spike adds 0–20 % extra.
-        spike_frac  = sample_spike_fraction(self.rng)
-        act_mem_mb  = job.pred_mem_mb * (1.0 + spike_frac)
+        spike_frac   = sample_spike_fraction(self.rng)
+        act_mem_mb   = job.pred_mem_mb * (1.0 + spike_frac)
+        # CPU: use the P90 prediction directly (no spike model for CPU;
+        # kernel throttling handles any overrun at runtime).
+        act_cpu      = job.pred_cpu_p90
 
         # Assign a random job lifetime drawn uniformly from the configured range
         lifetime_sec = float(self.rng.uniform(MIN_LIFETIME_SEC, MAX_LIFETIME_SEC))
@@ -613,6 +676,7 @@ class ClusterManager:
             job          = job,
             node_id      = node_id,
             act_mem_mb   = act_mem_mb,
+            act_cpu      = act_cpu,
             is_spike     = spike_frac > 0.0,
             start_time   = self.sim_time,
             lifetime_sec = lifetime_sec,
@@ -636,13 +700,36 @@ class ClusterManager:
             for t, ws in self._tenant_wait_times.items()
         }
 
+    def _print_startup(self) -> None:
+        """Print configuration summary before the simulation starts."""
+        print("=" * 66)
+        print("  Cluster Simulation Configuration")
+        print("=" * 66)
+        print(f"  Nodes              : {NUM_NODES}")
+        print(f"  Tenants            : {NUM_TENANTS}")
+        print(f"  Jobs/round         : {self._jobs_per_round}")
+        print(f"  Max jobs/solve     : {MAX_JOBS_PER_SOLVE}")
+        print(f"  K window           : {self._k_window}")
+        print(f"  Job lifetime       : {MIN_LIFETIME_SEC:.0f}-{MAX_LIFETIME_SEC:.0f} s")
+        print(f"  Batch duration     : {BATCH_DURATION_SEC} s")
+        print(f"  Spike prob/max     : {SPIKE_PROB:.0%} / {SPIKE_MAX_FRAC:.0%}")
+        print(f"  Max retries        : {MAX_PLACEMENT_RETRIES}")
+        print(f"  CPU constraint     : {'enabled (C4)' if ENABLE_CPU_CONSTRAINT else 'disabled'}")
+        print()
+        print(f"  {'Node':>4}  {'RAM (MB)':>10}  {'OS Tax (MB)':>12}  {'Avail (MB)':>12}  {'CPU cores':>10}")
+        print(f"  {'-'*4}  {'-'*10}  {'-'*12}  {'-'*12}  {'-'*10}")
+        for i, (m, t, c) in enumerate(zip(NODE_MEM_MB, OS_TAX_MB, NODE_CPU_CORES)):
+            print(f"  {i:>4}  {m:>10.0f}  {t:>12.0f}  {m-t:>12.0f}  {c:>10.1f}")
+        print("=" * 66)
+        print()
+
     @staticmethod
     def _print_batch(r: BatchResult) -> None:
         print(
             f"{r.batch_id:>5}  {r.jobs_generated:>6} {r.jobs_placed:>6}  {r.queue_size_after:>5}  "
             f"{r.node_violations:>5} {r.spike_count:>5}  {r.physical_overflow_count:>6}  "
             f"{r.nodes_assigned:>6}  {r.total_nodes_used:>5}  "
-            f"{r.avg_eff_mem_pct:>9.1f}%  {r.avg_phys_mem_pct:>9.1f}%"
+            f"{r.avg_eff_mem_pct:>9.1f}%  {r.avg_phys_mem_pct:>9.1f}%  {r.avg_phys_cpu_pct:>9.1f}%"
         )
 
 
@@ -652,7 +739,7 @@ class ClusterManager:
 
 if __name__ == "__main__":
     import sys
-    num_batches = int(sys.argv[1]) if len(sys.argv) > 1 else 10
+    num_batches = int(sys.argv[1]) if len(sys.argv) > 1 else NUM_BATCHES
 
     cm     = ClusterManager(seed=42, verbose=True)
     result = cm.run(num_batches)

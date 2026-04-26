@@ -12,18 +12,20 @@ Decision variable  (§1)
     x_{jn} ∈ {0,1}   1 = job j placed on node n, 0 = not placed
 
 Objective  (§5)
-    max Z = Σ_{j∈J} Σ_{n∈N}  ω_{t(j)} · m̂_j · x_{jn}
+    max Z = Σ_{j∈J} Σ_{n∈N}  ω_{t(j)} · m̂_j · u_n · x_{jn}
 
 Constraints  (§6)
-    C1: Σ_{n∈N} x_{jn}          ≤ 1    ∀ j∈J   (one node per job)
-    C2: Σ_{j∈J} m̂_j · x_{jn}   ≤ R_n  ∀ n∈N   (node capacity)
-    C3: x_{jn} ∈ {0,1}                           (binary domain)
+    C1: Σ_{n∈N} x_{jn}              ≤ 1          ∀ j∈J   (one node per job)
+    C2: Σ_{j∈J} m̂_j · x_{jn}       ≤ R_n^eff    ∀ n∈N   (node capacity)
+    C3: x_{jn} ∈ {0,1}                                     (binary domain)
 
 Key derived parameters computed before each solve call  (§3)
     v̄_n  rolling SLA violation rate on node n (last K rounds)
     θ_n  = γ · v̄_n          safety buffer that shrinks usable capacity
-    M_eff = M_n(1-θ_n) - τ_n  effective usable memory on node n
-    R_n   = M_eff - U_n        remaining capacity available this round
+    M_n^avail  = M_n - τ_n                   fixed available memory
+    R_n^avail  = M_n^avail - U_n             remaining before SLA adjustment
+    R_n^eff    = max(0, R_n^avail*(1-v̄_n))  effective capacity (RHS of C2)
+    u_n        = 1 + min(1, U_n/M_n^avail)  node utilization weight ∈ [1,2]
     ω_t   = 1 + α·max(0,(W̄_t-W̄)/W̄)   tenant priority weight
 
 Solver choice
@@ -42,10 +44,13 @@ from ortools.linear_solver import pywraplp
 from simulation_data import (
     Job, NodeState,
     compute_violation_rate,
-    compute_effective_capacity,
-    compute_remaining,
+    compute_available_capacity,
+    compute_remaining_avail,
+    compute_remaining_eff,
+    compute_remaining_cpu,
+    compute_utilization_weight,
     compute_omega,
-    K_WINDOW, GAMMA, ALPHA, NUM_TENANTS,
+    K_WINDOW, NUM_TENANTS, ENABLE_CPU_CONSTRAINT,
 )
 
 # ── Solver selection ───────────────────────────────────────────────────────────
@@ -59,9 +64,7 @@ def solve(
     jobs:  list[Job],
     nodes: list[NodeState],
     W_t:   dict[int, float],
-    gamma: float = GAMMA,
-    alpha: float = ALPHA,
-    K:     int   = K_WINDOW,
+    K:     int = K_WINDOW,
 ) -> dict[str, int | None]:
     """
     Solve one scheduling round and return the placement assignment.
@@ -76,8 +79,6 @@ def solve(
     W_t   : avg scheduling delay per tenant,
             in batches (§3 — W̄_t, Fairness Feedback).
             Pass an empty dict for the very first round (no history yet).
-    gamma : SLA threshold sensitivity γ           (§3 — θ_n = γ·v̄_n)
-    alpha : fairness responsiveness α             (§3 — ω_t formula)
     K     : rolling window length for v̄_n         (§3 — violation rate)
 
     Returns
@@ -99,16 +100,17 @@ def solve(
             "Install ortools-python (pip install ortools)."
         )
 
+    # Time limit prevents the C++ solver from blocking Python indefinitely
+    # when the job queue is large.  FEASIBLE is accepted as a valid result.
+    solver.set_time_limit(10_000)   # 10 seconds max per solve call
+
     # ── §3: Derived node quantities ────────────────────────────────────────
     #
-    # For each node n we compute the rolling SLA violation rate v̄_n,
-    # then derive the effective capacity M_n^eff and the remaining
-    # capacity R_n that caps the capacity constraint C2.
-    #
-    # v̄_n  = fraction of last K rounds where actual usage > M_n^eff
-    # θ_n   = γ · v̄_n                            (safety buffer)
-    # M_eff = M_n · (1 − θ_n) − τ_n              (shrinks with violations)
-    # R_n   = max(0, M_eff − U_n)                 (available this round)
+    # For each node n we compute:
+    #   v̄_n      = fraction of last K rounds where usage > M_n^avail
+    #   M_n^avail = M_n − τ_n                   (fixed available memory)
+    #   R_n^avail = M_n^avail − U_n             (remaining before SLA scaling)
+    #   R_n^eff   = max(0, R_n^avail·(1−v̄_n))  (capacity offered to new jobs)
     #
     # Reference: goal_programming_v4 §3, "Node Memory — Dynamic"
 
@@ -116,31 +118,49 @@ def solve(
         n.node_id: compute_violation_rate(n.violation_history, K)
         for n in nodes
     }
-    m_eff: dict[int, float] = {
-        n.node_id: compute_effective_capacity(n, v_bar[n.node_id], gamma)
+    m_avail: dict[int, float] = {
+        n.node_id: compute_available_capacity(n)
+        for n in nodes
+    }
+    r_avail: dict[int, float] = {
+        n.node_id: compute_remaining_avail(n, m_avail[n.node_id])
         for n in nodes
     }
     R: dict[int, float] = {
-        n.node_id: compute_remaining(n, m_eff[n.node_id])
+        n.node_id: compute_remaining_eff(r_avail[n.node_id], v_bar[n.node_id])
         for n in nodes
     }
 
     # ── §3: Tenant priority weights ────────────────────────────────────────
     #
-    # ω_t = 1 + α · max(0, (W̄_t − W̄) / W̄)
+    # ω_t = f_ω(W̄_t, W̄) = 1 + min(1, max(0, (W̄_t − W̄) / max(1, W̄)))
     #
-    # A tenant whose average wait exceeds the cluster-wide average gets
-    # ω_t > 1.  Their jobs contribute more to objective Z, so the solver
-    # naturally prefers placing them — fairness as a side-effect of
-    # weighted maximisation.
+    # ω_t ∈ [1, 2].  Tenants with above-average wait get ω_t > 1 — their
+    # jobs contribute more to Z, so the solver prefers placing them.
     #
     # When W_t is empty (first round), all tenants get ω_t = 1.0 (equal weight).
     #
     # Reference: goal_programming_v4 §3, "Fairness Feedback — ω_t"
 
     all_tenants = list(range(NUM_TENANTS))
-    omega_raw   = compute_omega({t: W_t.get(t, 0.0) for t in all_tenants}, alpha)
+    omega_raw   = compute_omega({t: W_t.get(t, 0.0) for t in all_tenants})
     omega: dict[int, float] = {t: omega_raw.get(t, 1.0) for t in all_tenants}
+
+    # ── §3: Node utilization weights ──────────────────────────────────────
+    #
+    # u_n = 1 + min(1, U_n / max(1, M_n^avail))   ∈ [1, 2]
+    #
+    # Nodes with higher memory utilization receive a larger objective
+    # coefficient, steering the solver to consolidate onto already-busy
+    # nodes and leave idle nodes available for power-down.
+    # C2 still prevents physically infeasible placements.
+    #
+    # Reference: goal_programming_v4 §3, "Node Utilization Weight"
+
+    u_n: dict[int, float] = {
+        n.node_id: compute_utilization_weight(n, m_avail[n.node_id])
+        for n in nodes
+    }
 
     # ── §1 + §6 C3: Decision variables x_{jn} ∈ {0,1} ────────────────────
     #
@@ -165,12 +185,15 @@ def solve(
 
     # ── §5: Objective — maximise weighted memory utilisation ───────────────
     #
-    # max Z = Σ_{j∈J} Σ_{n∈N}  ω_{t(j)} · m̂_j · x_{jn}
+    # max Z = Σ_{j∈J} Σ_{n∈N}  ω_{t(j)} · m̂_j · u_n · x_{jn}
     #
-    # Each placed job contributes its P95 predicted memory m̂_j, scaled by
-    # the tenant's priority weight ω_{t(j)}.  When all ω = 1, this is pure
-    # memory utilisation maximisation.  When some tenants are underserved,
-    # their jobs get higher coefficients and the solver prefers them.
+    # Each placed job contributes its P95 predicted memory m̂_j, scaled by:
+    #   ω_{t(j)} ∈ [1,2] — tenant priority (fairness feedback)
+    #   u_n      ∈ [1,2] — node utilization weight (consolidation preference)
+    #
+    # When all ω = 1 and all u_n = 1: plain memory utilisation maximisation.
+    # When some tenants are underserved: their jobs get higher ω → preferred.
+    # When nodes are busy: higher u_n → solver consolidates onto them first.
     #
     # Reference: goal_programming_v4 §5
 
@@ -180,7 +203,7 @@ def solve(
         for n in nodes:
             obj.SetCoefficient(
                 x[j.job_id, n.node_id],
-                w * j.pred_mem_mb            # ω_{t(j)} · m̂_j
+                w * j.pred_mem_mb * u_n[n.node_id]   # ω_{t(j)} · m̂_j · u_n
             )
     obj.SetMaximization()
 
@@ -201,10 +224,10 @@ def solve(
 
     # ── §6 C2: Node memory capacity ────────────────────────────────────────
     #
-    # Σ_{j∈J} m̂_j · x_{jn} ≤ R_n   ∀ n∈N
+    # Σ_{j∈J} m̂_j · x_{jn} ≤ R_n^eff   ∀ n∈N
     #
     # The total P95 predicted memory of all jobs placed on node n may not
-    # exceed R_n (remaining capacity after OS tax and SLA threshold).
+    # exceed R_n^eff (effective remaining after OS tax and SLA scaling).
     # This is the overcommitment mechanism: the model uses m̂_j (P95) rather
     # than the declared request, so it admits more jobs than a naive
     # declared-memory scheduler would.  A violation occurs if the actual
@@ -216,6 +239,26 @@ def solve(
         ct = solver.Constraint(0.0, R[n.node_id], f"c2_{n.node_id}")
         for j in jobs:
             ct.SetCoefficient(x[j.job_id, n.node_id], j.pred_mem_mb)
+
+    # ── §6 C4: Node CPU capacity (conditional) ────────────────────────────
+    #
+    # Σ_{j∈J} p̂_j^CPU · x_{jn} ≤ R_n^CPU   ∀ n∈N
+    #
+    # Only added when ENABLE_CPU_CONSTRAINT=True.  By default this constraint
+    # is omitted: the OS time-slices CPU across all processes so cores are not
+    # exclusive, and overcommitment is handled by kernel throttling at runtime.
+    #
+    # Reference: goal_programming_v4 §6, C4
+
+    if ENABLE_CPU_CONSTRAINT:
+        R_cpu: dict[int, float] = {
+            n.node_id: compute_remaining_cpu(n)
+            for n in nodes
+        }
+        for n in nodes:
+            ct = solver.Constraint(0.0, R_cpu[n.node_id], f"c4_{n.node_id}")
+            for j in jobs:
+                ct.SetCoefficient(x[j.job_id, n.node_id], j.pred_cpu_p90)
 
     # ── Solve ──────────────────────────────────────────────────────────────
     status = solver.Solve()

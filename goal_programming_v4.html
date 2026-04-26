@@ -132,11 +132,13 @@
   <div class="flow-row">
     <span class="fb-box c-teal">Cluster Manager</span>
     <span class="arrow">→</span>
-    <span class="fb-box c-blue">$U_n$</span>
+    <span class="fb-box c-blue">$U_n,\, A_n$</span>
     <span class="arrow">+</span>
     <span class="fb-box c-red">$\bar{v}_n$</span>
     <span class="arrow">+</span>
     <span class="fb-box c-green">$\bar{W}_t$</span>
+    <span class="arrow">+</span>
+    <span class="fb-box c-purple">$\hat{m}_j,\, \hat{p}_j^{\text{CPU}}$</span>
     <span class="arrow">→</span>
     <span class="fb-box c-amber">LP: place jobs, maximize $Z$</span>
     <span class="arrow">→</span>
@@ -176,6 +178,19 @@
     <tr><th>Symbol</th><th>Meaning</th></tr>
     <tr><td>$M_n$</td><td>Physical RAM installed on node $n$</td></tr>
     <tr><td>$\tau_n$</td><td><strong>Memory tax</strong> — fixed overhead consumed by the OS, kubelet, and monitoring agents. Not available to tenant jobs.</td></tr>
+    <tr>
+      <td>$M_n^{\text{avail}}$</td>
+      <td>
+        <strong>Available memory</strong> — physical RAM minus the OS tax. This is the fixed upper bound for all tenant job memory on node $n$:
+        <div class="math-box">$$M_n^{\text{avail}} = M_n - \tau_n$$</div>
+      </td>
+    </tr>
+  </table>
+
+  <div class="sub-head">Node CPU — Fixed</div>
+  <table>
+    <tr><th>Symbol</th><th>Meaning</th></tr>
+    <tr><td>$C_n$</td><td>Total CPU cores on node $n$</td></tr>
   </table>
 
   <div class="sub-head">Node Memory — Dynamic (updated each scheduling round)</div>
@@ -185,28 +200,12 @@
       <td>$\bar{v}_n \in [0,1]$</td>
       <td><span class="src src-cm">cluster mgr</span></td>
       <td>
-        <strong>Rolling SLA violation rate</strong> on node $n$ — fraction of the last $K$ scheduling rounds in which actual memory on node $n$ exceeded $M_n^{\text{eff}}$. Computed and passed by the cluster manager.
+        <strong>Rolling SLA violation rate</strong> on node $n$ — fraction of the last $K$ scheduling rounds in which actual memory on node $n$ exceeded $M_n^{\text{avail}}$. Computed and passed by the cluster manager.
         <div class="math-box">$$\bar{v}_n^{(t)} = \frac{1}{K}\sum_{k=0}^{K-1} \mathbb{1}\!\left[\text{overload on node } n \text{ at round } t - k\right]$$</div>
         $\bar{v}_n = 0$: no recent violations. $\bar{v}_n = 1$: every recent round was overloaded.
-      </td>
-    </tr>
-    <tr>
-      <td>$\theta_n = \gamma \cdot \bar{v}_n$</td>
-      <td><span class="src src-derived">derived</span></td>
-      <td>
-        <strong>Per-node memory threshold</strong> — a safety buffer derived from recent SLA violations. Increases with $\bar{v}_n$, directly reducing usable capacity on that node.
-        $\gamma \in (0,1)$ is a tunable scaling coefficient controlling how aggressively violations reduce available capacity.
-        <div class="math-box">$$\theta_n = \gamma \cdot \bar{v}_n$$</div>
-      </td>
-    </tr>
-    <tr>
-      <td>$M_n^{\text{eff}}$</td>
-      <td><span class="src src-derived">derived</span></td>
-      <td>
-        <strong>Effective usable memory</strong> — the hard ceiling for all tenant jobs on node $n$, after removing the OS tax and the SLA-driven threshold:
-        <div class="math-box">$$M_n^{\text{eff}} = M_n(1 - \theta_n) - \tau_n = M_n(1 - \gamma \cdot \bar{v}_n) - \tau_n$$</div>
-        No violations ($\bar{v}_n = 0$): $M_n^{\text{eff}} = M_n - \tau_n$ — full usable capacity.<br/>
-        Rising violations: $\theta_n$ grows, $M_n^{\text{eff}}$ shrinks — the node is treated more conservatively each round until violations subside.
+        <div class="note" style="margin-top:0.6rem;">
+          <strong>$K$ and $k$.</strong> &nbsp;$K \in \mathbb{Z}^+$ is the rolling window length — the number of past scheduling rounds included in the violation rate. It is a configuration scalar (set before the simulation, not a decision variable). The summation index $k = 0, 1, \ldots, K-1$ iterates over those $K$ most recent rounds.
+        </div>
       </td>
     </tr>
     <tr>
@@ -215,9 +214,40 @@
       <td><strong>Currently used memory</strong> on node $n$, measured in real time. Provided as input each round. The model does not track this itself.</td>
     </tr>
     <tr>
-      <td>$R_n = M_n^{\text{eff}} - U_n$</td>
+      <td>$A_n$</td>
+      <td><span class="src src-cm">cluster mgr</span></td>
+      <td><strong>Currently used CPU</strong> on node $n$ — sum of $\hat{p}_j^{\text{CPU}}$ of all running jobs on node $n$. Provided as input each round.</td>
+    </tr>
+    <tr>
+      <td>$R_n^{\text{avail}}$</td>
       <td><span class="src src-derived">derived</span></td>
-      <td><strong>Remaining available memory</strong> on node $n$ — the capacity available to newly assigned jobs this round.</td>
+      <td>
+        <strong>Available remaining memory</strong> — raw capacity remaining after subtracting current usage:
+        <div class="math-box">$$R_n^{\text{avail}} = M_n^{\text{avail}} - U_n$$</div>
+      </td>
+    </tr>
+    <tr>
+      <td>$R_n^{\text{eff}}$</td>
+      <td><span class="src src-derived">derived</span></td>
+      <td>
+        <strong>Effective remaining memory</strong> — capacity offered to new jobs after applying the SLA violation scaling. The function $S_{f_n}$ converts $\bar{v}_n \in [0,1]$ and applies it as a percentage reduction:
+        <div class="math-box">$$R_n^{\text{eff}} = S_{f_n}\!\left(R_n^{\text{avail}},\, \bar{v}_n\right) = \max\!\left(0,\; R_n^{\text{avail}} \cdot (1 - \bar{v}_n)\right)$$</div>
+        No violations ($\bar{v}_n = 0$): $R_n^{\text{eff}} = R_n^{\text{avail}}$ — full remaining capacity.<br/>
+        Rising violations: $R_n^{\text{eff}}$ shrinks — the node is offered less capacity to new jobs until violations subside.<br/>
+        All violations ($\bar{v}_n = 1$): $R_n^{\text{eff}} = 0$ — node is fully blocked for new admissions.
+        <div class="note" style="margin-top:0.6rem;">
+          $R_n^{\text{eff}}$ is the right-hand side of constraint C2 in the optimizer.
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <td>$R_n^{\text{CPU}}$</td>
+      <td><span class="src src-derived">derived</span></td>
+      <td>
+        <strong>Remaining CPU capacity</strong> — cores available after currently running jobs:
+        <div class="math-box">$$R_n^{\text{CPU}} = C_n - A_n$$</div>
+        No SLA adjustment is applied. CPU overcommitment is tolerated at runtime via kernel throttling, so this is a hard admission guard only.
+      </td>
     </tr>
   </table>
 
@@ -235,29 +265,33 @@
       <td>Cluster-wide average scheduling delay across all tenants.</td>
     </tr>
     <tr>
-      <td>$\omega_t$</td>
+      <td>$\omega_t \in [1,2] \subset \mathbb{R}$</td>
       <td><span class="src src-derived">derived</span></td>
       <td>
-        <strong>Tenant priority weight</strong> — scales the placement value of tenant $t$'s jobs in the objective function. Tenants waiting longer than average receive higher weight, so their jobs contribute more to the objective, making the optimizer prefer placing them.
-        <div class="math-box">$$\omega_t = 1 + \alpha \cdot \max\!\left(0,\; \frac{\bar{W}_t - \bar{W}}{\bar{W}}\right)$$</div>
-        $\omega_t \geq 1$ always — no tenant is penalized for having low wait. When all tenants have equal wait, $\omega_t = 1$ for all $t$ and the objective reduces to unweighted utilization.
+        <strong>Tenant priority weight</strong> — scales the placement value of tenant $t$'s jobs in the objective. Tenants waiting longer than average receive higher weight, so their jobs contribute more to the objective, making the optimizer prefer placing them. The function $f_\omega$ maps the excess wait fraction into $[0,1]$ and shifts the result to $[1,2]$:
+        <div class="math-box">$$\omega_t = f_\omega\!\left(\bar{W}_t,\, \bar{W}\right) = 1 + \min\!\left(1,\;\max\!\left(0,\;\frac{\bar{W}_t - \bar{W}}{\max(1,\,\bar{W})}\right)\right)$$</div>
+        $\omega_t = 1$ when $\bar{W}_t \leq \bar{W}$ — no penalty for tenants with short waits.<br/>
+        $\omega_t = 2$ when $\bar{W}_t \geq 2\bar{W}$ — maximum priority for severely underserved tenants.<br/>
+        No free parameter is required; the function saturates naturally at $2\times$.
       </td>
     </tr>
   </table>
 
-  <div class="note" style="margin-top:0.5rem;">
-    <strong>What is $\alpha$?</strong><br/>
-    $\alpha$ is a <em>fairness responsiveness coefficient</em> — it controls how strongly the model corrects wait-time imbalances between tenants. It is a tunable parameter set before the simulation.
-    <div class="alpha-table" style="margin-top:0.7rem;">
-      <table>
-        <tr><th>$\alpha$ value</th><th>Effect</th><th>Example: tenant waiting 50% longer than average</th></tr>
-        <tr><td>$\alpha = 0$</td><td>Fairness weighting disabled. All tenants treated identically.</td><td>$\omega_t = 1$</td></tr>
-        <tr><td>$\alpha = 1$</td><td>Moderate correction. Weight scales linearly with excess wait.</td><td>$\omega_t = 1.5$</td></tr>
-        <tr><td>$\alpha = 2$</td><td>Aggressive correction. Underserved tenants strongly preferred.</td><td>$\omega_t = 2.0$</td></tr>
-      </table>
-    </div>
-    A higher $\alpha$ makes the model correct fairness imbalances faster but may sacrifice some utilization efficiency to do so. Running simulations with different $\alpha$ values is a natural part of the evaluation.
-  </div>
+  <div class="sub-head">Node Utilization Weight (Dynamic)</div>
+  <table>
+    <tr><th>Symbol</th><th>Source</th><th>Meaning</th></tr>
+    <tr>
+      <td>$u_n \in [1,2] \subset \mathbb{R}$</td>
+      <td><span class="src src-derived">derived</span></td>
+      <td>
+        <strong>Node utilization weight</strong> — a weight derived from the percentage of available memory currently in use, applied directly in the objective to consolidate workloads onto busier nodes. The function $f_u$ maps the utilization fraction to $[1,2]$:
+        <div class="math-box">$$u_n = f_u\!\left(\frac{U_n}{M_n^{\text{avail}}}\right) = 1 + \min\!\left(1,\;\max\!\left(0,\;\frac{U_n}{\max(1,\, M_n^{\text{avail}})}\right)\right)$$</div>
+        $u_n = 1$: node is idle — no consolidation preference.<br/>
+        $u_n = 2$: node is fully loaded — highest preference for new placements.<br/>
+        Constraint C2 still prevents any physically infeasible placement regardless of $u_n$.
+      </td>
+    </tr>
+  </table>
 
   <div class="sub-head">Job Parameters (from prediction layer)</div>
   <table>
@@ -265,12 +299,17 @@
     <tr>
       <td>$\hat{m}_j$</td>
       <td><span class="src src-ml">prediction layer</span></td>
-      <td><strong>P95 predicted memory</strong> for job $j$ — the 95th percentile of the highest predicted memory spike over the job's expected lifetime. Used in the placement constraint and objective.</td>
+      <td><strong>P95 predicted memory</strong> for job $j$ — the 95th percentile of the highest predicted memory spike over the job's expected lifetime. Used in the placement constraint C2 and the objective.</td>
+    </tr>
+    <tr>
+      <td>$\hat{p}_j^{\text{CPU}}$</td>
+      <td><span class="src src-ml">prediction layer</span></td>
+      <td><strong>P90 predicted CPU peak</strong> for job $j$ — the 90th percentile of the job's predicted CPU demand. Used in the CPU capacity constraint C4. No SLA feedback applies to CPU; kernel throttling handles any runtime overrun.</td>
     </tr>
     <tr>
       <td>$\hat{l}_j$</td>
       <td><span class="src src-ml">prediction layer</span></td>
-      <td><strong>Predicted job lifetime</strong>. Used internally by the prediction layer to determine the time horizon over which $\hat{m}_j$ is estimated. Not used directly in the LP.</td>
+      <td><strong>Predicted job lifetime</strong>. Used internally by the prediction layer to determine the time horizon for $\hat{m}_j$ and $\hat{p}_j^{\text{CPU}}$. Not used directly in the LP.</td>
     </tr>
   </table>
 </div>
@@ -287,10 +326,10 @@
   <div class="fb fb-sla">
     <div class="fb-title">🔴 SLA Feedback → Node Capacity</div>
     <p style="font-family:'Inter',sans-serif;font-size:0.87rem;color:var(--muted);">
-      When actual memory on node $n$ exceeds $M_n^{\text{eff}}$ at runtime (actual usage > effective capacity), the cluster manager records one overload event. It computes the rolling violation rate $\bar{v}_n$ over the last $K$ rounds and passes it to the model.
+      When actual memory on node $n$ exceeds $M_n^{\text{avail}}$ at runtime, the cluster manager records one overload event. It computes the rolling violation rate $\bar{v}_n$ over the last $K$ rounds and passes it to the model.
     </p>
     <p style="font-family:'Inter',sans-serif;font-size:0.87rem;color:var(--muted);margin-top:0.6rem;">
-      The model derives $\theta_n = \gamma \cdot \bar{v}_n$ and reduces $M_n^{\text{eff}}$ accordingly. As violations persist, the node's effective capacity shrinks, making it harder to assign new jobs there. As violations subside, $\bar{v}_n$ falls, $\theta_n$ drops, and capacity recovers.
+      The model derives $R_n^{\text{eff}} = S_{f_n}(R_n^{\text{avail}}, \bar{v}_n)$. As violations persist, $\bar{v}_n$ rises and $R_n^{\text{eff}}$ shrinks — the node is offered less capacity to new jobs. As violations subside, $\bar{v}_n$ falls and $R_n^{\text{eff}}$ recovers toward $R_n^{\text{avail}}$.
     </p>
     <div class="note">
       <strong>One overload event = one SLA violation.</strong> Violations are counted, not prevented, by this mechanism. The model reacts by becoming more conservative — it cannot retroactively fix an overload.
@@ -319,13 +358,18 @@
 <div class="obj-box">
   <div class="obj-label">Single Objective — Maximize Weighted Memory Utilization</div>
   <div class="math-box" style="font-size:1.08em;">
-    $$\max \quad Z = \sum_{j \in J} \sum_{n \in N} \omega_{t(j)} \cdot \hat{m}_j \cdot x_{jn}$$
+    $$\max \quad Z = \sum_{j \in J} \sum_{n \in N} \omega_{t(j)} \cdot \hat{m}_j \cdot u_n \cdot x_{jn}$$
   </div>
   <p style="font-family:'Inter',sans-serif;font-size:0.9rem;color:var(--muted);margin-top:0.8rem;">
-    where $t(j)$ denotes the tenant of job $j$, and $\omega_{t(j)}$ is that tenant's current priority weight.
+    where $t(j)$ denotes the tenant of job $j$, $\omega_{t(j)} \in [1,2] \subset \mathbb{R}$ is that tenant's priority weight, and $u_n \in [1,2] \subset \mathbb{R}$ is the node utilization weight for node $n$.
   </p>
   <div class="note">
-    <strong>What this does:</strong> Places jobs onto nodes such that the total P95 predicted memory assigned is as large as possible, weighted by tenant priority. A job from a tenant with higher $\omega_t$ contributes more to $Z$ — the optimizer prefers it over an equally-sized job from a lower-weight tenant. When all $\omega_t = 1$, this is pure memory utilization maximization.
+    <strong>What this does:</strong> Places jobs onto nodes such that the total P95 predicted memory assigned is as large as possible, weighted by two multiplicative factors — both parameter-free functions bounded in $[1,2]$:
+    <ul style="margin-top:0.4rem;padding-left:1.4rem;">
+      <li style="margin-bottom:0.3rem;"><strong>$\omega_{t(j)}$</strong> — tenant fairness: a job from a long-waiting tenant gets a higher weight (up to $2\times$), so the solver naturally favors it.</li>
+      <li><strong>$u_n$</strong> — node utilization: a job placed on an already-loaded node contributes more, consolidating workloads onto fewer machines and leaving idle nodes available for power-down.</li>
+    </ul>
+    When all $\omega_t = 1$ (equal waits) and all $u_n = 1$ (idle nodes), this reduces to plain memory utilization maximization.
   </div>
   <div class="note" style="margin-top:0.6rem;">
     <strong>Why not maximize admission count?</strong> Placing many small jobs with low memory consumption could score well on job count but poorly on utilization. Maximizing $\hat{m}_j \cdot x_{jn}$ directly targets memory efficiency — the primary research objective.
@@ -347,11 +391,11 @@
     <li>
       <span class="ctag">C2</span>
       <div>
-        <strong>Memory capacity per node.</strong> Total P95 predicted memory of jobs assigned to node $n$ may not exceed its remaining available capacity:
-        <div class="math-box">$$\sum_{j \in J} \hat{m}_j \cdot x_{jn} \leq R_n \quad \forall n \in N$$</div>
-        <span style="font-family:'Inter',sans-serif;font-size:0.85rem;color:var(--muted);">$R_n = M_n^{\text{eff}} - U_n$ incorporates the OS tax, the SLA-driven threshold $\theta_n$, and current usage. This is a hard constraint — no job can be assigned if it would push P95 load past $R_n$.</span>
+        <strong>Memory capacity per node.</strong> Total P95 predicted memory of jobs assigned to node $n$ may not exceed its effective remaining capacity:
+        <div class="math-box">$$\sum_{j \in J} \hat{m}_j \cdot x_{jn} \leq R_n^{\text{eff}} \quad \forall n \in N$$</div>
+        <span style="font-family:'Inter',sans-serif;font-size:0.85rem;color:var(--muted);">$R_n^{\text{eff}} = S_{f_n}(R_n^{\text{avail}}, \bar{v}_n)$ incorporates the OS tax, current usage, and the SLA-driven scaling. This is a hard constraint — no job can be assigned if it would push P95 load past $R_n^{\text{eff}}$.</span>
         <div class="note" style="margin-top:0.6rem;">
-          <strong>Overcommitment lives here.</strong> Tenants declare memory (often inflated). The prediction layer produces $\hat{m}_j$ (P95, much lower than declared). The model admits a job if $\hat{m}_j$ fits within $R_n$ — even if the declared amount would not. This is overcommitment: the model accepts more jobs than the declared values would allow, because it trusts the predictions over the declarations. An SLA violation (overload) occurs if the 5% tail of the prediction materializes at runtime.
+          <strong>Overcommitment lives here.</strong> Tenants declare memory (often inflated). The prediction layer produces $\hat{m}_j$ (P95, much lower than declared). The model admits a job if $\hat{m}_j$ fits within $R_n^{\text{eff}}$ — even if the declared amount would not. An SLA violation occurs if the 5% tail of the prediction materializes at runtime.
         </div>
       </div>
     </li>
@@ -363,6 +407,15 @@
         <span style="font-family:'Inter',sans-serif;font-size:0.85rem;color:var(--muted);">This makes the problem a Mixed-Integer Linear Program (MILP). For large instances, $x_{jn} \in [0,1]$ (LP relaxation with rounding) is an acceptable approximation for simulation scale.</span>
       </div>
     </li>
+    <li>
+      <span class="ctag">C4</span>
+      <div>
+        <strong>CPU capacity per node</strong> <span style="font-family:'Inter',sans-serif;font-size:0.8rem;color:var(--amber);">(conditional — active only when <code>ENABLE_CPU_CONSTRAINT = True</code>)</span><strong>.</strong> Total P90 predicted CPU peak of jobs assigned to node $n$ may not exceed its remaining CPU capacity:
+        <div class="math-box">$$\sum_{j \in J} \hat{p}_j^{\text{CPU}} \cdot x_{jn} \leq R_n^{\text{CPU}} \quad \forall n \in N$$</div>
+        <span style="font-family:'Inter',sans-serif;font-size:0.85rem;color:var(--muted);">$R_n^{\text{CPU}} = C_n - A_n$ is the remaining CPU cores after currently running jobs. No SLA-driven scaling is applied.<br/><br/>
+        <strong style="color:var(--text);">Why this is off by default.</strong> Unlike memory (physical pages are exclusive), CPU time is shared by the OS scheduler across all processes simultaneously — a node with 8 cores can run hundreds of threads without any single one being denied. CPU overcommitment is handled by kernel throttling (cgroups), which slows a job but never kills it. Treating cores as hard exclusive capacity is therefore too restrictive and would unnecessarily block placements. Set <code>ENABLE_CPU_CONSTRAINT = True</code> only for CPU-bound workloads where throttling is unacceptable.</span>
+      </div>
+    </li>
   </ul>
 </div>
 
@@ -370,22 +423,26 @@
 <div class="sec-head">§7 — Complete Model</div>
 <div class="card" style="background:#070e1c; border-color:#2040a0;">
   <div class="math-box" style="font-size:1.03em;">
-    $$\max \quad Z = \sum_{j \in J} \sum_{n \in N} \omega_{t(j)} \cdot \hat{m}_j \cdot x_{jn}$$
+    $$\max \quad Z = \sum_{j \in J} \sum_{n \in N} \omega_{t(j)} \cdot \hat{m}_j \cdot u_n \cdot x_{jn}$$
   </div>
   <div class="sub-head" style="margin-top:1.2rem;">Subject to</div>
   <div class="math-box">
     $$\text{C1:} \quad \sum_{n \in N} x_{jn} \leq 1 \quad \forall j \in J$$
-    $$\text{C2:} \quad \sum_{j \in J} \hat{m}_j \cdot x_{jn} \leq R_n \quad \forall n \in N$$
+    $$\text{C2:} \quad \sum_{j \in J} \hat{m}_j \cdot x_{jn} \leq R_n^{\text{eff}} \quad \forall n \in N$$
     $$\text{C3:} \quad x_{jn} \in \{0,1\} \quad \forall j \in J,\; n \in N$$
+    $$\text{C4 (if \texttt{ENABLE\_CPU\_CONSTRAINT}):} \quad \sum_{j \in J} \hat{p}_j^{\text{CPU}} \cdot x_{jn} \leq R_n^{\text{CPU}} \quad \forall n \in N$$
   </div>
   <div class="sub-head" style="margin-top:1.2rem;">Where</div>
   <div class="math-box">
-    $$\theta_n = \gamma \cdot \bar{v}_n \qquad M_n^{\text{eff}} = M_n(1-\theta_n) - \tau_n \qquad R_n = M_n^{\text{eff}} - U_n$$
-    $$\omega_t = 1 + \alpha \cdot \max\!\left(0,\;\frac{\bar{W}_t - \bar{W}}{\bar{W}}\right)$$
+    $$M_n^{\text{avail}} = M_n - \tau_n \qquad R_n^{\text{avail}} = M_n^{\text{avail}} - U_n$$
+    $$R_n^{\text{eff}} = S_{f_n}\!\left(R_n^{\text{avail}},\, \bar{v}_n\right) = \max\!\left(0,\; R_n^{\text{avail}} \cdot (1 - \bar{v}_n)\right)$$
+    $$R_n^{\text{CPU}} = C_n - A_n$$
+    $$u_n = 1 + \min\!\left(1,\;\max\!\left(0,\;\frac{U_n}{\max(1,\, M_n^{\text{avail}})}\right)\right)$$
+    $$\omega_t = 1 + \min\!\left(1,\;\max\!\left(0,\;\frac{\bar{W}_t - \bar{W}}{\max(1,\, \bar{W})}\right)\right)$$
   </div>
   <div class="note" style="margin-top:1rem;">
-    <strong>Inputs each round:</strong> $U_n$ (current node usage), $\bar{v}_n$ (SLA violation rate per node), $\bar{W}_t$ (average wait per tenant), $\hat{m}_j$ (P95 predicted memory per job) — all from the cluster manager or prediction layer.<br/><br/>
-    <strong>Tunable parameters:</strong> $\gamma$ (SLA threshold sensitivity), $\alpha$ (fairness responsiveness), $K$ (violation rolling window), $\tau_n$ (memory tax per node).
+    <strong>Inputs each round:</strong> $U_n$ (current node memory usage), $A_n$ (current node CPU usage), $\bar{v}_n$ (SLA violation rate per node), $\bar{W}_t$ (average wait per tenant), $\hat{m}_j$ (P95 predicted memory per job), $\hat{p}_j^{\text{CPU}}$ (P90 predicted CPU peak per job) — all from the cluster manager or prediction layer.<br/><br/>
+    <strong>Configuration parameters:</strong> $K$ (violation rolling window length), $\tau_n$ (memory tax per node), <code>ENABLE_CPU_CONSTRAINT</code> (boolean; default <code>False</code> — C4 is omitted when disabled). No free tuning coefficients — all weighting functions are parameter-free and bounded in $[1,2]$.
   </div>
 </div>
 
