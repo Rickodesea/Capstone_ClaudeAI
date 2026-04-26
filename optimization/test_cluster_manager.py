@@ -587,7 +587,6 @@ class TestClusterManager:
                 job          = fill_job,
                 node_id      = n.node_id,
                 act_mem_mb   = n.capacity_mb - n.os_tax_mb,   # fills usable space
-                act_cpu      = 0.0,
                 is_spike     = False,
                 start_time   = now,
                 lifetime_sec = 999_999,   # will not expire during test

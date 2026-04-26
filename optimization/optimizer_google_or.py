@@ -12,22 +12,21 @@ Decision variable  (§1)
     x_{jn} ∈ {0,1}   1 = job j placed on node n, 0 = not placed
 
 Objective  (§5)
-    max Z = Σ_{j∈J} Σ_{n∈N}  ω_{t(j)} · m̂_j · u_n · x_{jn}
+    max Z = Σ_{j∈J} Σ_{n∈N}  ω_{t(j)} · m̂_j · u_n^mem · x_{jn}
 
 Constraints  (§6)
     C1: Σ_{n∈N} x_{jn}              ≤ 1          ∀ j∈J   (one node per job)
-    C2: Σ_{j∈J} m̂_j · x_{jn}       ≤ R_n^eff    ∀ n∈N   (node capacity)
+    C2: Σ_{j∈J} m̂_j · x_{jn}       ≤ R_n^eff    ∀ n∈N   (node memory capacity)
     C3: x_{jn} ∈ {0,1}                                     (binary domain)
+    C4: x_{jn} = 0  if p̂_j^CPU > C_n             ∀ j,n   (per-pair CPU fitment)
 
-Key derived parameters computed before each solve call  (§3)
-    v̄_n  rolling SLA violation rate on node n (last K rounds)
-    θ_n  = γ · v̄_n          safety buffer that shrinks usable capacity
-    M_n^avail  = M_n - τ_n                   fixed available memory
-    R_n^avail  = M_n^avail - U_n             remaining before SLA adjustment
-    R_n^eff    = max(0, R_n^avail*(1-v̄_n))  effective capacity (RHS of C2)
-    u_n        = 1 + min(1, U_n/M_n^avail)  node utilization weight ∈ [1,2]
-    ω_t   = 1 + α·max(0,(W̄_t-W̄)/W̄)   tenant priority weight
-
+Key parameters before each solve call  (§3)
+    v̄_n      rolling SLA violation rate on node n (last K rounds)
+    M_n^avail = M_n - τ_n                   fixed available memory
+    R_n^avail = M_n^avail - U_n             remaining before SLA adjustment
+    R_n^eff   = max(0, R_n^avail*(1-v̄_n))  effective capacity (RHS of C2)
+    u_n^mem   = 1 + clamp(U_n/M_n^avail,0,1)   memory util weight ∈ [1,2]   (derived)
+    ω_t       = 1 + clamp((W̄_t-W̄)/W̄,0,1)     tenant priority weight ∈ [1,2]  (derived)
 Solver choice
 ─────────────
 Uses pywraplp (OR-Tools linear/integer programming API).
@@ -47,10 +46,9 @@ from simulation_data import (
     compute_available_capacity,
     compute_remaining_avail,
     compute_remaining_eff,
-    compute_remaining_cpu,
     compute_utilization_weight,
     compute_omega,
-    K_WINDOW, NUM_TENANTS, ENABLE_CPU_CONSTRAINT,
+    K_WINDOW, NUM_TENANTS,
 )
 
 # ── Solver selection ───────────────────────────────────────────────────────────
@@ -146,18 +144,18 @@ def solve(
     omega_raw   = compute_omega({t: W_t.get(t, 0.0) for t in all_tenants})
     omega: dict[int, float] = {t: omega_raw.get(t, 1.0) for t in all_tenants}
 
-    # ── §3: Node utilization weights ──────────────────────────────────────
+    # ── §3: Memory utilization weights (u_n^mem) ─────────────────────────
     #
-    # u_n = 1 + min(1, U_n / max(1, M_n^avail))   ∈ [1, 2]
+    # u_n^mem = 1 + min(1, U_n / max(1, M_n^avail))   ∈ [1, 2]
     #
     # Nodes with higher memory utilization receive a larger objective
     # coefficient, steering the solver to consolidate onto already-busy
     # nodes and leave idle nodes available for power-down.
     # C2 still prevents physically infeasible placements.
     #
-    # Reference: goal_programming_v4 §3, "Node Utilization Weight"
+    # Reference: goal_programming_v4 §3, "Memory Utilization Weight"
 
-    u_n: dict[int, float] = {
+    u_mem: dict[int, float] = {
         n.node_id: compute_utilization_weight(n, m_avail[n.node_id])
         for n in nodes
     }
@@ -173,27 +171,36 @@ def solve(
 
     lp_relax = (SOLVER_ID == "GLOP")
 
+    # ── §6 C4: Per-pair CPU fitment ───────────────────────────────────────
+    #
+    # A job j cannot be placed on node n if its peak CPU demand exceeds the
+    # node's total cores: x_{jn} = 0  when  p̂_j^CPU > C_n.
+    # Unlike the old aggregate constraint, this is a hard per-(j,n) admission
+    # check — it prevents placing a 16-core job on an 8-core node regardless
+    # of how much CPU headroom remains (no overcommitment at node capacity).
+    # Enforced by clamping the variable upper bound to 0 for infeasible pairs.
+    #
+    # Reference: goal_programming_v4 §6, C4
+
     x: dict[tuple[str, int], pywraplp.Variable] = {}
     for j in jobs:
         for n in nodes:
-            var_name = f"x_{j.job_id}_{n.node_id}"
+            var_name  = f"x_{j.job_id}_{n.node_id}"
+            cpu_fits  = j.pred_cpu_p90 <= n.cpu_cores   # C4 feasibility check
+            ub        = 1 if cpu_fits else 0
             x[j.job_id, n.node_id] = (
-                solver.NumVar(0.0, 1.0, var_name)   # LP relaxation
+                solver.NumVar(0.0, float(ub), var_name)   # LP relaxation
                 if lp_relax
-                else solver.IntVar(0, 1, var_name)  # exact MILP (C3)
+                else solver.IntVar(0, ub, var_name)        # exact MILP (C3 + C4)
             )
 
     # ── §5: Objective — maximise weighted memory utilisation ───────────────
     #
-    # max Z = Σ_{j∈J} Σ_{n∈N}  ω_{t(j)} · m̂_j · u_n · x_{jn}
+    # max Z = Σ_{j∈J} Σ_{n∈N}  ω_{t(j)} · m̂_j · u_n^mem · x_{jn}
     #
     # Each placed job contributes its P95 predicted memory m̂_j, scaled by:
-    #   ω_{t(j)} ∈ [1,2] — tenant priority (fairness feedback)
-    #   u_n      ∈ [1,2] — node utilization weight (consolidation preference)
-    #
-    # When all ω = 1 and all u_n = 1: plain memory utilisation maximisation.
-    # When some tenants are underserved: their jobs get higher ω → preferred.
-    # When nodes are busy: higher u_n → solver consolidates onto them first.
+    #   ω_{t(j)}  ∈ [1,2] — tenant priority weight (fairness feedback)
+    #   u_n^mem   ∈ [1,2] — memory utilization weight (consolidation)
     #
     # Reference: goal_programming_v4 §5
 
@@ -203,7 +210,8 @@ def solve(
         for n in nodes:
             obj.SetCoefficient(
                 x[j.job_id, n.node_id],
-                w * j.pred_mem_mb * u_n[n.node_id]   # ω_{t(j)} · m̂_j · u_n
+                w * j.pred_mem_mb * u_mem[n.node_id]
+                # ω_{t(j)} · m̂_j · u_n^mem
             )
     obj.SetMaximization()
 
@@ -239,26 +247,6 @@ def solve(
         ct = solver.Constraint(0.0, R[n.node_id], f"c2_{n.node_id}")
         for j in jobs:
             ct.SetCoefficient(x[j.job_id, n.node_id], j.pred_mem_mb)
-
-    # ── §6 C4: Node CPU capacity (conditional) ────────────────────────────
-    #
-    # Σ_{j∈J} p̂_j^CPU · x_{jn} ≤ R_n^CPU   ∀ n∈N
-    #
-    # Only added when ENABLE_CPU_CONSTRAINT=True.  By default this constraint
-    # is omitted: the OS time-slices CPU across all processes so cores are not
-    # exclusive, and overcommitment is handled by kernel throttling at runtime.
-    #
-    # Reference: goal_programming_v4 §6, C4
-
-    if ENABLE_CPU_CONSTRAINT:
-        R_cpu: dict[int, float] = {
-            n.node_id: compute_remaining_cpu(n)
-            for n in nodes
-        }
-        for n in nodes:
-            ct = solver.Constraint(0.0, R_cpu[n.node_id], f"c4_{n.node_id}")
-            for j in jobs:
-                ct.SetCoefficient(x[j.job_id, n.node_id], j.pred_cpu_p90)
 
     # ── Solve ──────────────────────────────────────────────────────────────
     status = solver.Solve()

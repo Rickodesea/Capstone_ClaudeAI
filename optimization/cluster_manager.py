@@ -73,7 +73,7 @@ from simulation_data import (
     MAX_PLACEMENT_RETRIES, MAX_JOBS_PER_SOLVE,
     MIN_LIFETIME_SEC, MAX_LIFETIME_SEC, BATCH_DURATION_SEC,
     NODE_MEM_MB, OS_TAX_MB, NODE_CPU_CORES, NUM_NODES, NUM_TENANTS,
-    SPIKE_PROB, SPIKE_MAX_FRAC, NUM_BATCHES, ENABLE_CPU_CONSTRAINT,
+    SPIKE_PROB, SPIKE_MAX_FRAC, NUM_BATCHES,
 )
 from optimizer_google_or import solve
 
@@ -102,7 +102,6 @@ class RunningJob:
     job:          Job
     node_id:      int
     act_mem_mb:   float   # actual memory (pred_mem + optional spike)
-    act_cpu:      float   # actual CPU allocated = pred_cpu_p90
     is_spike:     bool    # True  → spike occurred; act_mem > pred_mem
     start_time:   datetime
     lifetime_sec: float
@@ -156,7 +155,6 @@ class BatchResult:
     total_nodes_used:        int  # Total nodes with at least one running job
     avg_eff_mem_pct:         float  # (U_n / M_n^avail) * 100
     avg_phys_mem_pct:        float  # (U_n / M_n) * 100
-    avg_phys_cpu_pct:        float  # (A_n / C_n) * 100
 
 
 @dataclass
@@ -192,16 +190,14 @@ class SimulationResult:
             n = len(self.batch_results)
             avg_placed  = sum(r.jobs_placed          for r in self.batch_results) / n
             avg_queue   = sum(r.queue_size_after      for r in self.batch_results) / n
-            avg_eff     = sum(r.avg_eff_mem_pct        for r in self.batch_results) / n
-            avg_phys    = sum(r.avg_phys_mem_pct       for r in self.batch_results) / n
-            avg_cpu     = sum(r.avg_phys_cpu_pct       for r in self.batch_results) / n
-            avg_solves  = sum(r.solver_calls           for r in self.batch_results) / n
+            avg_eff     = sum(r.avg_eff_mem_pct  for r in self.batch_results) / n
+            avg_phys    = sum(r.avg_phys_mem_pct for r in self.batch_results) / n
+            avg_solves  = sum(r.solver_calls     for r in self.batch_results) / n
             lines += [
                 f"  avg placed/batch  : {avg_placed:.1f}",
                 f"  avg queue/batch   : {avg_queue:.1f}",
                 f"  avg eff mem %     : {avg_eff:.1f}%",
                 f"  avg phys mem %    : {avg_phys:.1f}%",
-                f"  avg phys cpu %    : {avg_cpu:.1f}%",
                 f"  avg solver calls  : {avg_solves:.1f}",
             ]
         if self.final_W_t:
@@ -240,18 +236,18 @@ class ClusterManager:
 
     def __init__(
         self,
-        seed:           Optional[int] = None,
-        verbose:        bool          = True,
+        seed:          Optional[int]  = None,
+        verbose:       bool           = True,
         jobs_per_round: Optional[int] = None,
-        k_window:       Optional[int] = None,
+        k_window:      Optional[int]  = None,
     ) -> None:
         """
         Parameters
         ----------
-        seed           : RNG seed for reproducibility  (None = non-deterministic)
-        verbose        : print per-batch summary and startup config
-        jobs_per_round : override JOBS_PER_ROUND
-        k_window       : override K_WINDOW  (violation rolling window)
+        seed          : RNG seed for reproducibility  (None = non-deterministic)
+        verbose       : print per-batch summary and startup config
+        jobs_per_round: override JOBS_PER_ROUND
+        k_window      : override K_WINDOW  (violation rolling window)
         """
         self.rng     = np.random.default_rng(seed)
         self.verbose = verbose
@@ -322,9 +318,9 @@ class ClusterManager:
                 f"{'Batch':>5}  {'New':>6} {'Placed':>6}  {'Queue':>5}  "
                 f"{'Viols':>5} {'Spike':>5}  {'Ovrflw':>6}  "
                 f"{'Assign':>6}  {'Used':>5}  "
-                f"{'Eff Mem %':>10}  {'Phys Mem %':>10}  {'Phys CPU %':>10}"
+                f"{'Eff Mem %':>10}  {'Phys Mem %':>10}"
             )
-            print("-" * 113)
+            print("-" * 101)
 
         try:
             for batch_id in range(num_batches):
@@ -340,7 +336,7 @@ class ClusterManager:
                 )
 
         if self.verbose:
-            print("-" * 113)
+            print("-" * 101)
 
         return SimulationResult(
             num_batches      = num_batches,
@@ -527,15 +523,13 @@ class ClusterManager:
         active_node_ids = {rj.node_id for rj in self._running_jobs}
         total_nodes_used = len(active_node_ids)
 
-        # Calc mem % and CPU %
+        # Calc mem %
         eff_pcts = []
         phys_pcts = []
-        cpu_pcts = []
         for n in self.nodes:
             phys_pcts.append((n.used_mb / n.capacity_mb) * 100)
             m_avail = compute_available_capacity(n)
             eff_pcts.append((n.used_mb / max(1, m_avail)) * 100)
-            cpu_pcts.append((n.used_cpu / max(1, n.cpu_cores)) * 100)
 
         return BatchResult(
             batch_id                = batch_id,
@@ -552,7 +546,6 @@ class ClusterManager:
             total_nodes_used        = total_nodes_used,
             avg_eff_mem_pct         = sum(eff_pcts) / len(eff_pcts),
             avg_phys_mem_pct        = sum(phys_pcts) / len(phys_pcts),
-            avg_phys_cpu_pct        = sum(cpu_pcts) / len(cpu_pcts),
         )
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -590,20 +583,17 @@ class ClusterManager:
         self._running_jobs = active
         return len(expired)
 
-    def _compute_node_used_mb(self) -> tuple[dict[int, float], dict[int, float]]:
+    def _compute_node_used_mb(self) -> dict[int, float]:
         """
-        Compute U_n and A_n for each node from all running jobs.
+        Compute U_n for each node from all running jobs.
 
         Always recomputed from scratch — self-correcting and consistent with
         the active job set (expired jobs are absent, so memory is freed).
-        Returns (used_mb_by_node, used_cpu_by_node).
         """
         used: dict[int, float] = {n.node_id: 0.0 for n in self.nodes}
-        used_cpu: dict[int, float] = {n.node_id: 0.0 for n in self.nodes}
         for rj in self._running_jobs:
-            used[rj.node_id]     += rj.act_mem_mb
-            used_cpu[rj.node_id] += rj.act_cpu
-        return used, used_cpu
+            used[rj.node_id] += rj.act_mem_mb
+        return used
 
     def _refresh_node_states(self, record_history: bool) -> int:
         """
@@ -620,12 +610,11 @@ class ClusterManager:
 
         Returns the count of nodes currently in violation (U_n > M_n^avail).
         """
-        used, used_cpu = self._compute_node_used_mb()
+        used = self._compute_node_used_mb()
         violations = 0
 
         for n in self.nodes:
-            n.used_mb  = used[n.node_id]      # update U_n
-            n.used_cpu = used_cpu[n.node_id]  # update A_n
+            n.used_mb = used[n.node_id]   # update U_n
 
             # A violation occurs when actual job memory exceeds the fixed
             # available capacity M_n^avail = M_n − τ_n.
@@ -665,9 +654,6 @@ class ClusterManager:
         # About SPIKE_PROB = 10 % of the time, a spike adds 0–20 % extra.
         spike_frac   = sample_spike_fraction(self.rng)
         act_mem_mb   = job.pred_mem_mb * (1.0 + spike_frac)
-        # CPU: use the P90 prediction directly (no spike model for CPU;
-        # kernel throttling handles any overrun at runtime).
-        act_cpu      = job.pred_cpu_p90
 
         # Assign a random job lifetime drawn uniformly from the configured range
         lifetime_sec = float(self.rng.uniform(MIN_LIFETIME_SEC, MAX_LIFETIME_SEC))
@@ -676,7 +662,6 @@ class ClusterManager:
             job          = job,
             node_id      = node_id,
             act_mem_mb   = act_mem_mb,
-            act_cpu      = act_cpu,
             is_spike     = spike_frac > 0.0,
             start_time   = self.sim_time,
             lifetime_sec = lifetime_sec,
@@ -714,7 +699,6 @@ class ClusterManager:
         print(f"  Batch duration     : {BATCH_DURATION_SEC} s")
         print(f"  Spike prob/max     : {SPIKE_PROB:.0%} / {SPIKE_MAX_FRAC:.0%}")
         print(f"  Max retries        : {MAX_PLACEMENT_RETRIES}")
-        print(f"  CPU constraint     : {'enabled (C4)' if ENABLE_CPU_CONSTRAINT else 'disabled'}")
         print()
         print(f"  {'Node':>4}  {'RAM (MB)':>10}  {'OS Tax (MB)':>12}  {'Avail (MB)':>12}  {'CPU cores':>10}")
         print(f"  {'-'*4}  {'-'*10}  {'-'*12}  {'-'*12}  {'-'*10}")
@@ -729,7 +713,7 @@ class ClusterManager:
             f"{r.batch_id:>5}  {r.jobs_generated:>6} {r.jobs_placed:>6}  {r.queue_size_after:>5}  "
             f"{r.node_violations:>5} {r.spike_count:>5}  {r.physical_overflow_count:>6}  "
             f"{r.nodes_assigned:>6}  {r.total_nodes_used:>5}  "
-            f"{r.avg_eff_mem_pct:>9.1f}%  {r.avg_phys_mem_pct:>9.1f}%  {r.avg_phys_cpu_pct:>9.1f}%"
+            f"{r.avg_eff_mem_pct:>9.1f}%  {r.avg_phys_mem_pct:>9.1f}%"
         )
 
 

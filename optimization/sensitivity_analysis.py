@@ -3,10 +3,15 @@ sensitivity_analysis.py
 -----------------------
 Parameter sweep for the multi-tenant cluster scheduling simulation.
 
-The model has no free tuning coefficients (gamma/alpha/delta removed).
-The only structural parameter is K (violation rolling window length).
-This script sweeps K × jobs_per_round to characterise how the scheduler
-behaves under different load levels and SLA memory windows.
+Sweep dimensions
+----------------
+  K (violation rolling window)   — controls how aggressively SLA violations
+                                   shrink node effective capacity
+  jobs_per_round (arrival load)  — controls queue pressure
+
+Fixed during sweep
+------------------
+  NUM_NODES / NUM_TENANTS / node topology — set in simulation_data.py
 
 Usage
 -----
@@ -45,7 +50,7 @@ from cluster_manager import ClusterManager
 # § SWEEP SPACE
 # ═══════════════════════════════════════════════════════════════════════════════
 
-K_WINDOW_VALUES:       list[int] = [5, 10, 20, 30]   # violation rolling window
+K_WINDOW_VALUES:       list[int] = [5, 10, 20, 30]    # violation rolling window
 JOBS_PER_ROUND_VALUES: list[int] = [10, 25, 50, 100]  # arrival load per batch
 
 DEFAULT_NUM_BATCHES: int = 10
@@ -58,7 +63,7 @@ CSV_FIELDS = [
     "placement_rate",
     "total_generated", "total_placed", "final_queue",
     "total_violations", "total_spikes", "total_overflows",
-    "avg_eff_mem_pct", "avg_phys_mem_pct", "avg_phys_cpu_pct",
+    "avg_eff_mem_pct", "avg_phys_mem_pct",
     "avg_wait_sec", "wait_spread_sec",
     "total_solver_calls", "run_time_sec",
 ]
@@ -69,18 +74,18 @@ CSV_FIELDS = [
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def run_one(
-    k_window:       int,
+    k_window:      int,
     jobs_per_round: int,
-    num_batches:    int,
-    seed:           int,
+    num_batches:   int,
+    seed:          int,
 ) -> dict[str, Any]:
     """Run one ClusterManager configuration and return a CSV-ready row."""
     t0 = time.perf_counter()
 
     cm = ClusterManager(
-        seed           = seed,
-        verbose        = False,
-        k_window       = k_window,
+        seed          = seed,
+        verbose       = False,
+        k_window      = k_window,
         jobs_per_round = jobs_per_round,
     )
     r = cm.run(num_batches)
@@ -93,9 +98,9 @@ def run_one(
     n_b      = max(1, len(r.batch_results))
 
     return {
-        "k_window":           k_window,
-        "jobs_per_round":     jobs_per_round,
-        "placement_rate":     round(r.placement_rate(), 4),
+        "k_window":      k_window,
+        "jobs_per_round": jobs_per_round,
+        "placement_rate": round(r.placement_rate(), 4),
         "total_generated":    r.total_generated,
         "total_placed":       r.total_placed,
         "final_queue":        r.final_queue_size,
@@ -104,7 +109,6 @@ def run_one(
         "total_overflows":    r.total_overflows,
         "avg_eff_mem_pct":    round(sum(b.avg_eff_mem_pct  for b in r.batch_results) / n_b, 2),
         "avg_phys_mem_pct":   round(sum(b.avg_phys_mem_pct for b in r.batch_results) / n_b, 2),
-        "avg_phys_cpu_pct":   round(sum(b.avg_phys_cpu_pct for b in r.batch_results) / n_b, 2),
         "avg_wait_sec":       round(avg_wait, 2),
         "wait_spread_sec":    round(spread,   2),
         "total_solver_calls": sum(b.solver_calls for b in r.batch_results),
@@ -178,20 +182,21 @@ def _mean_by(
 
 
 def plot_results(csv_path: str) -> None:
-    """Read CSV and generate a 2x3 grid of summary plots."""
+    """Read CSV and generate a 2x3 summary grid plus CPU-weight comparison."""
     if not _MATPLOTLIB_AVAILABLE:
         print("matplotlib not installed (pip install matplotlib) -- skipping plots.")
         return
     rows = _load_csv(csv_path)
     os.makedirs(PLOT_DIR, exist_ok=True)
 
+    # ── 2×3 summary (averaged over both cpu_util_weight values) ──────────
     fig, axes = plt.subplots(2, 3, figsize=(15, 9))
     fig.suptitle(
-        "Sensitivity Analysis — K Window × Load Sweep",
+        "Sensitivity Analysis — K Window × Load × CPU Util Weight",
         fontsize=13, fontweight="bold",
     )
 
-    # ── (0,0) Placement rate vs K ─────────────────────────────────────────
+    # (0,0) Placement rate vs K
     ax = axes[0, 0]
     xs, ys = _mean_by(rows, "k_window", "placement_rate")
     ax.plot(xs, [y * 100 for y in ys], "o-", color="steelblue", lw=2)
@@ -200,7 +205,7 @@ def plot_results(csv_path: str) -> None:
     ax.set_title("Placement Rate vs K")
     ax.grid(True, alpha=0.3)
 
-    # ── (0,1) Total violations vs K ───────────────────────────────────────
+    # (0,1) Total violations vs K
     ax = axes[0, 1]
     xs, ys = _mean_by(rows, "k_window", "total_violations")
     ax.plot(xs, ys, "o-", color="crimson", lw=2)
@@ -209,7 +214,7 @@ def plot_results(csv_path: str) -> None:
     ax.set_title("SLA Violations vs K")
     ax.grid(True, alpha=0.3)
 
-    # ── (0,2) Placement rate vs jobs_per_round (load) ─────────────────────
+    # (0,2) Placement rate vs load
     ax = axes[0, 2]
     xs, ys = _mean_by(rows, "jobs_per_round", "placement_rate")
     ax.plot(xs, [y * 100 for y in ys], "o-", color="teal", lw=2)
@@ -218,7 +223,7 @@ def plot_results(csv_path: str) -> None:
     ax.set_title("Placement Rate vs Load")
     ax.grid(True, alpha=0.3)
 
-    # ── (1,0) Avg effective mem % vs K ────────────────────────────────────
+    # (1,0) Avg effective mem % vs K
     ax = axes[1, 0]
     xs, ys = _mean_by(rows, "k_window", "avg_eff_mem_pct")
     ax.plot(xs, ys, "o-", color="mediumseagreen", lw=2)
@@ -227,7 +232,7 @@ def plot_results(csv_path: str) -> None:
     ax.set_title("Memory Utilization vs K")
     ax.grid(True, alpha=0.3)
 
-    # ── (1,1) Wait-time spread vs K (fairness) ────────────────────────────
+    # (1,1) Wait-time spread vs K (fairness)
     ax = axes[1, 1]
     xs, ys = _mean_by(rows, "k_window", "wait_spread_sec")
     ax.plot(xs, ys, "o-", color="mediumpurple", lw=2)
@@ -236,13 +241,13 @@ def plot_results(csv_path: str) -> None:
     ax.set_title("Fairness — Wait Spread vs K")
     ax.grid(True, alpha=0.3)
 
-    # ── (1,2) Avg phys CPU % vs jobs_per_round ────────────────────────────
+    # (1,2) Wait spread vs load
     ax = axes[1, 2]
-    xs, ys = _mean_by(rows, "jobs_per_round", "avg_phys_cpu_pct")
-    ax.plot(xs, [y for y in ys], "o-", color="darkorange", lw=2)
+    xs, ys = _mean_by(rows, "jobs_per_round", "wait_spread_sec")
+    ax.plot(xs, ys, "o-", color="darkorange", lw=2)
     ax.set_xlabel("Jobs per round  (arrival load)")
-    ax.set_ylabel("Avg physical CPU (%)")
-    ax.set_title("CPU Utilization vs Load")
+    ax.set_ylabel("Wait spread (s)  [max − min across tenants]")
+    ax.set_title("Fairness — Wait Spread vs Load")
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
@@ -341,6 +346,7 @@ def main() -> None:
     if not args.plot_only:
         n_configs = len(K_WINDOW_VALUES) * len(JOBS_PER_ROUND_VALUES)
         print(f"Sweep: {n_configs} configs × {args.batches} batches  |  seed={args.seed}")
+
         print(f"Output: {args.output}\n")
         run_sweep(args.batches, args.seed, args.output)
 

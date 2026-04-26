@@ -22,7 +22,7 @@ Notation used in comments matches goal_programming_v4:
   U_n          currently used memory on node n (sum of running job act_mem)
   R_n^avail    remaining available = M_n^avail − U_n               (§3)
   R_n^eff      effective remaining = S_{fn}(R_n^avail, v̄_n)       (§3)
-  u_n          node utilization weight ∈ [1,2]                     (§3)
+  u_n^mem      node memory utilization weight ∈ [1,2]               (§3)
   ω_t          per-tenant priority weight ∈ [1,2]                  (§3)
   W̄_t         per-tenant average scheduling delay (seconds)        (§3)
   m̂_j         P95 predicted memory for job j                       (§3)
@@ -68,8 +68,6 @@ NODE_CPU_MAX: float = 64.0   # largest node: 64 cores
 NUM_NODES:      int = 5
 NUM_TENANTS:    int = 3
 JOBS_PER_ROUND: int = 20     # new jobs generated each batch (keep low for fast tests)
-NUM_ROUNDS:     int = 5     # used only by optimizer_pulp.py standalone demo;
-                            # ClusterManager.run() takes num_batches directly
 NUM_BATCHES:    int = 10
 
 # Physical RAM (M_n) and OS/kubelet overhead (τ_n) per node (MB)
@@ -101,15 +99,6 @@ NODE_CPU_CORES: list[float] = _make_node_cpu(NUM_NODES, NODE_CPU_MIN, NODE_CPU_M
 
 # ── Model hyper-parameters (goal_programming_v4 §3, §6) ──────────────────────
 K_WINDOW: int = 10   # K — rolling window length for the violation rate v̄_n
-
-# CPU constraint (C4) — global on/off switch.
-# False (default): C4 is omitted from the LP.  CPU overcommitment is handled
-#   by kernel throttling at runtime; treating cores as exclusive capacity is
-#   too aggressive because the OS time-slices them across hundreds of processes.
-# True: C4 is added as a hard constraint — total predicted CPU peak on a node
-#   may not exceed its remaining cores.  Use only if the workload is CPU-bound
-#   and throttling is not acceptable.
-ENABLE_CPU_CONSTRAINT: bool = False
 
 # ── Sampling distribution ──────────────────────────────────────────────────────
 DIST_FLAG: str = "normal"   # "normal" | "uniform"
@@ -216,9 +205,8 @@ class NodeState:
     node_id:           int
     capacity_mb:       float          # M_n  — physical RAM
     os_tax_mb:         float          # τ_n  — OS/kubelet overhead
-    cpu_cores:         float = 0.0    # C_n  — total CPU cores on the node
+    cpu_cores:         float = 0.0    # C_n  — total CPU cores on the node (used in C4)
     used_mb:           float = 0.0    # U_n  — recomputed each round from running jobs
-    used_cpu:          float = 0.0    # A_n  — recomputed each round from running jobs
     violation_history: list  = field(default_factory=list)  # bool per batch
 
 
@@ -407,15 +395,12 @@ def generate_nodes(rng: Optional[np.random.Generator] = None) -> list[NodeState]
         cores    = NODE_CPU_CORES[i]
         # Initial memory usage: random fraction of (capacity - OS tax)
         used_mem = float(rng.uniform(0.10, 0.40)) * (cap - tax)
-        # Initial CPU usage: random fraction of total cores
-        used_cpu = float(rng.uniform(0.10, 0.40)) * cores
         nodes.append(NodeState(
             node_id     = i,
             capacity_mb = cap,
             os_tax_mb   = tax,
             cpu_cores   = cores,
             used_mb     = round(used_mem, 2),
-            used_cpu    = round(used_cpu, 3),
         ))
     return nodes
 
@@ -478,28 +463,16 @@ def compute_remaining_eff(r_avail: float, v_bar: float) -> float:
     return max(0.0, r_avail * (1.0 - v_bar))
 
 
-def compute_remaining_cpu(node: NodeState) -> float:
-    """
-    R_n^CPU — remaining CPU capacity available for new jobs  (§3, C4).
-
-    Formula:  R_n^CPU = C_n − A_n
-
-    No SLA adjustment is applied; CPU overcommitment is handled at runtime
-    by kernel throttling rather than admission control.
-    """
-    return max(0.0, node.cpu_cores - node.used_cpu)
-
-
 def compute_utilization_weight(node: NodeState, m_avail: float) -> float:
     """
-    u_n — node utilization weight ∈ [1, 2]  (§3, "Node Utilization Weight").
+    u_n^mem — memory utilization weight ∈ [1, 2]  (§3, "Memory Utilization Weight").
 
-    Formula:  u_n = 1 + min(1, max(0, U_n / max(1, M_n^avail)))
+    Formula:  u_n^mem = 1 + min(1, max(0, U_n / max(1, M_n^avail)))
 
     Derived from the fraction of available memory currently in use.
-    u_n = 1 → node is idle (no consolidation preference).
-    u_n = 2 → node is fully loaded (highest consolidation preference).
-    Applied directly in the objective to consolidate jobs onto busier nodes.
+    u_n^mem = 1 → node is idle (no consolidation preference).
+    u_n^mem = 2 → node memory is fully loaded (highest consolidation preference).
+    Applied in the objective to consolidate jobs onto memory-busier nodes.
     """
     frac = min(1.0, max(0.0, node.used_mb / max(1.0, m_avail)))
     return 1.0 + frac
