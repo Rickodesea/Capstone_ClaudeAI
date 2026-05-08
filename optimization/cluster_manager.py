@@ -316,11 +316,11 @@ class ClusterManager:
             self._print_startup()
             print(
                 f"{'Batch':>5}  {'New':>6} {'Placed':>6}  {'Queue':>5}  "
-                f"{'Viols':>5} {'Spike':>5}  {'Ovrflw':>6}  "
                 f"{'Assign':>6}  {'Used':>5}  "
+                f"{'Spike':>5}  {'Ovrflw':>6}  {'Viols':>5}  "
                 f"{'Eff Mem %':>10}  {'Phys Mem %':>10}"
             )
-            print("-" * 101)
+            print("-" * 90)
 
         try:
             for batch_id in range(num_batches):
@@ -336,7 +336,24 @@ class ClusterManager:
                 )
 
         if self.verbose:
-            print("-" * 101)
+            print("-" * 90)
+            print()
+            print("  Glossary")
+            print("  " + "-" * 83)
+            print("  Batch    Scheduling epoch index (each batch = 60 s simulated time)")
+            print("  New      New jobs generated and added to the queue this batch")
+            print("  Placed   Jobs successfully assigned to a node this batch")
+            print("  Queue    Jobs still waiting in the queue after this batch ends")
+            print("  Assign   Unique nodes that received at least one new job this batch")
+            print("  Used     Total nodes with at least one running job at end of batch")
+            print("  Spike    Jobs whose actual runtime memory exceeded the P95 prediction")
+            print("  Ovrflw   Nodes where tenant job memory + OS overhead exceeded physical RAM")
+            print("  Viols    Nodes where U_n > M_n^avail (per-node SLA threshold breached;")
+            print("           a single overloaded node counts as 1 regardless of cluster average)")
+            print("  Eff Mem% Cluster-average ratio of used job memory to available capacity")
+            print("           (U_n / M_n^avail), averaged across all nodes")
+            print("  Phys Mem% Cluster-average ratio of used job memory to physical RAM")
+            print("           (U_n / M_n), averaged across all nodes")
 
         return SimulationResult(
             num_batches      = num_batches,
@@ -711,8 +728,8 @@ class ClusterManager:
     def _print_batch(r: BatchResult) -> None:
         print(
             f"{r.batch_id:>5}  {r.jobs_generated:>6} {r.jobs_placed:>6}  {r.queue_size_after:>5}  "
-            f"{r.node_violations:>5} {r.spike_count:>5}  {r.physical_overflow_count:>6}  "
             f"{r.nodes_assigned:>6}  {r.total_nodes_used:>5}  "
+            f"{r.spike_count:>5}  {r.physical_overflow_count:>6}  {r.node_violations:>5}  "
             f"{r.avg_eff_mem_pct:>9.1f}%  {r.avg_phys_mem_pct:>9.1f}%"
         )
 

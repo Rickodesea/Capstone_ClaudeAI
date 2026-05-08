@@ -1,0 +1,110 @@
+  5. Summary — Objective Assessment of the Two-Model Architecture
+
+  ┌────────────────────────────────┬─────────────────────────────────┬───────────────────────────────────────────────────────────────────────────────────────┐
+  │             Aspect             │           Your Model            │                                  Instructor's Model                                   │
+  ├────────────────────────────────┼─────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤
+  │ Solver                         │ OR-Tools (LP/MILP)              │ Gurobi required (MISOCP)                                                              │
+  ├────────────────────────────────┼─────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤
+  │ Horizon                        │ Per scheduling round (seconds)  │ Weekly (hourly buckets, 7-day)                                                        │
+  ├────────────────────────────────┼─────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤
+  │ Decision                       │ Job-to-node assignment          │ Admission + isolation + migration + node activation                                   │
+  ├────────────────────────────────┼─────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤
+  │ SLA metric                     │ Memory overload rate (vbar_n)   │ Latency violation slack (requires calibrated α, β)                                    │
+  ├────────────────────────────────┼─────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤
+  │ Data available                 │ CPU + memory from Google traces │ Requires network, disk, interference, compliance metadata — most not in Google traces │
+  ├────────────────────────────────┼─────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤
+  │ Implementable with Google data │ Yes                             │ Only a subset (admission, memory-based capacity)                                      │
+  ├────────────────────────────────┼─────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤
+  │ Role in architecture           │ Operational scheduler (fast)    │ Strategic planner (slow)                                                              │
+  ├────────────────────────────────┼─────────────────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┤
+  │ Complexity                     │ Appropriate for a capstone      │ Very ambitious; full implementation is a multi-month research project                 │
+  └────────────────────────────────┴─────────────────────────────────┴───────────────────────────────────────────────────────────────────────────────────────┘
+
+  2. What Google Traces Actually Provide for Each Feature
+
+  ┌────────────────────────────┬─────────────┬─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │          Feature           │ Available?  │                                                                   How                                                                   │
+  ├────────────────────────────┼─────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │                            │             │ alloc_collection_id distinguishes alloc set (resource reservation, roughly "dedicated block") from top-level jobs. Machines used        │
+  │ Dedicated vs Shared        │ Partial     │ exclusively by one user appear as machine_id = -1 ("dedicated machine") and are omitted from the public traces entirely — they're       │
+  │                            │             │ invisible to you.                                                                                                                       │
+  ├────────────────────────────┼─────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Batch vs Production        │ Yes         │ scheduler field: SCHEDULER_DEFAULT vs SCHEDULER_BATCH. priority tiers: 0–99 free, 100–115 batch, 116–119 mid, 120–359 production, 360+  │
+  │                            │             │ monitoring.                                                                                                                             │
+  ├────────────────────────────┼─────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Latency-Sensitive          │ Yes         │ scheduling_class: 3 = latency-sensitive (user-facing revenue), 0 = non-production. This is the primary signal.                          │
+  ├────────────────────────────┼─────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Geography / Data Residency │ No          │ Each trace is one Borg cell = one physical location. There is no cross-cell or cross-region data. Geography constraints cannot be       │
+  │                            │             │ tested with this dataset at all. Not worth simulating — no data.                                                                        │
+  ├────────────────────────────┼─────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Exclusivity (tenant A ≠    │             │ User IDs are cryptographically hashed. You can tell two jobs have different users, but you have no compliance metadata saying which     │
+  │ tenant B on same node)     │ No          │ pairs conflict. Reasonable proxy: treat scheduling_class 3 (production/latency) as exclusive from scheduling_class 0 (batch) — that is  │
+  │                            │             │ a defensible rule grounded in real Borg policy (production tier is protected from eviction by low-priority jobs).                       │
+  ├────────────────────────────┼─────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Spreadness (max replicas   │ Yes         │ max_per_machine: hard anti-affinity limit from the trace directly. max_per_switch: rack-level spread constraint. Both are in            │
+  │ per node)                  │             │ CollectionEvents.                                                                                                                       │
+  ├────────────────────────────┼─────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Job-node consistency       │ No explicit │ Observable behavior: production jobs in the trace tend to keep the same machine_id across time. You can derive a "sticky preference"    │
+  │ (sticky)                   │  flag       │ heuristic from historical machine_id sequences, but there's no declared "must stay on node X" parameter. Reasonable to skip for         │
+  │                            │             │ simulation; note it as future work.                                                                                                     │
+  ├────────────────────────────┼─────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Node activation /          │ Yes         │ MachineEvents with ADD, REMOVE, UPDATE — exactly what the instructor's model needs for the node activation variable.                    │
+  │ deactivation               │             │                                                                                                                                         │
+  └────────────────────────────┴─────────────┴─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+  ▎ Subject: Schedule-Ahead Model — Proposed Scope Reduction for Capstone Implementation
+  ▎
+  ▎ Prof. Haney,
+  ▎
+  ▎ Thank you for sharing the look-ahead model. After reviewing it carefully alongside the Google cluster-usage traces v3, I want to raise a concern about scope and propose a simplified
+  ▎ version that I believe is both implementable in our remaining five weeks and still captures the model's core contribution.
+  ▎
+  ▎ The problem with the full model as written:
+  ▎
+  ▎ Several parameters the model requires do not exist in the Google traces and cannot be reliably estimated:
+  ▎
+  ▎ - Network bandwidth and disk IOPS — the Google cluster-usage traces v3 record only CPU and memory per instance. There is no per-instance network or disk utilization data. Including
+  ▎ these resource dimensions would mean inventing the numbers.
+  ▎ - Interference coefficients (α) and primitive overhead values (β) — these must be calibrated from production latency telemetry. The traces contain no latency measurements or
+  ▎ noisy-neighbor interference data.
+  ▎ - Compliance and residency metadata — user IDs in the traces are cryptographically hashed. We cannot derive which tenant pairs have regulatory conflicts or data residency requirements.
+  ▎ - Control-plane budgets (etcd, API-server QPS, service-count) — these are Kubernetes internals that have no representation in the trace data and are not meaningful in a simulation
+  ▎ context.
+  ▎ - Isolation primitives (gVisor, Kata, microVM, dedicated node) — we have no data on which workloads used which mechanism, and no overhead benchmarks to assign η and ρ values.
+  ▎
+  ▎ Attempting the full model would mean spending most of our remaining time estimating parameters we have no data for, which undermines the validity of any results we produce.
+  ▎
+  ▎ What I propose to keep:
+  ▎
+  ▎ The structural value of the look-ahead model — stochastic demand with distributional robustness, joint admission and placement planning, fairness across tenant classes — survives
+  ▎ intact if we scope it to what the data supports: CPU and memory as the only resource dimensions.
+  ▎
+  ▎ Importantly, I want to keep the SOCP capacity constraint. With CPU and memory as the resource dimensions and empirical mean and covariance derived from the Google trace history, the
+  ▎ distributionally robust chance-constraint formulation is fully implementable with the Gurobi license you provided. The SOCP is the most academically distinguishing part of the model
+  ▎ and there is no reason to drop it.
+  ▎
+  ▎ The other simplifications I am proposing:
+  ▎
+  ▎ - Drop network, disk, interference, compliance, control-plane, and isolation primitive terms entirely — no data to support them
+  ▎ - Simplify the planning output from per-job placement to per-tenant node access by day: the model decides which tenants have access to which nodes on which days of the week, rather
+  ▎ than placing individual jobs (which cannot be known a week in advance anyway)
+  ▎ - Use scheduling_class and priority from the traces as proxies for tenant class (batch vs production), since these are directly available
+  ▎ - Use max_per_machine from the traces to enforce fault-tolerance spread for production-class tenants
+  ▎
+  ▎ The output — a weekly tenant-to-node access schedule — feeds the real-time model as a pre-filter: a tenant's jobs are only eligible for nodes assigned to that tenant on that day. This
+  ▎ preserves the architectural relationship you described in section 7 of the model document: the look-ahead model sets the tactical envelope, the real-time model operates within it.
+  ▎
+  ▎ Three questions before I proceed:
+  ▎
+  ▎ 1. Does reducing the planning output from per-job placement to per-tenant node-access-by-day satisfy the capstone requirements for the look-ahead model? I want to confirm this framing
+  ▎ is acceptable before building on it.
+  ▎ 2. For tenants whose historical trace data shows demand concentrated on specific days of the week, should the model schedule them only on those days (freeing capacity for others), or
+  ▎ maintain a baseline reservation every day regardless?
+  ▎ 3. If a tenant submits jobs outside their scheduled window, my real-time model handles them best-effort — unplaced jobs queue and gain priority weight over time. Is that the correct
+  ▎ failure mode from your perspective, or should the look-ahead model define an explicit overflow allocation for unplanned arrivals?
+  ▎
+  ▎ I believe this scoped version still demonstrates the core contributions — overcommitment under demand uncertainty, fairness across tenant classes, and the separation of strategic
+  ▎ planning from real-time scheduling — while being grounded in data we actually have and achievable in five weeks.
+  ▎
+  ▎ Best regards,
+  ▎ Alrick Grandison

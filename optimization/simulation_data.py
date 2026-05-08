@@ -15,18 +15,20 @@ CPU fields (req_cpu) are generated here for completeness and future work,
 but are never used in the LP formulation.
 
 Notation used in comments matches goal_programming_v4:
-  M_n          physical RAM on node n
-  τ_n          OS/kubelet memory tax (reserved; not available to tenant jobs)
-  M_n^avail    available memory = M_n − τ_n                        (§3)
-  v̄_n          rolling SLA violation rate on node n
-  U_n          currently used memory on node n (sum of running job act_mem)
-  R_n^avail    remaining available = M_n^avail − U_n               (§3)
-  R_n^eff      effective remaining = S_{fn}(R_n^avail, v̄_n)       (§3)
-  u_n^mem      node memory utilization weight ∈ [1,2]               (§3)
-  ω_t          per-tenant priority weight ∈ [1,2]                  (§3)
-  W̄_t         per-tenant average scheduling delay (seconds)        (§3)
-  m̂_j         P95 predicted memory for job j                       (§3)
-  x_{jn}      decision variable — 1 if job j placed on node n      (§1)
+  M_n           physical RAM on node n
+  M_n^tax       OS/kubelet memory tax (reserved; not available to tenant jobs)
+  M_n^avail     available memory = M_n − M_n^tax                   (§3)
+  v̄_n^SLA      rolling SLA violation rate on node n                (§3)
+  θ_n           memory safety threshold fraction per node           (§3)
+  U_n           currently used memory on node n (sum of running job act_mem)
+  R_n^avail     remaining available = M_n^avail − U_n              (§3)
+  M_n^eff       effective remaining = max(0, R_n^avail·(1−θ_n)·(1−v̄_n^SLA)) (§3)
+  u_n^mem       node memory utilization weight ≥ 1                  (§3)
+  ω_t           per-tenant priority weight ≥ 1 (input from cluster monitor) (§3)
+  W̄_t          per-tenant average scheduling delay (seconds)       (§3)
+  P̂_j^mem      P95 predicted memory for job j                      (§3)
+  P̂_j^CPU      P90 predicted CPU peak for job j                    (§3)
+  x_{jn}        decision variable — 1 if job j placed on node n     (§1)
 """
 
 from __future__ import annotations
@@ -98,7 +100,15 @@ def _make_node_cpu(n: int, lo: float, hi: float) -> list[float]:
 NODE_CPU_CORES: list[float] = _make_node_cpu(NUM_NODES, NODE_CPU_MIN, NODE_CPU_MAX)
 
 # ── Model hyper-parameters (goal_programming_v4 §3, §6) ──────────────────────
-K_WINDOW: int = 10   # K — rolling window length for the violation rate v̄_n
+K_WINDOW: int = 10   # K — rolling window length for the violation rate v̄_n^SLA
+
+# ── Memory safety threshold ────────────────────────────────────────────────────
+# θ_n — fraction of R_n^avail held in reserve as a buffer against runtime
+# memory spikes.  Applied in compute_remaining_eff before the SLA scaling.
+# theta_n = 0.10 → node offers at most 90% of R_n^avail to new jobs.
+# Each node is initialised to this value in generate_nodes(); operators can
+# override individual nodes after generation.
+MEM_THRESHOLD_FRAC: float = 0.10
 
 # ── Sampling distribution ──────────────────────────────────────────────────────
 DIST_FLAG: str = "normal"   # "normal" | "uniform"
@@ -195,18 +205,22 @@ class NodeState:
     Fields:
         node_id           index 0..NUM_NODES-1
         capacity_mb       M_n — physical RAM installed
-        os_tax_mb         τ_n — fixed overhead reserved for OS/kubelet;
+        os_tax_mb         M_n^tax — fixed overhead reserved for OS/kubelet;
                           NOT available to tenant jobs
         used_mb           U_n — sum of act_mem_mb of all running jobs on
                           this node (computed fresh each round)
+        threshold_frac    θ_n — memory safety threshold fraction; reserves
+                          this fraction of R_n^avail as a buffer before
+                          applying SLA scaling in compute_remaining_eff
         violation_history bool per batch: was used_mb > M_n^avail at batch start?
-                          Used to compute the rolling violation rate v̄_n (§3)
+                          Used to compute the rolling violation rate v̄_n^SLA (§3)
     """
     node_id:           int
-    capacity_mb:       float          # M_n  — physical RAM
-    os_tax_mb:         float          # τ_n  — OS/kubelet overhead
-    cpu_cores:         float = 0.0    # C_n  — total CPU cores on the node (used in C4)
-    used_mb:           float = 0.0    # U_n  — recomputed each round from running jobs
+    capacity_mb:       float          # M_n      — physical RAM
+    os_tax_mb:         float          # M_n^tax  — OS/kubelet overhead
+    cpu_cores:         float = 0.0    # C_n      — total CPU cores (used in C4)
+    used_mb:           float = 0.0    # U_n      — recomputed each round from running jobs
+    threshold_frac:    float = 0.10   # θ_n      — memory safety threshold (default 10%)
     violation_history: list  = field(default_factory=list)  # bool per batch
 
 
@@ -396,11 +410,12 @@ def generate_nodes(rng: Optional[np.random.Generator] = None) -> list[NodeState]
         # Initial memory usage: random fraction of (capacity - OS tax)
         used_mem = float(rng.uniform(0.10, 0.40)) * (cap - tax)
         nodes.append(NodeState(
-            node_id     = i,
-            capacity_mb = cap,
-            os_tax_mb   = tax,
-            cpu_cores   = cores,
-            used_mb     = round(used_mem, 2),
+            node_id        = i,
+            capacity_mb    = cap,
+            os_tax_mb      = tax,
+            cpu_cores      = cores,
+            used_mb        = round(used_mem, 2),
+            threshold_frac = MEM_THRESHOLD_FRAC,
         ))
     return nodes
 
@@ -448,19 +463,23 @@ def compute_remaining_avail(node: NodeState, m_avail: float) -> float:
     return m_avail - node.used_mb
 
 
-def compute_remaining_eff(r_avail: float, v_bar: float) -> float:
+def compute_remaining_eff(r_avail: float, v_bar: float, theta: float = 0.0) -> float:
     """
-    R_n^eff — effective remaining memory offered to new jobs  (§3).
+    M_n^eff — effective remaining memory offered to new jobs  (§3).
 
-    Formula:  R_n^eff = S_{fn}(R_n^avail, v̄_n) = max(0, R_n^avail · (1 − v̄_n))
+    Formula:  M_n^eff = max(0, R_n^avail · (1 − θ_n) · (1 − v̄_n^SLA))
 
-    The scaling function S_{fn} applies the rolling SLA violation rate v̄_n
-    as a percentage reduction of the available remaining capacity.
-    v̄_n = 0 → R_n^eff = R_n^avail (no penalty).
-    v̄_n = 1 → R_n^eff = 0 (node fully blocked for new admissions).
-    R_n^eff is the RHS of constraint C2 in the optimizer.
+    theta reserves a fixed fraction of remaining capacity as a safety buffer
+    against runtime memory spikes (set per node by the cluster operator).
+    v̄_n^SLA further reduces capacity proportional to recent SLA violations.
+
+    theta=0,   v_bar=0 → M_eff = R_avail        (full remaining capacity)
+    theta=0.1, v_bar=0 → M_eff = 0.9 * R_avail  (10% reserved)
+    theta=0,   v_bar=1 → M_eff = 0               (node fully blocked)
+
+    M_n^eff is the RHS of constraint C2 in the optimizer.
     """
-    return max(0.0, r_avail * (1.0 - v_bar))
+    return max(0.0, r_avail * (1.0 - theta) * (1.0 - v_bar))
 
 
 def compute_utilization_weight(node: NodeState, m_avail: float) -> float:
@@ -478,21 +497,31 @@ def compute_utilization_weight(node: NodeState, m_avail: float) -> float:
     return 1.0 + frac
 
 
+def compute_node_weight(node_id: int, num_nodes: int = NUM_NODES) -> float:
+    """
+    w_n^{node} — fixed consolidation weight for node n  ∈ {1, …, NUM_NODES}.
+
+    Returns (num_nodes - node_id), giving node 0 the highest weight and
+    node NUM_NODES-1 the lowest.  Applied in the objective to bias placement
+    toward lower-indexed nodes even when all u_n^mem = 1 (empty cluster).
+    """
+    return float(num_nodes - node_id)
+
+
 def compute_omega(W_t: dict[int, float]) -> dict[int, float]:
     """
     ω_t — per-tenant priority weight ∈ [1, 2]  (§3, "Fairness Feedback").
 
-    Formula:  ω_t = f_ω(W̄_t, W̄) = 1 + min(1, max(0, (W̄_t − W̄) / max(1, W̄)))
+    Formula:  ω_t = 1 + max(0, (W̄_t − W̄) / max(1, W̄))
 
-    The function f_ω maps excess wait fraction into [0, 1] and adds 1, giving
-    ω_t ∈ [1, 2].  Tenants whose average wait exceeds the cluster-wide mean W̄
-    receive ω_t > 1; their jobs contribute more to the LP objective (§5), so
-    the solver naturally prefers placing them — fairness as a side effect of
-    weighted maximisation.  No free parameter is needed; the function
-    automatically saturates at 2× for severely underserved tenants.
+    Tenants whose average wait exceeds the cluster-wide mean W̄ receive ω_t > 1;
+    their jobs contribute more to the LP objective (§5), so the solver naturally
+    prefers placing them — fairness as a side effect of weighted maximisation.
 
-    ω_t = 1 when W̄_t ≤ W̄ (no penalty for low-waiting tenants).
-    ω_t = 2 when W̄_t ≥ 2·W̄ (maximum priority boost).
+    ω_t = 1 when W̄_t ≤ W̄ (no boost for tenants at or below average wait).
+    ω_t > 1 when W̄_t > W̄ (boost grows proportionally with excess wait;
+                             no stated maximum — severely underserved tenants
+                             can receive ω_t >> 1).
 
     Returns an empty dict if W_t is empty (handled by the optimizer as ω=1).
     """
@@ -501,6 +530,6 @@ def compute_omega(W_t: dict[int, float]) -> dict[int, float]:
     W_bar = sum(W_t.values()) / len(W_t)
     W_denom = max(1.0, W_bar)
     return {
-        t: 1.0 + min(1.0, max(0.0, (w - W_bar) / W_denom))
+        t: 1.0 + max(0.0, (w - W_bar) / W_denom)
         for t, w in W_t.items()
     }

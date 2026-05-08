@@ -193,6 +193,22 @@
     <tr><td>$C_n$</td><td>Total CPU cores on node $n$</td></tr>
   </table>
 
+  <div class="sub-head">Node Consolidation Weight (Fixed)</div>
+  <table>
+    <tr><th>Symbol</th><th>Meaning</th></tr>
+    <tr>
+      <td>$w_n^{\text{node}}$</td>
+      <td>
+        <strong>Fixed node consolidation weight</strong> — a static bias that steers placement toward lower-indexed nodes, ensuring the cluster concentrates load even when all nodes are equally idle ($u_n^{\text{mem}} = 1$ for all $n$). Node 0 receives the highest weight; the last node receives 1.
+        <div class="math-box">$$w_n^{\text{node}} = |N| - n \quad \in \{1,\, 2,\, \ldots,\, |N|\}$$</div>
+        This is a constant — it does not change between scheduling rounds. For a 5-node cluster: $w_0^{\text{node}} = 5,\; w_1^{\text{node}} = 4,\; \ldots,\; w_4^{\text{node}} = 1$.
+        <div class="note" style="margin-top:0.6rem;">
+          <strong>Why a fixed weight instead of a constraint $r_{n-1}$.</strong> A constraint "node $n$ may only receive jobs if node $n{-}1$ is non-empty" would create a recursive dependency that the MILP cannot resolve in a single solve call — placements on node $n{-}1$ are themselves decision variables. The fixed weight achieves the same consolidation bias (lower-indexed nodes preferred) without any constraint coupling, and naturally composes with $u_n^{\text{mem}}$ as the cluster fills.
+        </div>
+      </td>
+    </tr>
+  </table>
+
   <div class="sub-head">Node Memory — Dynamic (updated each scheduling round)</div>
   <table>
     <tr><th>Symbol</th><th>Source</th><th>Meaning</th></tr>
@@ -346,18 +362,19 @@
 <div class="obj-box">
   <div class="obj-label">Single Objective — Maximize Weighted Memory Utilization</div>
   <div class="math-box" style="font-size:1.08em;">
-    $$\max \quad Z = \sum_{j \in J} \sum_{n \in N} \omega_{t(j)} \cdot \hat{m}_j \cdot u_n^{\text{mem}} \cdot x_{jn}$$
+    $$\max \quad Z = \sum_{t \in T} \sum_{j \in J_t} \sum_{n \in N} \omega_t \cdot \hat{m}_j \cdot u_n^{\text{mem}} \cdot w_n^{\text{node}} \cdot x_{jn}$$
   </div>
   <p style="font-family:'Inter',sans-serif;font-size:0.9rem;color:var(--muted);margin-top:0.8rem;">
-    where $t(j)$ denotes the tenant of job $j$, $\omega_{t(j)} \in [1,2]$ is the tenant priority weight, and $u_n^{\text{mem}} \in [1,2]$ is the node memory utilization weight (derived).
+    where $\omega_t \in [1,2]$ is the tenant priority weight, $u_n^{\text{mem}} \in [1,2]$ is the node memory utilization weight (derived), and $w_n^{\text{node}} \in \{1,\ldots,|N|\}$ is the fixed node consolidation weight.
   </p>
   <div class="note">
-    <strong>What this does:</strong> Places jobs onto nodes such that the total P95 predicted memory assigned is as large as possible, weighted by two multiplicative factors:
+    <strong>What this does:</strong> Places jobs onto nodes such that the total P95 predicted memory assigned is as large as possible, weighted by three multiplicative factors:
     <ul style="margin-top:0.4rem;padding-left:1.4rem;">
-      <li style="margin-bottom:0.3rem;"><strong>$\omega_{t(j)} \in [1,2]$</strong> — tenant fairness: a job from a long-waiting tenant gets a higher weight, so the solver naturally prefers placing it. Mapped as $1 + \text{clamp}((\bar{W}_t - \bar{W})/\bar{W},\,0,\,1)$.</li>
-      <li><strong>$u_n^{\text{mem}} \in [1,2]$</strong> — memory consolidation: a job placed on a memory-loaded node contributes more, consolidating workloads onto fewer machines and leaving idle nodes available for power-down. Mapped as $1 + \text{clamp}(U_n/M_n^{\text{avail}},\,0,\,1)$.</li>
+      <li style="margin-bottom:0.3rem;"><strong>$\omega_t \in [1,2]$</strong> — tenant fairness: a job from a long-waiting tenant gets a higher weight, so the solver naturally prefers placing it. Mapped as $1 + \text{clamp}((\bar{W}_t - \bar{W})/\bar{W},\,0,\,1)$.</li>
+      <li style="margin-bottom:0.3rem;"><strong>$u_n^{\text{mem}} \in [1,2]$</strong> — memory consolidation: a job placed on a memory-loaded node contributes more, consolidating workloads onto fewer machines and leaving idle nodes available for power-down. Mapped as $1 + \text{clamp}(U_n/M_n^{\text{avail}},\,0,\,1)$.</li>
+      <li><strong>$w_n^{\text{node}} = |N| - n$</strong> — fixed node bias: node 0 has the highest weight, creating a preference for lower-indexed nodes. This ensures consolidation even at batch 0 when all $u_n^{\text{mem}} = 1$ (no prior load history).</li>
     </ul>
-    When $\omega_t = 1$ and $u_n^{\text{mem}} = 1$ for all nodes and tenants, this reduces to plain memory utilization maximization.
+    When $\omega_t = 1$, $u_n^{\text{mem}} = 1$, and $w_n^{\text{node}} = 1$ for all nodes and tenants, this reduces to plain memory utilization maximization.
   </div>
   <div class="note" style="margin-top:0.6rem;">
     <strong>Why not maximize admission count?</strong> Placing many small jobs with low memory consumption could score well on job count but poorly on utilization. Maximizing $\hat{m}_j \cdot x_{jn}$ directly targets memory efficiency — the primary research objective.
@@ -424,7 +441,7 @@
 <div class="sec-head">§7 — Complete Model</div>
 <div class="card" style="background:#070e1c; border-color:#2040a0;">
   <div class="math-box" style="font-size:1.03em;">
-    $$\max \quad Z = \sum_{j \in J} \sum_{n \in N} \omega_{t(j)} \cdot \hat{m}_j \cdot u_n^{\text{mem}} \cdot x_{jn}$$
+    $$\max \quad Z = \sum_{t \in T} \sum_{j \in J_t} \sum_{n \in N} \omega_t \cdot \hat{m}_j \cdot u_n^{\text{mem}} \cdot w_n^{\text{node}} \cdot x_{jn}$$
   </div>
   <div class="sub-head" style="margin-top:1.2rem;">Subject to</div>
   <div class="math-box">
@@ -439,45 +456,14 @@
     $$R_n^{\text{eff}} = \max\!\left(0,\; R_n^{\text{avail}} \cdot (1 - \bar{v}_n)\right)$$
     $$u_n^{\text{mem}} = 1 + \min\!\left(1,\;\max\!\left(0,\;\frac{U_n}{\max(1,\, M_n^{\text{avail}})}\right)\right) \;\in [1,2]$$
     $$\omega_t = 1 + \min\!\left(1,\;\max\!\left(0,\;\frac{\bar{W}_t - \bar{W}}{\max(1,\, \bar{W})}\right)\right) \;\in [1,2]$$
+    $$w_n^{\text{node}} = |N| - n \;\in \{1,\, 2,\, \ldots,\, |N|\}$$
   </div>
   <div class="note" style="margin-top:1rem;">
     <strong>Inputs each round:</strong> $U_n$ (current node memory usage), $\bar{v}_n$ (SLA violation rate per node), $\bar{W}_t$ (average wait per tenant), $\hat{m}_j$ (P95 predicted memory per job), $\hat{p}_j^{\text{CPU}}$ (P90 predicted CPU peak per job) — all from the cluster manager or prediction layer.<br/><br/>
-    <strong>Configuration parameters:</strong> $K$ (violation rolling window length), $\tau_n$ (memory tax per node).
+    <strong>Configuration parameters:</strong> $K$ (violation rolling window length), $\tau_n$ (memory tax per node), $w_n^{\text{node}}$ (fixed node consolidation weight — constant, not a decision variable).
   </div>
 </div>
 
-<!-- §8 BOTTLENECKS & HEURISTICS -->
-<div class="sec-head">§8 — Potential Bottlenecks &amp; Heuristic Mitigations</div>
-<div class="card">
-  <p style="font-family:'Inter',sans-serif;font-size:0.9rem;color:var(--muted);">
-    The model is exact at small scale but several structural pressure points emerge under production load. The following identifies where performance degrades and what practical heuristics address each.
-  </p>
-
-  <div class="sub-head">MILP Variable Explosion</div>
-  <p style="font-family:'Inter',sans-serif;font-size:0.88rem;color:var(--muted);">
-    The number of binary decision variables is $|J| \times |N|$. CBC (the default solver) handles hundreds of jobs × tens of nodes comfortably, but as $|J|$ grows into the thousands the search tree becomes intractable — MILP is NP-hard in general.
-  </p>
-
-  <div class="sub-head">Queue Cap Breaks Global Optimality</div>
-  <p style="font-family:'Inter',sans-serif;font-size:0.88rem;color:var(--muted);">
-    <code>MAX_JOBS_PER_SOLVE</code> caps the jobs sent to each solver call. Jobs outside the window are implicitly deferred to the next call — the optimizer never sees the full queue at once. This can strand high-$\omega_t$ jobs behind the window boundary.
-  </p>
-
-  <div class="sub-head">Repeated Cold Solver Instantiation</div>
-  <p style="font-family:'Inter',sans-serif;font-size:0.88rem;color:var(--muted);">
-    Each call to <code>solve()</code> spins up a fresh CBC/SCIP instance with no warm start from the previous call. For fast-turnaround clusters (sub-second scheduling epochs), this startup overhead dominates.
-  </p>
-
-  <div class="sub-head">Fairness Correction is Reactive</div>
-  <p style="font-family:'Inter',sans-serif;font-size:0.88rem;color:var(--muted);">
-    $\omega_t$ only rises after a tenant has already accumulated above-average wait time. A tenant submitting a burst of large jobs will be starved for several batches before $\omega_t$ compensates — the delay is baked in by design.
-  </p>
-
-  <div class="sub-head">Unbounded Violation History</div>
-  <p style="font-family:'Inter',sans-serif;font-size:0.88rem;color:var(--muted);">
-    <code>node.violation_history</code> grows by one entry per batch indefinitely. Only the last $K$ entries are used; the rest are dead storage. In a long-running simulation (thousands of batches) this leaks memory proportional to the number of nodes × batches.
-  </p>
-</div>
 
 </div>
 </body>

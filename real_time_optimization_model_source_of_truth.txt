@@ -1,0 +1,438 @@
+================================================================================
+REAL-TIME OPTIMIZATION MODEL — SOURCE OF TRUTH
+real_time_optimization_model_source_of_truth.txt
+================================================================================
+EDITING CONVENTION
+  1. To change a symbol, update the GLOSSARY entry first.
+  2. Update every occurrence of that ASCII shorthand in the body below.
+  3. Once approved, regenerate LaTeX by replacing each ASCII form with the
+     corresponding LaTeX entry from the glossary.
+================================================================================
+
+
+GLOSSARY — ASCII shorthand to LaTeX mapping
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ASCII shorthand        LaTeX                                  Description
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+x_jn                   x_{jn}                                 Decision variable
+Z                      Z                                      Objective value (Placement Score)
+J                      J                                      Set of jobs
+N                      N                                      Set of nodes
+T                      T                                      Set of tenants
+J_t                    J_t                                    Jobs of tenant t
+t(j)                   t(j)                                   Tenant that owns job j
+|N|                    |N|                                    Cardinality of set N
+M_n                    M_n                                    Physical RAM on node n
+M_tax_n                M_n^{\text{tax}}                       Memory tax on node n
+M_avail_n              M_n^{\text{avail}}                     Available memory on node n
+M_remain_n             M_n^{\text{remain}}                    Remaining available memory, node n
+C_n                    C_n                                    CPU cores on node n
+omega_fixed_n          \omega_n^{\text{fixed}}                Fixed node consolidation weight
+vbar_n                 \bar{v}_n^{\text{SLA}}                 Rolling SLA violation rate, node n
+K                      K                                      Violation rolling window length
+U_n                    U_n                                    Currently used memory, node n
+theta_n                \theta_n                               Memory safety threshold, node n
+M_eff_n                M_n^{\text{eff}}                       Effective remaining memory, node n
+omega_j                \omega_j                               Per-job tenant priority weight (input)
+omega_t                \omega_t                               Per-tenant priority weight (appendix)
+u_mem_n                u_n^{\text{mem}}                       Memory utilization weight, node n
+P_mem_j                \hat{P}_j^{\text{mem}}                 P95 predicted memory, job j
+P_cpu_j                \hat{P}_j^{\text{CPU}}                 P90 predicted CPU peak, job j
+P_life_j               \hat{P}_j^{\text{life}}                Predicted job lifetime, job j
+Wbar_t                 \bar{W}_t                              Avg scheduling delay, tenant t
+Wbar                   \bar{W}                                Cluster-wide avg scheduling delay
+SUM{s in S}(...)       \sum_{s \in S}(...)                    Summation over set S
+forall                 \forall                                For all
+in                     \in                                    Element of
+max(a, b)              \max\!\left(a,\;b\right)               Maximum of a and b
+min(a, b)              \min\!\left(a,\;b\right)               Minimum of a and b
+clamp(x, lo, hi)       \min\!\left(hi,\;\max\!\left(lo,\;x\right)\right)   Clamp x to [lo, hi]
+{0,1}                  \{0,1\}                                Binary set
+[0,1]                  [0,1]                                  Unit interval (real-valued)
+>=                     \geq                                   Greater than or equal
+subseteq               \subseteq                              Subset of or equal to
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+================================================================================
+INTRODUCTION
+================================================================================
+
+We are building a real-time optimization model for scheduling jobs in a
+multi-tenant compute cluster. Jobs are assigned to nodes at the moment
+scheduling requests are received. A job refers to any containerized workload
+unit — analogous to a Kubernetes pod — submitted by a tenant for execution on
+the cluster. The model is scheduler-agnostic and not specific to Kubernetes.
+
+
+================================================================================
+§0  SYSTEM ARCHITECTURE
+================================================================================
+
+The cluster monitor provides the following inputs to the optimizer each
+scheduling round, and receives the placement assignment x_jn in return:
+
+  Node state inputs:
+    U_n           Currently used memory on each node
+    vbar_n        Rolling SLA violation rate per node
+
+  Fairness input:
+    omega_j       Priority weight per job (inherited from the job's tenant)
+
+  Prediction layer inputs:
+    P_mem_j       P95 predicted memory per pending job
+    P_cpu_j       P90 predicted CPU peak per pending job
+
+The optimizer maximizes Z (Placement Score) and outputs x_jn.
+
+  [Cluster Monitor] ---> U_n, vbar_n, omega_j, P_mem_j, P_cpu_j
+                    ---> [LP: maximize Z]
+                    ---> x_jn
+                    ---> [Cluster Monitor submits jobs to nodes]
+
+
+================================================================================
+§1  DECISION VARIABLE
+================================================================================
+
+  x_jn  in  {0,1}
+
+  x_jn = 1  : job j is assigned to node n this round
+  x_jn = 0  : job j is not assigned to node n
+
+This placement matrix is the sole output of the optimizer.
+
+
+================================================================================
+§2  SETS
+================================================================================
+
+  J       All jobs currently in the pending queue this scheduling round
+  N       All nodes available in the cluster
+  T       All tenants sharing the cluster
+  J_t     Jobs belonging to tenant t;
+          J_t subseteq J,  and  union over t in T of J_t  =  J
+
+
+================================================================================
+§3  PARAMETERS
+================================================================================
+
+────────────────────────────────────────
+Node Specification  [hardware]
+(Physical node properties — fixed facts about the hardware)
+────────────────────────────────────────
+
+  M_n           Physical RAM installed on node n.
+
+  C_n           Total CPU cores on node n.
+
+────────────────────────────────────────
+Configuration  [config]
+(Set by the cluster operator before the simulation; do not change at runtime)
+────────────────────────────────────────
+
+  M_tax_n       Memory tax — fixed overhead reserved for the OS, kubelet, and
+                monitoring agents. Not available to tenant jobs.
+
+  theta_n       Memory safety threshold — reserves a fixed fraction of
+                remaining capacity as a buffer against runtime memory spikes.
+                theta_n in [0, 1].  Default: 0.10 (10% reserved per node).
+
+  K             Rolling window length — number of past scheduling rounds used
+                to compute vbar_n. Configuration scalar; see Appendix A.
+
+  omega_fixed_n Fixed node consolidation weight — static bias that steers
+                placement toward lower-indexed nodes, keeping the cluster
+                consolidated:
+
+                  omega_fixed_n = |N| - n     for n = 0, 1, ..., |N|-1
+
+                Node 0 gets the highest weight; the last node gets 1.
+                Constant — does not change between scheduling rounds.
+
+                NOTE: A sequencing constraint (node n may only receive jobs
+                if node n-1 is non-empty) would create a recursive dependency
+                the MILP cannot resolve in a single solve call. The fixed weight
+                achieves the same consolidation bias without constraint coupling.
+
+────────────────────────────────────────
+Cluster Monitor Inputs  [monitor]
+(Provided to the optimizer at the start of each scheduling round)
+────────────────────────────────────────
+
+  U_n           Currently used memory on node n. Measured in real time.
+
+  vbar_n        Rolling SLA violation rate on node n — fraction of the last
+                K scheduling rounds in which actual memory on node n exceeded
+                M_avail_n. Real-valued, vbar_n in [0, 1].
+
+                  vbar_n = 0  : no recent violations
+                  vbar_n = 1  : every recent round was overloaded
+
+                See Appendix A for how vbar_n is computed.
+
+  omega_j       Priority weight for job j — inherited from the tenant that
+                owns job j. omega_j >= 1.
+
+                  omega_j = 1    : no extra weight (tenant wait at or below
+                                   cluster-wide average)
+                  omega_j > 1    : additional weight; the solver increases
+                                   preference for placing job j
+                                   (real-valued, no maximum)
+
+                See Appendix C for how the cluster monitor computes omega_j.
+
+────────────────────────────────────────
+Prediction Layer Inputs  [prediction]
+(Provided by the prediction layer for each pending job)
+────────────────────────────────────────
+
+  P_mem_j       P95 predicted memory for job j — 95th percentile of the
+                highest predicted memory spike over the job's expected
+                lifetime. Used in constraint C2 and the objective.
+
+  P_cpu_j       P90 predicted CPU peak for job j — 90th percentile of
+                predicted CPU demand. Used in constraint C4. No SLA feedback
+                applies to CPU; kernel throttling handles runtime overrun.
+
+  P_life_j      Predicted job lifetime. Used by the prediction layer to
+                determine the time horizon for P_mem_j and P_cpu_j.
+                Not used directly in the LP.
+
+────────────────────────────────────────
+Derived  [derived]
+(Computed by the optimizer from the above inputs each scheduling round)
+────────────────────────────────────────
+
+  M_avail_n     Available memory — physical RAM minus the memory tax.
+                Fixed upper bound for all tenant job memory on node n:
+
+                  M_avail_n = M_n - M_tax_n
+
+  M_remain_n    Remaining available memory after subtracting current usage:
+
+                  M_remain_n = M_avail_n - U_n
+
+  M_eff_n       Effective remaining memory — capacity offered to new jobs
+                after applying the safety threshold and SLA violation scaling:
+
+                  M_eff_n = max(0,  M_remain_n * (1 - theta_n) * (1 - vbar_n))
+
+                  theta_n=0, vbar_n=0  :  M_eff_n = M_remain_n   (full capacity)
+                  theta_n=0.1, vbar_n=0:  M_eff_n = 0.9 * M_remain_n
+                  theta_n=0, vbar_n=1  :  M_eff_n = 0            (node blocked)
+
+                M_eff_n is the right-hand side of constraint C2.
+
+  u_mem_n       Memory utilization weight — fraction of M_avail_n currently
+                in use on node n, mapped to a real value in [1, 2]. Applied
+                in the objective to consolidate workloads onto busier nodes.
+                Constraint C2 prevents infeasible placements regardless of
+                u_mem_n.  See Appendix B for the formula.
+
+
+================================================================================
+§4  FEEDBACK LOOPS
+================================================================================
+
+SLA and fairness are not objectives inside the LP — they are observed outcomes
+tracked by the cluster monitor and fed back as adaptive inputs each round.
+
+SLA Feedback --> Node Capacity:
+  When actual memory on node n exceeds M_avail_n at runtime, the cluster
+  monitor records one overload event. It computes vbar_n over the last K rounds
+  and passes it to the optimizer. As violations persist, vbar_n rises and
+  M_eff_n shrinks — the node accepts fewer new jobs. As violations subside,
+  M_eff_n recovers. One overload event = one SLA violation; the model reacts
+  conservatively but cannot prevent an overload retroactively.
+
+Fairness Feedback --> Job Priority:
+  The cluster monitor tracks per-job wait times (submission to assignment),
+  computes omega_j per job, and passes it to the optimizer. Jobs whose tenant
+  is waiting above average receive omega_j > 1, so the solver naturally prefers
+  placing them. Fairness improves as a side effect of weighted maximization.
+
+  Fairness KPI: variance of Wbar_t across tenants (or Gini coefficient) is
+  reported as a simulation outcome metric — not minimized inside the LP.
+
+
+================================================================================
+§5  OPTIMIZATION OBJECTIVE
+================================================================================
+
+Maximize the Placement Score Z:
+
+  max  Z  =  SUM{j in J}  SUM{n in N}
+               omega_j * P_mem_j * u_mem_n * omega_fixed_n * x_jn
+
+NOTE: omega_j = omega_{t(j)}, the priority weight of the tenant owning job j.
+Writing omega_j (per-job) rather than omega_{t(j)} (per-tenant-of-job) is
+standard in weighted scheduling formulations where the job weight is inherited
+from its class or owner. It is mathematically equivalent.
+
+Each placed job contributes its P95 predicted memory P_mem_j, scaled by
+three multiplicative weights:
+
+  omega_j           >= 1                  tenant priority weight (fairness)
+  u_mem_n           >= 1, in [1, 2]       memory utilization weight (consolidation)
+  omega_fixed_n     in {1, ..., |N|}      fixed node bias (low-index preference)
+
+Together these steer the solver to:
+  - prefer jobs from long-waiting tenants (omega_j)
+  - consolidate onto memory-loaded nodes (u_mem_n)
+  - fill lower-indexed nodes first (omega_fixed_n)
+
+
+================================================================================
+§6  CONSTRAINTS
+================================================================================
+
+C1 — One node per job:
+
+  SUM{n in N} x_jn  <=  1      forall j in J
+
+  <= 1 (not = 1): a job may remain unscheduled if no node has room.
+  Unscheduled jobs stay in the queue, accumulating wait time that raises
+  their omega_j in subsequent rounds.
+
+C2 — Memory capacity per node:
+
+  SUM{j in J} P_mem_j * x_jn  <=  M_eff_n      forall n in N
+
+  Hard constraint. M_eff_n incorporates the OS tax, current usage, safety
+  threshold, and SLA-driven scaling.
+
+  OVERCOMMITMENT: The model uses P_mem_j (P95) rather than the declared
+  request, admitting more jobs than a naive declared-memory scheduler would.
+  An SLA violation occurs only if the 5% tail of the prediction materializes
+  at runtime.
+
+C3 — Binary domain:
+
+  x_jn  in  {0,1}      forall j in J, n in N
+
+  Makes the problem a Mixed-Integer Linear Program (MILP). For large
+  instances, x_jn in [0,1] (LP relaxation with rounding) is an acceptable
+  approximation for simulation scale.
+
+C4 — Per-pair CPU fitment:
+
+  x_jn = 0   if   P_cpu_j > C_n      forall j in J, n in N
+
+  Blocks placing a job whose predicted CPU peak exceeds the node's total
+  core count. CPU cores are time-shared — the kernel handles overcommit via
+  throttling. This check blocks only the genuinely infeasible case where a
+  job's peak demand exceeds the node's hardware ceiling.
+
+
+================================================================================
+§7  COMPLETE MODEL
+================================================================================
+
+  max  Z  =  SUM{j in J}  SUM{n in N}
+               omega_j * P_mem_j * u_mem_n * omega_fixed_n * x_jn
+
+Subject to:
+  C1:  SUM{n in N} x_jn  <=  1                         forall j in J
+  C2:  SUM{j in J} P_mem_j * x_jn  <=  M_eff_n         forall n in N
+  C3:  x_jn  in  {0,1}                                 forall j in J, n in N
+  C4:  x_jn = 0  if  P_cpu_j > C_n                     forall j in J, n in N
+
+Where:
+  (quantities derived by the optimizer from inputs and configuration)
+
+  M_avail_n     =  M_n  -  M_tax_n
+  M_remain_n    =  M_avail_n  -  U_n
+  M_eff_n       =  max(0,  M_remain_n * (1 - theta_n) * (1 - vbar_n))
+  omega_fixed_n =  |N| - n,   for n = 0, 1, ..., |N|-1
+
+Inputs per round:
+  U_n           current node memory usage                [monitor]
+  vbar_n        SLA violation rate per node              [monitor]
+  omega_j       tenant priority weight per job           [monitor]
+  P_mem_j       P95 predicted memory per job             [prediction]
+  P_cpu_j       P90 predicted CPU peak per job           [prediction]
+
+Configuration parameters (constant, not decision variables):
+  K             violation rolling window length          [config]
+  M_tax_n       memory tax per node                      [config]
+  theta_n       memory safety threshold per node         [config]
+  omega_fixed_n fixed node consolidation weight          [config]
+
+
+================================================================================
+APPENDIX
+================================================================================
+
+────────────────────────────────────────
+A.  How vbar_n is Computed
+────────────────────────────────────────
+
+Additional symbols used in this calculation:
+
+  K             Rolling window length — number of past scheduling rounds
+                included in the violation rate. Configuration scalar.
+
+  k             Summation index, k = 0, 1, ..., K-1.
+                k=0 is the most recent round; k=K-1 is the oldest.
+
+  1[condition]  Indicator function: 1 if condition is true, 0 otherwise.
+
+Formula (at scheduling round r):
+
+  vbar_n = (1/K) * SUM{k=0 to K-1} ( 1[ U_n > M_avail_n at round r-k ] )
+
+  vbar_n is the fraction of the last K rounds in which actual memory on
+  node n exceeded M_avail_n. Passed to the optimizer as an input each round.
+
+────────────────────────────────────────
+B.  How u_mem_n is Computed
+────────────────────────────────────────
+
+  u_mem_n = 1  +  clamp( U_n / max(1, M_avail_n),  0,  1 )
+
+The inner expression U_n / max(1, M_avail_n) is the memory utilization
+fraction — a value between 0 (node idle) and 1 (node at full capacity).
+Adding 1 shifts this range from [0, 1] to [1, 2]:
+
+  u_mem_n = 1  : node is idle (utilization fraction = 0, no consolidation boost)
+  u_mem_n = 2  : node is at full capacity (utilization fraction = 1, max boost)
+  1 < u_mem_n < 2  : partial load (real-valued, continuous range)
+
+────────────────────────────────────────
+C.  How omega_j is Computed
+────────────────────────────────────────
+
+omega_j is the priority weight for job j, equal to the priority weight of
+the tenant that owns job j. The cluster monitor computes one weight per
+tenant (omega_t) and assigns it to each job j where t(j) = t.
+
+Additional symbols:
+
+  Wbar_t      Average scheduling delay for tenant t — mean time from job
+              submission to job assignment, over all completed jobs of tenant t.
+
+  Wbar        Cluster-wide average scheduling delay:
+
+                Wbar = (1 / |T|)  *  SUM{t in T} Wbar_t
+
+Formula:
+
+  omega_t  =  1  +  max(0,  (Wbar_t - Wbar) / max(1, Wbar))
+
+  omega_j  =  omega_{t(j)}     (job j inherits the weight of its tenant)
+
+The weight is built from the excess wait above the cluster average:
+  - The fractional excess (Wbar_t - Wbar) / max(1, Wbar) is 0 when the
+    tenant is at or below average, and grows proportionally above that.
+  - Adding 1 gives a minimum of 1 (no unfairness = no extra weight, omega_j = 1).
+  - There is no stated maximum: a tenant waiting far above average can
+    receive omega_j >> 1, giving their jobs proportionally higher priority.
+
+  omega_j = 1    when Wbar_{t(j)} <= Wbar   (no boost)
+  omega_j > 1    when Wbar_{t(j)} > Wbar    (boost grows with excess wait)
+
+================================================================================
+END OF SOURCE OF TRUTH
+================================================================================

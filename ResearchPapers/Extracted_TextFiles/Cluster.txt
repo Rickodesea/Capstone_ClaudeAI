@@ -1,0 +1,1538 @@
+Analyzing the impact of various parameters on job scheduling
+in the Google cluster dataset
+Danyal Shahmirzadi1 • Navid Khaledian2 • Amir Masoud Rahmani3
+Received: 28 November 2023 / Revised: 20 February 2024 / Accepted: 22 February 2024
+ The Author(s), under exclusive licence to Springer Science+Business Media, LLC, part of Springer Nature 2024
+Abstract
+Cloud architecture and its operations interest both general consumers and researchers. Google, as a technology giant, offers
+cloud services globally. This paper analyzes the Google cluster usage trace, focusing on three key aspects: task execution
+times, rescheduling frequency, and the relationship between task priority and rescheduling. Firstly, we examine how
+memory and processor performance impact task execution times across different machines. Next, we investigate how the
+number of task constraints inﬂuences rescheduling frequency and overall environmental efﬁciency. Furthermore, we
+analyze how task priority affects rescheduling and explore its correlation with task constraints. The results reveal that
+doubling the memory size can accelerate tasks by a factor of nine and that 90% of rescheduling is associated with tasks
+having less than seven constraints. We aim to enhance data center performance by identifying bottlenecks in the Google
+Cluster Dataset and providing recommendations for all cloud service providers. Our key ﬁndings indicate that memory
+plays a more signiﬁcant role than the processor, and tasks with higher constraints have a less pronounced impact on
+rescheduling than anticipated.
+Keywords Cluster computing  Cloud computing  Google cluster  Load balancing  Rescheduling  80/20 rule
+1 Introduction
+The popularity of cloud services has increased in recent
+years, offering numerous advantages over personal or
+physical services, such as cost efﬁciency, scalability,
+ﬂexibility, accessibility, collaboration, backup, and secu-
+rity [1]. However, as the number of users grows, the
+architecture of these services becomes more intricate.
+Cloud customers are becoming increasingly concerned
+about the availability and reliability of the services they
+purchase, driven by recent failures experienced by various
+software and infrastructure services. Reliability and avail-
+ability concerns have emerged as signiﬁcant challenges for
+traditional systems and new cloud services. The complexity
+of cloud architectures can amplify failure probabilities and
+decrease performance, particularly with the escalation of
+resources, including power consumption [2, 3].
+In cloud systems, jobs are limited to a certain number of
+resources. If a job exceeds its limit, it will be killed or
+postponed, which can cause overhead for the system.
+Google’s autopilot dynamic conﬁguration helps to over-
+come this problem, but it still leaves 23% of the resources
+needed [4]. Most studies have concentrated on failure
+analysis, characterization, and prediction, with limited
+research conducted on bottleneck detection. This paper
+aims to develop a bottleneck detection framework to
+enhance cluster performance.
+Failed jobs create bottlenecks by consuming substantial
+amounts of memory, CPU, disk, and power. The occur-
+rence of failed jobs is directly linked to rescheduling,
+wherein a job is frequently placed in a cluster queue until
+completion. Historically, several companies, including
+& Amir Masoud Rahmani
+rahmania@yuntech.edu.tw
+1
+Graduate School of Engineering Science and Technology,
+National Yunlin University of Science and Technology, 123
+University Road, Douliou 64002, Yunlin, Taiwan
+2
+Interdisciplinary Centre for Security, Reliability and Trust
+(SnT), University of Luxembourg, Esch-sur-Alzette,
+Luxembourg
+3
+Future Technology Research Center, National Yunlin
+University of Science and Technology, Douliou, Yunlin,
+Taiwan
+123
+Cluster Computing
+https://doi.org/10.1007/s10586-024-04377-8
+(0123456789().,-volV)(0123456789().
+,- volV)
+
+Twitter, LinkedIn, Amazon’s Elastic service, and Micro-
+soft’s Azure HDInsight, should have capitalized on exist-
+ing cloud systems to augment their capabilities with
+optimal ﬂexibility [5]. Outdated technologies have since
+been replaced by a new data processing system called
+Cloud Dataﬂow. Over the past decade, Distributed Data-
+ﬂow Systems (DDS) have emerged as a standard technol-
+ogy. Users employ constrained dataﬂow programming
+models, such as Cloud Dataﬂow, to scale program execu-
+tion across a cluster of machines with a shared-nothing
+architecture. Upon closer examination, it becomes evident
+that Cloud Dataﬂow operates atop the Google Borg system.
+Borg, a foundational system, introduces a crucial
+abstraction layer between the underlying physical hardware
+and its applications [6]. This strategic implementation
+empowers Google with efﬁcient resource management
+capabilities and the ability to scale its applications to
+accommodate varying demands seamlessly. In contrast,
+Cloud Dataﬂow functions as a high-level system designed
+to facilitate distributed data processing. While it leverages
+Borg and other Google technologies, it maintains its
+autonomy as a separate system [7]. During our research,
+our primary focus was to delve into the logs generated by
+the Borg clustering system. All the Google services are
+running on this platform.
+Recent resource management and models that can
+schedule workloads try to facilitate the sharing of com-
+puting resources in data centers. Efﬁciency and resource
+optimization are crucial for Cloud Service Providers; thus,
+many researchers have recently focused on this area
+[9–12]. Many researchers are trying to develop a state-of-
+the-art algorithm and middleware to make the most of these
+data center infrastructures. The realm of data centers and
+their resource management has garnered increasing atten-
+tion recently, spurred by the rising prominence of novel
+concepts such as IoT (Internet of Things), edge computing,
+fog computing, and dew computing [17]. These emerging
+paradigms are gaining popularity for bringing computation
+and data processing closer to the source of data generation
+and
+consumption,
+thereby
+enhancing
+efﬁciency
+and
+reducing latency. It is worth noting that data centers serve
+as the cornerstone of cloud computing, providing the
+infrastructure
+and
+computational
+power
+essential
+for
+delivering cloud-based services and applications. In this
+context, the efﬁcient operation and resource allocation
+within data centers play a pivotal role in ensuring the
+reliability and performance of cloud computing services.
+Our study delves into the intricate domain of data center
+resource management, focusing on the Google Borg sys-
+tem—a fundamental component within Google’s infras-
+tructure. Borg is a linchpin in Google’s ability to efﬁciently
+oversee and allocate resources, ensuring its applications’
+scalability and responsiveness to meet users’ demands
+worldwide. Our exploration of the logs generated by the
+Borg clustering system offers valuable insights into the
+inner workings of this critical resource management sys-
+tem. Given the high cost of large-scale computing clusters,
+optimizing their usage is imperative. Optimizing needs
+deep knowledge of system behavior, and one of the best
+ways is to investigate current data centers’ logs, like
+Google cluster traces produced by the Borg system and
+operators’ experience in such environments [18]. In 2011,
+Google introduced a cluster trace dataset [19]. Subse-
+quently, in 2019, another cluster dataset trace was released
+[20]. We investigated the Google cluster 2011, which
+contains the log for 12.5 k virtual machines, to ﬁnd the
+bottlenecks and propose ideas to improve efﬁciency in big
+data centers. We chose this data set because more papers
+have investigated it in more detail [21–24]. The ﬁrst
+Google dataset contains a trace of one Google cluster,
+while the second version includes workloads of eight dif-
+ferent Google clusters. To the best of our knowledge, we
+are the ﬁrst to investigate the impact of different resource
+types on data center scalability. We also identify the root
+cause of rescheduling, which can waste many resources.
+These days, data centers, which need large capital
+investments,
+are
+utilized
+for
+many
+different
+things,
+including video processing, machine learning, search
+engines, and third-party cloud services. Most of the tech-
+nologies we use are hosted by these data centers. Modern
+cluster management systems have evolved to manage these
+data centers effectively. Several businesses have made job-
+scheduling traces of their cluster management systems
+public so that outside academics can investigate how they
+accomplish this.
+Borg is a prominent example among cluster manage-
+ment systems, having been meticulously developed and
+extensively employed by Google. Google’s commitment to
+advancing external research in large-scale compute clusters
+was evident in 2011 when it released a 1-month trace from
+its Borg cluster management system. This initiative facil-
+itated
+exploration
+by
+hundreds
+of
+researchers
+into
+scheduling intricacies [25]. A lingering question pertains to
+the evolution of workloads and its impact on scheduling
+decisions. To address this, Google has published a new
+‘‘2019’’ trace, offering detailed Borg job scheduling
+information from eight distinct compute clusters through-
+out May 2019. This updated dataset extends the scope of
+research opportunities initiated in 2011 and provides a
+contemporary
+perspective
+on
+the
+dynamic
+interplay
+between evolving workloads and cluster management
+decisions within Google’s infrastructure. Table 1 demon-
+strates the detailed comparison of these to traces.
+The contemporary challenge lies in enhancing the
+overall efﬁciency of data centers by strategically reducing
+the time, energy consumption, and resource allocation
+Cluster Computing
+123
+
+required to execute a comparable volume of tasks. While
+most studies have traditionally focused on failure analysis,
+characterization, and prediction, this paper endeavors to
+pioneer a novel approach by introducing a bottleneck
+detection framework. The primary objective is to augment
+cluster performance, facilitating optimal distribution of
+resources such as RAM and CPU within the Borg system.
+This research aims to enhance system efﬁciency and
+resource utilization by emphasizing proactive bottleneck
+identiﬁcation.
+The research structure contains four different sections.
+Section 2 presents the scheme of Google cluster traces,
+provides basic statistics and behavior of failed jobs, and
+includes a comprehensive literature review on cluster
+research. Section 3 demonstrates our data analysis within
+four different phases. In the ﬁrst phase, we investigated the
+effects of resources on task execution time and tried to ﬁnd
+out that CPU has more impact on task execution time or
+memory. Rescheduling is an essential parameter in study-
+ing cluster efﬁciency; hence, in the next phase, we inves-
+tigated the relationship between how the number of task
+constraints are related to rescheduling. In the third phase,
+we analyzed how task rescheduling is connected to tasks’
+priority. In the last step, we delve into task categories to
+determine how they relate to the number of tasks’ con-
+straints. Section 4 contains the study’s conclusion and
+outlines future work.
+2 Research questions (RQs)
+In this study, our primary objective is to identify and
+address key considerations in optimizing data center per-
+formance and reducing energy consumption. The research
+questions outlined below guide our investigation into the
+factors inﬂuencing the efﬁciency of Borg systems.
+RQ1
+Which resource has a more signiﬁcant impact on the
+Borg system—CPU or RAM?
+The ﬁrst data analysis aims to discern the relative impact
+of CPU and RAM on the performance of the Borg system.
+RQ2
+Do tasks with higher or fewer constraints predomi-
+nantly inﬂuence rescheduling activities?
+The second data analysis endeavors to uncover the
+primary factors affecting rescheduling, speciﬁcally exam-
+ining whether tasks with higher or fewer constraints play a
+more signiﬁcant role.
+RQ3
+Does the rescheduling of tasks correlate with their
+priority? Which type of task—higher or lower priority—
+exerts a more substantial impact?
+The third data analysis addresses the interplay between
+task rescheduling and priority, investigating whether higher
+or lower-priority tasks have a greater inﬂuence.
+RQ4
+Is there a discernible relationship or correlation
+between task constraints and their respective categories?
+The fourth data analysis explores potential connections
+or correlations between task constraints and their assigned
+categories. By answering these research questions, we aim
+to contribute insights that can inform strategies for
+optimizing data center performance, striking a balance
+between
+increased
+efﬁciency
+and
+reduced
+energy
+consumption.
+3 Literature review
+Ferna´ndez-Cerero et al. [8] attempted to extract workﬂows
+from raw log ﬁles in the Google cluster. The presence of
+numerous logs in the dataset resulted in a convoluted
+workﬂow resembling spaghetti, making it incomprehensi-
+ble for humans. Process mining tools such as ProM and
+Disco were employed to investigate each process inde-
+pendently, creating more structured workﬂows. Addition-
+ally, the XES generator was utilized to modify the dataset
+format, enabling its use as input for the tools above. The
+researchers concluded that process mining tools faced
+challenges processing such extensive log data. To over-
+come this, it was necessary to split the data or use a subset
+of the top 5000 records from each log ﬁle as samples, as
+demonstrated in their study. The resulting workﬂows offer
+a more precise understanding for humans, allowing inter-
+pretation of information concealed in the logs, such as
+identifying users who submitted more jobs, determining the
+number of jobs assigned to each machine, and assessing the
+number of machines running a speciﬁc task.
+Umer et al. [19] studied the transition of physical and
+virtual machines between different states. By understand-
+ing these data from logs, a data center operator can better
+decide to extend its infrastructure or push it into sleep
+mode to preserve energy. Their study discovered a 13%
+probability of another machine failure occurring on the
+same network switch within one minute of a previous
+failure. They suggested a Markov model for machine state
+prediction, enabling accurate forecasting of machine states
+over
+an
+extended
+period
+by
+leveraging
+estimated
+Table 1 Comparision of Google Borg traces
+Date
+May 2011
+May 2019
+Days
+30
+31
+Machines
+12,600
+96,400
+Priority
+0–11
+0–450
+Format
+CSV
+BigQuery
+Cluster Computing
+123
+
+probabilities. Their proposed model revealed the active
+machines’ trend and found a 1.76% bias when matching it
+with the data set.
+In [20], authors investigated the failures in Google cluster
+logs that usually happen because of the data center’s large
+scope. The failures should be avoided because they will
+reduce performance and waste our resources. They proposed
+a failure prediction platform to detect a job failure before it
+happens. Using machine learning technics, they could suc-
+cessfully submit a method that predicts failed jobs even
+before Borg’s operating system scheduling. They ﬁrst
+developed a job status prediction model with 98% accuracy,
+but they could increase the accuracy to 99% for job failure
+prediction by selecting speciﬁc manual parameters.
+Wang et al. [21] employed an enhanced mixture of
+Gaussian (GMM) algorithms to predict missing tasks. The
+Google cluster dataset includes a ﬁeld for missing informa-
+tion with various values. They identiﬁed scheduling class,
+priority, and resource requests as three attributes signiﬁ-
+cantly impacting missing information ﬁelds in the task log
+ﬁle. Both tasks and jobs share a common attribute:
+scheduling, providing a general indication of the task’s
+sensitivity to latency; the priority attribute indicates a task’s
+priority level. Additionally, each task speciﬁes its own
+‘CPU’ and ‘Memory’ requirements, detailing the resource
+limitations within the data center infrastructure.
+They proposed an algorithm capable of predicting the
+value of a missing type with an accuracy of 99.73%. Sub-
+sequently, they recommended transferring that task to a real-
+time monitoring section to mitigate potential side effects on
+other tasks. While they demonstrated commendable perfor-
+mance in predicting missing information types for tasks,
+their analysis focused solely on individual tasks and did not
+delve into their potential impacts on other tasks.
+Njuguna Ngang’a et al. [22] created an improved cloud
+failure
+prediction
+model
+using
+Adaboost
+ensemble
+Machine Learning algorithms capable of predicting hard-
+ware and software failures. The model was developed
+using Google Cluster 2019, Azure Clouds, and Alibaba
+Clouds datasets. Their model utilizes an ensemble classi-
+ﬁcation approach incorporating random forest, decision
+tree classiﬁers, and regression. The result shows a slightly
+higher accuracy rate than previous studies in this ﬁeld. The
+decision Tree Classiﬁer produced the most favorable
+average model performance results by 91.7% compared to
+previous work done by Soualhia et al. [23], which reached
+85.6% accuracy. They also noticed that Adaptive Boosting
+improved the overall model accuracy across all classiﬁers
+and datasets, except for Logistic Regression in the Azure
+dataset, which did not enhance the overall model perfor-
+mance. Regarding convergence time, the decision tree
+classiﬁer had the shortest average time, followed by
+logistic regression and the random forest classiﬁer.
+In [24], Chen et al. believe that most of the previous works
+in this ﬁeld focused on how they can allocate resources fairly
+while neglecting the efﬁciency of data centers. However,
+unequal usage of data center infrastructure lowers resource
+utilization but signiﬁcantly impacts cloud application ser-
+vice quality. They deﬁned data center resource utilization as
+a problem of balancing efﬁciency and balance, considering
+cluster systems’ dynamic, discrete, and heterogeneous nat-
+ure. Simulations conducted on the Google cluster dataset
+indicate that their proposed algorithm can enhance data
+center infrastructure usage while ensuring all users have the
+right to access resources.
+Gupta et al. [26] analyzed the long-range dependence
+nature of cloud resource workloads using autocorrelation
+and rescaled range analysis methods. They investigated the
+presence of long-range dependence in cloud workloads and
+provided experimental evidence for its origins. They also
+used the Google cluster trace for analysis as a standard real
+dataset and used metrics such as arrival, service distributions
+of jobs, and resource usage. They showed that these metrics
+demonstrate heavy-tailed behavior, and a mathematical
+formulation proves that aggregate workload exhibits long-
+range dependence. Finally, they suggested that their analysis
+provides crucial information that can facilitate designing
+optimal resource management policies for cloud workloads.
+Loo et al. [15] proposed a scalable infrastructure to analyze
+the operation logs of cloud environments. They analyzed the
+dataset for workload characterization, considering the deci-
+sion tree classiﬁer had the shortest average time, followed by
+logistic regression and then the random forest classiﬁer, their
+proposed infrastructure.
+In their study [27], Subramanian et al. introduced a
+novel algorithm named CDB-LSTM, which is designed to
+predict resource usage in data centers. The authors sought
+to identify informative samples by leveraging the hyper-
+graph concept and applying speciﬁc ﬁlters while disre-
+garding outlier data. The proposed model provides a more
+accurate estimation of future resource usage and minimizes
+virtual machine relocations. Additionally, it selects an
+appropriate destination server using a correlation coefﬁ-
+cient measure. The authors validated their model using the
+Google cluster dataset within a simulation environment.
+The results demonstrated the model’s effectiveness in
+reducing the number of virtual machine migrations, thereby
+enhancing performance while conserving energy.
+4 Data analyzing
+The ‘‘Google Cluster Trace Usage 2011’’ is a dataset
+containing a comprehensive record of the resource request
+and usage data of Google’s data centers over one month in
+May 2011. The dataset includes information on the usage
+Cluster Computing
+123
+
+of CPUs, memory, and disk I/O for tens of thousands of
+machines and network usage data for millions of ﬂows. At
+the same time, it does not have information about end
+users, their data, or even their access patterns to systems
+and services. The dataset is available on Google storage
+and is 41 GB in size. Researchers can download it using
+the gsutil command line tool provided by Google. It covers
+many workloads, including batch jobs and web-serving
+jobs. This dataset is intended to help researchers better
+understand the characteristics of large-scale distributed
+systems and to facilitate the development of more efﬁcient
+and reliable computing infrastructures.
+Four different analyses of the tables included in the
+‘‘Google cluster trace usage 2011’’ were investigated in
+this study, as illustrated in Fig. 1. The ﬁrst analysis reveals
+the effects of resources on task execution time and shows
+how we can increase the cluster performance with the least
+expenses. The second analysis tries to ﬁgure out the role of
+task constraints on rescheduling; by reducing the number
+of rescheduling, we can reduce resource waste and increase
+cluster performance. Which one makes the bottleneck:
+tasks with higher priority or lower ones? The third phase
+tries to ﬁnd the best answer to this question. Finally,
+different categories of tasks and their relation with task
+constraints are investigated in the last phase. However, in
+some phases, the data need preprocessing to eliminate
+outliers. The Pareto rule also demonstrates the relationship
+between factors impacting scheduling and rescheduling.
+Some revealed that relations between task type and
+rescheduling highly contrast expectations.
+4.1 First data analysis
+This analysis presents average task execution times on
+various machines based on memory and processor perfor-
+mance. The goal is to determine how memory and pro-
+cessor affect task execution time. First, using the columns
+of event type and time stamp in the table of machine
+events, the service duration of the machines in the whole
+29 days of data has been calculated. Therefore, ﬁrst, we
+have considered all the machines whose event type column
+shows zero, which means they were added to the envi-
+ronment as the machines in the environment, and we have
+placed them in a new table called machines-service-time.
+Then, using the time of the two events of adding (0) and
+removing (1) the machine from the environment, the
+desired service time is calculated as the service period of a
+machine with a certain amount of memory and processor.
+Due to update events, machines’ memory and processor
+sizes may change multiple times during the test period.
+Consequently, after each update event, we treated each
+machine as new with different speciﬁcations and service
+duration. The time between addition and update events
+reﬂects the service duration of such machines. Our new
+table, ‘‘machines-task-time,’’ has eight combinations of
+machines for different amounts of memory and processors.
+We count the total service time of each type of machine
+and the overall number of tasks performed by a distinct
+virtual machine. The average time to run each task by a
+speciﬁc machine can be calculated by (total machine ser-
+vice time)/(all unique tasks performed by a machine type).
+Table 2 shows the ﬁnal results.
+Here, we analyzed the ﬁrst four groups from the table to
+provide evidence supporting the statement that main
+memory has a more signiﬁcant impact on a machine’s task
+capacity and performance compared to the processor. Upon
+examining the data for the ﬁrst four groups, which all share
+the same CPU capacity of 0.5, we can discern substantial
+variations in their average times per task.
+In Group 1, where the memory capacity is 0.03085, the
+average time per task is remarkably high at 1,417,500. This
+suggests that machines with limited memory capacity
+experience signiﬁcant performance bottlenecks, even when
+the CPU capacity remains constant. Moving to Group 2,
+with a slightly higher memory capacity of 0.06185, we see
+a noticeable reduction in the average time per task, which
+Fig. 1 The research framework
+Cluster Computing
+123
+
+stands at 154,797. This performance improvement suggests
+that a modest increase in memory capacity can lead to
+substantial gains in task efﬁciency, reinforcing the impor-
+tance of memory. Group 3, with a memory capacity of
+0.1241, exhibits further improvement in task performance,
+with an average time per task of 10,872.9589. The data
+underscores that as memory capacity increases, task exe-
+cution becomes increasingly efﬁcient, even with the same
+CPU capacity.
+Lastly, in Group 4, where the memory capacity jumps to
+0.2493, we observe a signiﬁcant drop in the average time
+per task, down to 5,276.779295. This compelling evidence
+reinforces the argument that memory capacity plays a
+pivotal role in inﬂuencing task execution time, as the gains
+achieved by upgrading memory capacity are pretty sub-
+stantial, even when the CPU capacity remains constant. In
+summary, the analysis of the ﬁrst four groups in the
+table strongly supports the notion that main memory has a
+more profound impact on a machine’s task capacity and
+performance than the processor, as evident in the sub-
+stantial variations in task execution times corresponding to
+different memory capacities while maintaining the same
+CPU capacity.
+Table 2 shows that increasing machine memory reduces
+task execution time. Main memory impacts a machine’s
+task capacity and performance more than the processor.
+Upgrading the main memory capacity has a greater impact
+on overall machine performance and efﬁciency. Table 2
+shows that doubling the memory size results in at least nine
+times reduction in average task time, as seen by comparing
+the ﬁrst two rows; even comparing rows 2 and 3 indicates a
+much higher (14.2 times) reduction in average task time by
+doubling the memory. Comparing rows 4 and 5 reveals a
+hidden truth about CPU in the dataset: Doubling the CPU
+capacity while slightly decreasing memory can’t reduce the
+average task execution time but also increase it by 30%.
+Expanding the CPU while we don’t have enough memory
+can negatively impact the performance. Expanding the
+CPU can speed up just CPU-bound tasks but has little
+impact on the overall cluster’s performance.
+In the cluster dataset, we observed that Google upgraded
+the server memory to its maximum capacity exclusively for
+servers with the highest CPU capacity, totaling 2218 virtual
+machines. However, by reallocating 25 percent of the
+memory from these 2218 machines—each with full CPU
+and memory capacity—and applying the additional mem-
+ory to machines with a CPU capacity of 0.5 and memory of
+0.2493 (comprising 10,188 machines in this dataset), we
+can signiﬁcantly enhance the overall performance of Borg.
+We
+have
+investigated
+new
+clusters,
+focusing
+on
+exploring
+the
+latest
+Google
+Cluster
+Dataset
+from
+2019 (Fig. 2). This dataset commands a substantial size of
+approximately 2.4 terabytes, marking a signiﬁcant increase
+in volume compared to its predecessor, which measured a
+mere 44 gigabytes. Managing data of such magnitude
+presents notable challenges regarding time and resource
+utilization.
+To address these challenges, we harnessed the power of
+BigQuery, a service provided by Google Cloud. This
+allowed us to execute intricate queries on the Google
+Cluster Dataset without necessitating the download of the
+entire cluster trace. Utilizing the query illustrated in Fig. 3,
+we could extract comprehensive insights regarding the total
+number of machines and their corresponding execution
+times, all through the capabilities of Google BigQuery.
+BigQuery uses a distributed architecture and algorithm,
+where the data is distributed across multiple servers,
+enabling parallel processing for faster query performance.
+We also utilized BigQuery ML, which allows users to build
+and execute machine learning models directly within
+BigQuery. Without the power of the cloud and its parallel
+algorithm, exploring big data like Table 2 is almost
+impossible. In contrast to conventional relational data-
+bases, BigQuery employs diverse parallel schemas to
+enhance the speed of query execution [28]. BigQuery is a
+serverless data warehouse supporting scalable analysis over
+large datasets (even over petabytes), which helped us cal-
+culate the average time and number of constraints in a
+reasonable time. Figure 2 demonstrates the pseudo code we
+Table 2 Tasks average time per
+machine type
+Group number
+CPU capacity
+Memory capacity
+Total machines
+Average time/per task
+1
+0.5
+0.03085
+6
+1,417,500
+2
+0.5
+0.06185
+3
+154,797
+3
+0.5
+0.1241
+97
+10,872.9589
+4
+0.5
+0.2493
+10,188
+5276.779295
+5
+0.25
+0.2498
+510
+3975.903614
+6
+0.5
+0.749
+2983
+2502.837684
+7
+1
+1
+2218
+2178.148921
+8
+0.5
+0.4995
+21,731
+1856.602755
+Cluster Computing
+123
+
+proposed to reveal the average time per task for each group
+of virtual machines.
+In our analysis of task constraint usage within the
+Google Cluster Trace 2011 dataset, as shown in Fig. 4 we
+employed another BigQuery to categorize individual con-
+straint values into eight distinct ranges, from 0 to 180 or
+greater. Examining the distribution of tasks across these
+ranges revealed a predominant preference for lower con-
+straints (0–59). However, we observed notably low fre-
+quencies in the higher constraint ranges, underscoring the
+signiﬁcance of tasks with lower constraints. This catego-
+rization approach not only offers valuable insights into the
+characteristics of the workload but also sheds light on
+potential bottlenecks, particularly concerning tasks with
+constraints below 20.
+It is worth noting that while this invaluable Google
+Trace Dataset is accessible free of charge, employing
+BigQuery
+for
+analysis
+does
+consume
+computational
+resources. Researchers should be mindful of potential
+associated costs when opting for this approach. All queries
+used in this paper are accessible by demand for further
+studies. The conclusive ﬁndings derived from our analysis
+of the Cluster 2019 dataset, as presented in Table 3, shed
+light on the notable inﬂuence of memory capacity on task
+execution time. This observation underscores the signiﬁ-
+cance of memory resources in the context of computational
+tasks. A particularly striking insight emerges when we
+compare the last two rows of the table. In this comparison,
+we discern that, with the CPU already operating at its peak
+performance level, doubling the memory size leads to a
+noteworthy consequence—a task execution time increase
+of at least two-fold. This revelation underscores the pivotal
+role that memory capacity plays in shaping the efﬁciency
+and performance of computational tasks within the dataset.
+The comparison between group B (machines with
+maximum CPU and half memory) and group A (machines
+with maximum CPU and maximum memory) reveals
+intriguing insights. Speciﬁcally, we observe that the num-
+ber of machines falling into group B (as denoted by row
+12) exceeds three times the count of machines in group A
+(row 13), indicating a signiﬁcant disparity in distribution.
+Despite this numerical advantage, the performance of
+group B machines is markedly inferior, registering at less
+than ﬁfty percent (48%) of the performance of group A
+machines.
+This stark contrast prompts a compelling proposition: by
+consolidating every two machines from group B into
+machines with maximum memory and CPU, we could
+Fig. 2 Pseudo code for
+proposed BigQuery algorithm
+Cluster Computing
+123
+
+effectively create 3642 machines optimized for perfor-
+mance. This consolidation would not only enhance overall
+system performance but also potentially lead to a reduction
+in power consumption.
+The anticipated impact of this consolidation is profound.
+With an average time per task projected to be nearly 7271,
+the
+consolidated
+machines
+would
+boast
+signiﬁcantly
+improved efﬁciency. Furthermore, this enhanced perfor-
+mance capacity, coupled with the surplus of 3,642 CPUs
+that are now idle, positions the system to handle the
+workload effectively with optimized resource utilization.
+Consequently, the consolidation presents a compelling
+Fig. 3 BigQuery command to
+calculate the number of
+machines with maximum CPU
+and Memory capacity in Google
+cluster 2019 trace
+Fig. 4 Categorization of task
+constraints using BigQuery
+Cluster Computing
+123
+
+strategy for maximizing system efﬁciency and minimizing
+resource waste.
+Comparing rows 9 and 12 in Table 3 reveals an
+intriguing observation: despite solely increasing CPU
+capacity (as evident in the transition from 0.958 to full
+capacity) while maintaining memory at 0.5, the average
+time per task unexpectedly increases instead of decreasing.
+However, when we examine instances where memory is
+augmented, such as the comparisons between rows 9 and
+10, 7 and 8, 11 and 12, and also row 13, a consistent pattern
+emerges: augmenting memory while keeping CPU capacity
+ﬁxed consistently leads to a decrease in the average time
+per task. This ﬁnding underscores the potential for
+enhanced virtual machine (VM) performance within a
+cloud environment through memory upgrades.
+Furthermore, it’s noteworthy to consider the feasibility
+of capacity upgrades. Due to hardware limitations, adding
+CPU capacity is inherently more constrained than memory
+updates. Typically, servers can accommodate up to 4
+CPUs, whereas they can support up to 24 memory slots,
+enabling conﬁgurations of up to 3 TB. This practical
+constraint suggests that expanding memory capacity is a
+more viable and scalable option for improving performance
+within cloud environments in real-world scenarios.
+4.2 Second data analysis
+This section investigates how the number of task con-
+straints affects the rescheduling frequency and overall
+environment efﬁciency. Analyzing Google’s tables and
+ﬁles poses a challenge due to their high volume of records
+and ﬁles. Processing all ﬁles in a table would be time-
+consuming and require substantial processing and main
+memory capacity. Therefore, we only examined approxi-
+mately 20,000 tasks from the ﬁrst day of a 29-day exper-
+iment. We identiﬁed tasks in the environment by ﬁltering
+the task with event type zero (ADD) and created a separate
+table called ‘‘aggregated-tasks-constraints’’.
+We matched the Job and Task ID columns from the Task
+table with the corresponding columns in the table of Task
+Constraints to determine all constraints for each task. In the
+ﬁrst step, we obtained a table with 19,641 rows and two
+columns: the number of constraints and rescheduling for
+each task. Tasks with a value of one in the rescheduling
+column were registered only once and not rescheduled, so
+they were removed from the table. After using the Boxplot
+Adjusted method to eliminate outlier data from the
+restriction column, we obtained a table with 8,271 rows.
+The ﬁnal result was derived after excluding tasks with only
+one scheduling (without rescheduling). Table 4 illustrates
+the distribution of tasks within the range of restrictions.
+Figure 5 gives a better idea of task frequency within
+constraint ranges. The ﬁgure shows that 92.36 percent of
+tasks in the ﬁrst three rows have less than 30 constraints.
+Hence, there are outlier data. Outliers are data points that
+deviate substantially from the rest of the observations,
+suggesting they may have been generated differently. They
+can be categorized into two groups: those resulting from
+data errors and those resulting from inherent data diversity
+[29]. The Boxplot method (Tukey) is suitable for identi-
+fying and eliminating outliers since it does not rely on
+assumptions about data characteristics [30]. The data in
+Table 3 is highly skewed, and using the Boxplot method
+would classify a signiﬁcant portion (around 30%) as out-
+liers and remove them. Thus, the Adjusted Boxplot method
+is preferred.
+In this method, a powerful technique called MedCouple
+is usually used to measure skewness [28].
+MedCoupleðx1; . . .; xnÞ ¼ med ðx1  medkÞ  ðmedk  xiÞ
+xj  xi
+ð1Þ
+Table 3 Machine task-time—
+Google cluster 2019
+Group number
+CPU capacity
+Memory capacity
+Total machines
+Average time/per task
+1
+0.386
+0.166
+2844
+33,547
+2
+0.386
+0.333
+4948
+31,029
+3
+0.479
+0.25
+4
+17,515
+4
+0.591
+0.166
+1293
+24,137
+5
+0.591
+0.333
+16,360
+22,522
+6
+0.708
+0.25
+3
+349
+7
+0.708
+0.333
+6973
+21,799
+8
+0.708
+0.666
+2592
+16,225
+9
+0.958
+0.5
+583
+13,861
+10
+0.958
+1
+365
+13,596
+11
+1
+0.25
+193
+16,581
+12
+1
+0.5
+7285
+14,852
+13
+1
+1
+2317
+7271
+Cluster Computing
+123
+
+Subscriptmedk represents the median of xn while the
+value of i and j need to fulﬁll: xi  medk  xj and, xi 6¼ xj.
+Given the large dataset size (8271) and the high time
+complexity of the calculation for the Boxplot method
+(O(n2)), an alternative approach called the octile skewness
+method is used instead [31]. The octile skewness can be
+calculated by the formula (2) using quartile skewness
+described in [16]. Data skewness is a measure of the
+asymmetry of a distribution. A distribution is asymmetrical
+when its left and right sides are not mirrored. Skewness can
+be positive, negative, or zero. Octile skewness indicates
+whether the distribution is skewed to the left or right, while
+quartile skewness indicates whether the distribution is
+skewed upwards or downward.
+octileskewness
+¼ Quartile0:875  Quartile0:50
+ð
+Þ  Quartile0:5  Quartile0:125
+ð
+Þ
+Quartile0:875  Quartile0:125
+¼ 18  8
+ð
+Þ  ð8  0Þ
+18  0
+¼ 0:1111
+ð2Þ
+With replacing octile skewness in the following equa-
+tion with 0.1111, which we calculated above, the upper and
+lower bounds will be revealed to are 37 and - 11,
+respectively:
+L; U
+½
+ ¼ Quartile1  1:5  e 3:5octileskewness
+ð
+Þ  IQR; Quartile3
+h
+þ1:5  e 4octileskewness
+ð
+Þ  IQR
+i
+if octileskewness  0
+¼ Quartile1  1:5  eðð4  octileskewnessÞÞ  IQR; Quartile3
+½
+þ1:5  eðð3:5octileskewnessÞÞ  IQR if octileskewness\0
+ð3Þ
+After removing outlier data located outside [- 11,37],
+the distribution of tasks within different constraints would
+be like Fig. 6, in which data is less skewed.
+This ﬁgure illustrates that over 90 percent of tasks have
+less than 14 constraints. Using the Pareto rule, we can
+better understand these numbers.
+In the context of Google Cluster and resource allocation,
+tasks with fewer constraints are prioritized more than their
+counterparts. These constraints, which encompass various
+user-deﬁned
+properties
+inﬂuencing
+task
+placement,
+including machine speciﬁcations and task relationships,
+introduce a competitive dynamic within the scheduler. The
+scheduler’s decisions are guided by ensuring that resources
+on
+the
+machine
+are
+optimally
+utilized
+while
+Fig. 5 Distribution of task constraints
+Fig. 6 Distribution of task constraints after removing outliers
+Table 4 Tasks frequency within
+constraint ranges
+Constraint range
+Task frequency
+Cumulative frequency of tasks (%)
+0–9
+5674
+68.60
+10–19
+1578
+87.68
+20–29
+387
+92.36
+30–59
+272
+95.65
+60–89
+31
+96.02
+90–119
+9
+96.13
+120–149
+3
+96.17
+150–179
+3
+96.20
+180–209
+5
+96.26
+210–239
+3
+96.30
+240–269
+1
+96.31
+270–299
+3
+96.35
+Higher
+302
+100
+Cluster Computing
+123
+
+accommodating less-constrained tasks, which may need to
+be relocated, completed, or terminated to meet this objec-
+tive [13].
+4.2.1 Pareto Rule (20/80 concept)
+Applying the 80/20 rule, we ﬁnd that 20% of inputs, cau-
+ses, or efforts often yield 80% of outputs, results, or
+rewards. This principle, as seen in Fig. 7, highlights that
+80% of work achievements stem from just 20% of time
+spent defying common expectations [14].
+The 20/80 concept refers to the likelihood of imbalance
+and balance in cause-and-effect data analysis, with imbal-
+ances occurring between forms such as 65/35, 75/25, 20.80,
+95.5, and even 85/10. The sum of two numbers may not
+equal 100 sometimes. Figure 8 shows that 87% of envi-
+ronment restrictions are associated with tasks having over 7
+and under 38 constraints, while only 13% are linked to
+tasks with 0–7 constraints.
+But in Fig. 9, you can see that 90% of all rescheduling is
+related to the range of tasks with limits between 0 and 7
+numbers.
+Table
+5
+displays
+the
+number
+of
+restrictions
+and
+reschedules per range and their cumulative total.
+Surprisingly, tasks with more restrictions could be more
+effective in rescheduling than expected. We discovered
+that
+tasks
+with
+fewer
+constraints
+can
+cause
+more
+rescheduling, and Google, in the future, can focus more on
+these tasks to investigate them, reduce the rescheduling,
+and increase the performance of its Clusters. Tasks with a
+higher number of restrictions contribute less to reschedul-
+ing because their priority is also higher.
+4.3 Third data analysis
+In the third step, we analyze how task priority affects
+rescheduling. The relationship between rescheduling and
+task priority will be revealed. We match the job ID and task
+index in the task events table, then count reschedules for
+each task to create a table with 19,641 rows. The priority
+will be in the ﬁrst column, and the number of schedules in
+the next. Tasks with a value of one in the rescheduling
+column are removed from the table, as they have only been
+registered once and have yet to be rescheduled. Then, using
+the ‘‘Adjusted Boxplot’’, rows with values higher than 25
+will be removed as outliers, giving a table with 8272 rows.
+Table 6 has 12 rows for priorities 0 to 11, showing the
+number
+of
+rescheduling
+for
+them.
+The
+number
+of
+reschedules is divided by the task frequency to determine
+Fig. 7 Pareto rule
+Fig. 8 Task
+restrictions
+fre-
+quency in two ranges
+Fig. 9 Task
+reschedule
+fre-
+quency in two ranges
+Table 5 Rescheduling in task constraint ranges
+Task restrictions ranges
+Constraint’s count
+Rescheduling count
+8..37
+47,551
+7954
+0..7
+6927
+72,140
+Total
+54,478
+80,094
+Table 6 Reschedules versus priority
+Priority
+Rescheduling per task
+0
+15.37662
+1
+5.153199
+2
+0
+3
+0
+4
+0
+5
+0
+6
+0
+7
+0
+8
+0
+9
+1.87736
+10
+3.852792
+11
+2.276276
+Cluster Computing
+123
+
+the average per task for priorities 0–11. No tasks were
+recorded for priorities 2 to 8 during the analysis period.
+The new Table has 8271 rows that are right-skewed. The
+distribution of data in this table is demonstrated in Fig. 10.
+We removed outlier data from the table using the
+‘‘Adjusted Boxplot’’ method by setting upper and lower
+limits of 25 and zero. Data outside this range are consid-
+ered outliers and deleted. This result is demonstrated in
+Fig. 11.
+After outlier removal and calculating task rescheduling
+averages based on priority, Table 7 is obtained. It can be
+concluded that lower priority tasks that use resources and
+resources are withdrawn from them for the use of higher
+priority tasks are among the main factors of rescheduling in
+our study environment. The authors suggest that setting a
+minimum time access to the resources by tasks (especially
+those with the lowest priority) can signiﬁcantly improve
+the cluster performance by reducing the number of
+rescheduling. The number of rescheduling for tasks with
+the lowest priority (0) is three times more than reschedul-
+ing tasks with priority (1). It means tasks with priority (0)
+can be easily postponed to run later because of their low
+importance, but this rescheduling itself can bring a sig-
+niﬁcant overhead to the whole cloud. Considering a mini-
+mum resource access time for each task in the scheduling
+and rescheduling algorithm can increase cloud perfor-
+mance. This time can be adjusted during speciﬁc time
+intervals regarding rescheduling per task ratio within dif-
+ferent priorities.
+This principle holds within the Google Cluster Trace
+context, reﬂecting the intricacies of resource allocation and
+job scheduling. In this environment, jobs categorized in
+lower priority tiers must reside in the queue, patiently
+biding their time until higher-priority jobs release the
+compute resources essential for their execution. This
+orchestration ensures that resource utilization aligns with
+the
+priority
+hierarchy,
+optimizing
+the
+allocation
+of
+computational assets by the speciﬁc demands of each job
+and the overall system efﬁciency [15].
+4.4 Fourth data analysis
+This analysis investigated the relationship between the
+number of task constraints and their categories. First, we
+introduced the job and task life cycles and their corre-
+sponding event types.
+Figure 12 demonstrates the state transition of a job or
+task in its entire life cycle. Each arrow indicates the tran-
+sition between different states. There are two types of
+events; they either do the scheduling or change the task’s
+state. Each job and task in the dataset has a number that
+reveals its event type. This number reveals what happened
+to a task after an event. In case of death, the event type will
+contain metadata about its reason. Event types can vary
+between 0 and 8. Submitted (0) means a task or job is ready
+for scheduling in the Borg system. Then, tasks will be
+scheduled (1) to run on a speciﬁc machine, but sometimes,
+they may get de-scheduled because of a higher priority
+task, which will go to the Evict (2) state. A task can be
+failed (3) or ﬁnished (4) successfully. Sometimes, a task
+will kill (5) by either user cancellation or because its
+dependent task has failed before. If a task is terminated, but
+we don’t have its log in our database, we call it Lost (6). A
+task or job requirements or constraint may change while
+unsubmitted (Update-pending (7)) or even when it is
+scheduled: Update-running (8).
+Fig. 10 Number of rescheduling
+Fig. 11 Number of rescheduling after removing outliers
+Table 7 Constraint and event type relations
+Event type
+Frequency
+Sum of constraints
+Constraint per event
+EVICT
+60,717
+775,050
+12.76
+FAIL
+7993
+16,485
+2.06
+FINISH
+263,497
+5136
+0.01
+KILL
+168,753
+20,379,811
+120.76
+Cluster Computing
+123
+
+In this section, we move the entries from the task event
+table whose type column shows the digits 2, 3, 4, or 5,
+representing EVICT, FAIL, FINISH, or KILL, respec-
+tively, into a new table. We only look at the roughly
+500,000 tasks from the ﬁrst ten days of the experiment to
+compensate for the massive amount of data in the task
+event table. We next count the number of execution con-
+straints for each line of this table (per task) and record it in
+a column of this table using the table of task restrictions. In
+addition, the event type is counted. Lastly, we can deter-
+mine the average limit for each task by dividing these two
+columns. Table 7 demonstrates the ﬁnal result.
+The result reveals 120.76 constraints per KILLed task,
+which is exceptionally high compared to other task types.
+Tasks with higher constraints are prone to be killed once
+before they ﬁnish. Killing a task or entire job causes sig-
+niﬁcant overhead to the cluster. To bypass this overhead,
+cloud service providers can break the tasks with too many
+constraints into subtasks with fewer constraints, reducing
+rescheduling and increasing the cluster performance. If we
+decrease the number of killed tasks, breaking them into
+subtasks, tasks with evicted event type will also decrease
+because they are positively correlated.
+We utilized the Google cluster jobs dataset, comprising
+3,535,029 rows and six columns (Time, ParentID, TaskID,
+JobType, NrmlTaskCores, NrmlTaskMem), to develop a
+predictive model using XGBoost regression. We aimed to
+predict the normalized task memory based on other col-
+umns.
+Employing
+the
+parameters
+(objec-
+tive = ‘reg:squaredlogerror’,
+n_estimators = 1000,
+learning_rate = 0.05,
+max_depth = 7),
+our
+analysis
+revealed that the Job type emerged as the most signiﬁcant
+feature, contributing to 65% importance in predicting
+memory requirements. Following closely, NrmlTaskCores
+accounted for 15% importance, albeit considerably less
+inﬂuential than the Job title. This underscores the strong
+correlation between job type and memory allocation for
+each task, as shown in Fig. 13a.
+In our second prediction model, we aimed to forecast
+normalized task cores using the information from the other
+ﬁve columns. Interestingly, our analysis revealed a signiﬁ-
+cant correlation between normalized task cores and the
+ParentID column, followed by memory allocation, with job
+type ranking third. These ﬁndings suggest that prioritizing
+job types over CPU capacity could yield substantial beneﬁts
+when considering memory augmentation within the Google
+cluster. This underscores the importance of implementing an
+optimized scheduler capable of allocating virtual machines
+with varying memory capacities to the corresponding job
+types, thereby potentially enhancing the overall performance
+of the cluster task, as shown in Fig. 13b.
+5 Conclusion
+In this study, we investigated the Google Trace dataset,
+which is priceless because, undoubtedly, many researchers
+are working on it, and the result can shape the next gen-
+eration of cloud and data centers. We investigated the
+Google Trace from four perspectives to determine how to
+increase the cluster performance. In the ﬁrst data analysis,
+we discovered that memory has a higher impact than CPU
+on performing tasks. We found that Google just upgraded
+the servers with the full CPU to have full memory, while
+the bottleneck is mostly memory, not CPU. Reducing 25%
+memory from 2218 machines with full CPU and memory
+capacity and applying the extra memory to 10,188
+machines with 0.5 CPU capacity and 0.2493 memory can
+signiﬁcantly improve the performance of Borg. In the
+second analysis, contrary to our expectation, we found that
+tasks
+with
+higher
+restrictions
+have
+less
+impact
+on
+rescheduling them; however, in the third section, we dis-
+covered that tasks with lower priority are the main reason
+Fig. 12 State transition for jobs
+and tasks
+Cluster Computing
+123
+
+for rescheduling, and they increase the cloud overhead. We
+suggest using minimum time to use resources for each task,
+which can let tasks with lower priority have the opportunity
+to run entirely. Finally, we showed that tasks that are
+KILLed by the cloud management system have the highest
+number of constraints compared to those that are FIN-
+ISHed, EVICTed, or FAILed. We suggest breaking the task
+into subtasks, decreasing the number of killed tasks, and
+increasing performance.
+While the Google cluster dataset 2019 has been
+explored, it holds untapped insights. To unlock these, we
+propose leveraging AI and GPU power to predict task
+constraints, a major challenge in cloud environments.
+Accurately forecasting constraint numbers can lead to
+signiﬁcant time and energy savings, as demonstrated by
+studies suggesting the effectiveness of combining machine
+learning algorithms like XGBoost with hyperparameter
+tuning techniques like swarm-based artiﬁcial bee colony
+optimization. Our work aims to push the boundaries of this
+dataset’s potential, revealing valuable knowledge with real-
+world impact [32]. In addition, we suggest optimizing Borg
+system performance by exploring the possibility of disre-
+garding virtual machines with exceptionally low resources,
+be it CPU or RAM. By addressing the potential bottleneck
+effect caused by such under-provisioned VMs, our future
+research aims to provide nuanced recommendations for
+resource allocation strategies within Borg. Furthermore, we
+recommend including datasets from other major cloud
+service providers like AWS, Microsoft Azure, and Alibaba
+in future research endeavors. Comparative analyses across
+these platforms could yield valuable insights for the
+broader research community.
+Author contributions ‘‘D.S: Writing original draft, Methodology,
+Software, N.K: preparation, visualization; A.M.R.: conceptualization,
+validation, supervision, and investigation. All authors reviewed the
+manuscript.’’
+Declarations
+Competing interests The authors declare no competing interests.
+References
+1. Khaledian, N., Khamforoosh, K., Azizi, S., Maihami, V.: IKH-
+EFT: an improved method of workﬂow scheduling using the krill
+herd algorithm in the fog-cloud environment. Sustain. Comput.:
+Inform. Syst. 37, 100834 (2023)
+2. Rosa`, A., Chen, L.Y., Birke, R., Binder, W.: Demystifying
+casualties of evictions in big data priority scheduling. ACM
+SIGMETRICS Perform. Eval. Rev. 42(4), 12–21 (2015)
+3. Chen, X., Lu, C. D., Pattabiraman, K.: Failure analysis of jobs in
+compute clouds: a Google cluster case study. In 2014 IEEE 25th
+International Symposium on Software Reliability Engineer-
+ing (pp. 167–177). IEEE. (2014)
+4. Rzadca, K., Findeisen, P., Swiderski, J., Zych, P., Broniek, P.,
+Kusmierek, J., Wilkes, J.: Autopilot: workload autoscaling at
+Google. In proceedings of the ﬁfteenth european conference on
+computer systems (pp. 1–16), (2020)
+5. Anil, R., Capan, G., Drost-Fromm, I., Dunning, T., Friedman, E.,
+Grant, T., Yılmazel, O¨ .: Apache mahout: machine learning on dis-
+tributed dataﬂow systems. J. Mach. Learn. Res. 21(127), 1–6 (2020)
+6. Ge´vay, G.E., Soto, J., Markl, V.: Handling iterations in dis-
+tributed dataﬂow systems. ACM Comput. Surv. (CSUR) 54(9),
+1–38 (2021)
+7. Tirmazi, M., Barker, A., Deng, N., Haque,M.E., Qin, Z.G., Hand, S.,
+Wilkes, J.: Borg: the next generation. In proceedings of the ﬁfteenth
+european conference on computer systems (pp. 1–14), (2020)
+8. Ferna´ndez-Cerero, D., Varela-Vaca, A´ .J., Ferna´ndez-Montes, A.,
+Go´mez-Lo´pez, M.T., Alva´rez-Bermejo, J.A.: Measuring data-
+centre workﬂows complexity through process mining: the Google
+cluster case. J. Supercomput. 76, 2449–2478 (2020)
+9. Gog, I., Schwarzkopf, M., Gleave, A., Watson, R.N., Hand, S.:
+Firmament: Fast, centralized cluster scheduling at scale. In 12th
+USENIX Symposium on Operating Systems Design and Imple-
+mentation (OSDI 16) (pp. 99–115), (2016)
+10. Ferna´ndez Cerero, D., Ferna´ndez Montes Gonza´lez, A., Jako´bik,
+A., Kolodziej, J.: Stackelberg game-based models in energy-
+aware cloud scheduling. In ECMS 2018: 32nd European Con-
+ference on Modelling and Simulation (2018). European Council
+for Modelling and Simulation, (2018)
+11. Khaledian, N., Khamforoosh, K., Akraminejad, R., Abualigah,
+L.,
+Javaheri,
+D.:
+An
+energy-efﬁcient
+and
+deadline-aware
+Fig. 13 Predictive model insights on task memory allocation (a) and CPU utilization (b) in Google Cluster Jobs Dataset
+Cluster Computing
+123
+
+workﬂow scheduling algorithm in the fog and cloud environment.
+Computing 106(1), 109–137 (2024)
+12. Ferna´ndez-Cerero, D., Jako´bik, A., Grzonka, D., Kołodziej, J.,
+Ferna´ndez-Montes,
+A.:
+Security
+supportive
+energy-aware
+scheduling and energy policies for cloud environments. J. Parallel
+Distrib. Comput. 119, 191–202 (2018)
+13. Maala, H.H., Yousif, S.A.: Cluster trace analysis for performance
+enhancement in cloud computing environments. J. Theor. Appl.
+Inf. Technol. 97(7), 2019 (2019)
+14. R. Koch, ‘‘The 20/80Principle: the secret of achieving more with
+less.,’’ Doubleday, (1999)
+15. Van Loo, T., Jindal, A., Benedict, S., Chadha, M., Gerndt, M.:
+Scalable infrastructure for workload characterization of cluster
+traces. (2022), arXiv preprint
+16. Adil, I.H., Wahid, A., Mantell, E.H.: Split sample skewness.
+Commun. Stat. Theory Methods 50(22), 5171–5188 (2021)
+17. Olabisi, D., Abubakar, S.K., Abdullahi, A.T.: demystifying dew
+computing: concept, architecture and research opportunities. Int.
+J. Comput. Trends Technol. 70, 39–43 (2022)
+18. Reiss, C., Tumanov, A., Ganger, G.R., Katz, R.H., Kozuch, M.A.:
+Heterogeneity and dynamicity of clouds at scale: Google trace
+analysis. In Proceedings of the third ACM symposium on cloud
+computing (pp. 1–13), (2012)
+19. Umer, A., Mian, A.N., Rana, O.: Predicting machine behavior
+from Google cluster workload traces. Concurr. Comput.: Pract.
+Exp. 35(5), e7559 (2023)
+20. Jassas, M. S., Mahmoud, Q. H.: Failure characterization and
+prediction of scheduling jobs in Google cluster traces. In 2019
+IEEE 10th GCC Conference & Exhibition (GCC) (pp. 1–7).
+IEEE. (2019)
+21. Wang, H., Jiang, C., Xie, B.: Missing data analysis and predic-
+tion: a Google cluster case study. (2022)
+22. Ngang’a, D.N., Cheruiyot, W.K., Njagi, D. A Machine Learning
+Framework for Predicting Failures in Cloud Data Centers-A Case
+of Google Cluster-Azure Clouds and Alibaba Clouds. Available
+at SSRN 4404569
+23. Soualhia, M., Khomh, F., Tahar, S.: Predicting scheduling fail-
+ures in the cloud: A case study with Google clusters and Hadoop
+on Amazon EMR. In 2015 IEEE 17th International Conference
+on High Performance Computing and Communications, 2015
+IEEE 7th International Symposium on Cyberspace Safety and
+Security, and 2015 IEEE 12th International Conference on
+Embedded Software and Systems (pp. 58–65). IEEE. (2015)
+24. Chen, S., Yang, C., Huang, W., Liang, W., Ke, N., Souri, A., Li,
+K.C.: Fairness constraint efﬁciency optimization for multire-
+source allocation in a cluster system serving internet of things.
+Int. J. Commun. Syst. 36(3), e5395 (2023)
+25. Wilkes, J.: More Google cluster data. Google research blog, Nov,
+(2011)
+26. Gupta, S., Dileep, A.D.: Long range dependence in cloud servers:
+a statistical analysis based on Google workload trace. Computing
+102(4), 1031–1049 (2020)
+27. Subramanian, N.V., Sriram, V.S.: Load-aware VM migration
+using hypergraph based CDB-LSTM. Intell. Autom. Soft Com-
+put. 35(3), 3279–3294 (2023)
+28. Berisha, B., Me¨ziu, E., Shabani, I.: Big data analytics in Cloud
+computing: an overview. J. Cloud Comput. 11(1), 24 (2022)
+29. Osborne, J.W., Overbay, A.: The power of outliers (and why
+researchers should always check for them). Pract. Assess. Res.
+Eval. 9(1), 6 (2019)
+30. Seo, S.: A review and comparison of methods for detecting
+outliers in univariate data sets (Doctoral dissertation, University
+of Pittsburgh), (2006)
+31. Brys, G., Hubert, M., Struyf, A.: A robust measure of skewness.
+J. Comput. Graph. Stat. 13(4), 996–1017 (2004)
+32. Tawhid, A., Teotia, T., Elmiligi, H.: Machine Learning for
+Optimizing Healthcare Resources Machine Learning, Big Data,
+and IoT for Medical Informatics, pp. 215–239. Academic Press,
+Cambridge (2021)
+Publisher’s Note Springer Nature remains neutral with regard to
+jurisdictional claims in published maps and institutional afﬁliations.
+Springer Nature or its licensor (e.g. a society or other partner) holds
+exclusive rights to this article under a publishing agreement with the
+author(s) or other rightsholder(s); author self-archiving of the
+accepted manuscript version of this article is solely governed by the
+terms of such publishing agreement and applicable law.
+Danyal Shahmirzadi is a com-
+puter
+scientist
+with
+academic
+foundations extending over two
+decades. He earned his Bachelor
+of Science in Computer Science in
+2008 and subsequently completed
+a Master’s degree in Software
+Engineering in 2010. Demon-
+strating his ongoing commitment
+to his ﬁeld, he is presently a Ph.D.
+candidate in Computer Science
+and Information Engineering at
+the National Yunlin University of
+Science and Technology (Yun-
+tech) in Taiwan.
+Navid Khaledian received his
+Ph.D. in Artiﬁcial Intelligence
+from the Islamic Azad Univer-
+sity, Sanandaj branch, Iran, in
+2023. He is currently a post-
+doctoral
+researcher
+at
+the
+University of Luxembourg. His
+research interests include Arti-
+ﬁcial
+Intelligence
+(AI),
+Dis-
+tributed Systems, and Internet of
+Things (IoT), focusing on task
+scheduling, recommender sys-
+tems, and data mining.
+Amir Masoud Rahmani received
+his BS in computer engineering
+from Amir Kabir University,
+Tehran, in 1996, his MSc in
+computer
+engineering
+from
+Sharif University of Technol-
+ogy, Tehran, in 1998, and his
+PhD in computer engineering in
+2005. Currently, he is a Profes-
+sor in the Department of Com-
+puter Engineering. His research
+interests
+are
+the
+Internet
+of
+Things,
+cloud/fog
+computing,
+and machine learning.
+Cluster Computing
+123

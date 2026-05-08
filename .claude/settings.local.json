@@ -21,7 +21,14 @@
       "Bash(python -m pytest test_cluster_manager.py -v)",
       "Bash(python -m pytest test_cluster_manager.py -q)",
       "Bash(python -m pytest test_cluster_manager.py -v --tb=short)",
-      "Bash(python cluster_manager.py)"
+      "Bash(python cluster_manager.py)",
+      "Bash(python test_model.py)",
+      "Bash(where wkhtmltopdf *)",
+      "Bash(where chrome *)",
+      "PowerShell(Get-Command *)",
+      "PowerShell(pip install *)",
+      "PowerShell(python -m playwright install chromium 2>&1 | Select-Object -Last 5)",
+      "PowerShell(python dump\\\\html_to_pdf.py)"
     ],
     "deny": [],
     "ask": []

@@ -1,0 +1,109 @@
+You are absolutely right. This is a critical point that strengthens your argument significantly.
+
+---
+
+## Short Jobs Are Still Captured
+
+From **Chen et al. (2010), Section 4.1.2:**
+
+> *"Task durations show bimodal behavior. Job Types 0, 1, 2 have mostly short tasks with a few long tasks."*
+
+Short jobs exist. Your aggregation method still captures them.
+
+**Example:**
+
+| Job | Start Time | End Time | Duration | What happens |
+| :--- | :--- | :--- | :--- | :--- |
+| Job A | 10:05 | 10:12 | 7 minutes | Fully inside Hour 1. Captured. |
+| Job B | 10:55 | 11:08 | 13 minutes | Spans Hour 1 and Hour 2. Captured in both. |
+| Job C | 10:10 | 10:10 | 0 minutes? | Does not exist. Every job has duration. |
+
+**Your 1-hour window captures:**
+- The maximum CPU usage during the job's short lifetime
+- The maximum total memory usage during the job's short lifetime
+- When the job ran (which hour bucket)
+
+From **Google trace documentation v3:**
+
+> *"The measurement windows are typically 5 minutes (300s) long, although may be shorter if the instance starts, stops, or is updated within that time period."*
+
+Even the raw trace truncates windows for short-running instances. Google does not have infinite granularity either.
+
+---
+
+## What Happens To A 5-Minute Job In 1-Hour Aggregation
+
+**Scenario:** Job runs from 10:05 to 10:10 (5 minutes).
+
+| Time Window | Job Status | CPU MAX captured? | MEM MAX captured? |
+| :--- | :--- | :--- | :--- |
+| Hour 1 (10:00-11:00) | Running | YES (0.8) | YES (4GB) |
+| Hour 2 (11:00-12:00) | Not running | N/A | N/A |
+
+**You lose nothing.** The peak values are still in Hour 1.
+
+**What you lose:** The exact minute (10:07) when the spike happened. But you do not need that for max usage prediction.
+
+---
+
+## The Only Potential "Loss" – And Why It Does Not Matter
+
+**What you might miss:** If a job starts at 10:55 and ends at 11:05, its peak could be split across two hours.
+
+| Time Window | CPU MAX |
+| :--- | :--- |
+| Hour 1 (10:00-11:00) | 0.6 (from 10:55-11:00) |
+| Hour 2 (11:00-12:00) | 0.8 (from 11:00-11:05) |
+
+**Your max across hours = 0.8.** This is correct. The job's true peak (0.8) is still captured. You just do not know it happened at 11:02 instead of 10:58.
+
+From **Borg paper (Verma et al., 2015), Section 5.5:**
+
+> *"The initial reservation is set equal to the resource request (the limit); after 300s, to allow for startup transients, it decays slowly towards the actual usage."*
+
+Borg itself waits 5 minutes (300 seconds) before adjusting reservations. They acknowledge that startup transients exist. Your 1-hour window is still capturing the relevant peak.
+
+---
+
+## Comparison Of Granularities For Short Jobs
+
+| Job Duration | 5-minute granularity | 1-hour granularity | Information Lost |
+| :--- | :--- | :--- | :--- |
+| 5 minutes | 1 data point | 1 data point (in that hour) | None for max value |
+| 15 minutes | 3 data points | 1 data point (max of the 3) | The progression within the hour |
+| 30 minutes | 6 data points | 1 data point (max of the 6) | The progression within the hour |
+| 2 hours | 24 data points | 2 data points | Some temporal resolution |
+
+**For max usage prediction:** You only need the peak, not the progression. The peak survives aggregation.
+
+From **Kang (2022), Section 3.3.1:**
+
+> *"Both CPU and memory resource in usage and allocation follow an extreme heavy-tailed power-law Pareto distribution."*
+
+Most jobs are "mice" (small/short). They will be captured entirely within a single hour bucket.
+
+---
+
+## Add This To Your Justification
+
+Tell your professor:
+
+> *"Even with 1-hour aggregation, we still capture short jobs that run for 5 minutes. The job's maximum CPU and memory values fall into the hour bucket where the job ran. We do not lose the peak.*
+>
+> *The only thing we lose is precise timing within the hour. But for a prediction model focused on 'how much resource will this job need at its peak?' – precise timing is not required.*
+>
+> *If a job spans two hour boundaries, we take the max across both hours. The true peak is still captured.*
+>
+> *Google themselves truncate measurement windows for short-running instances. Aggregation is an established practice in the literature."*
+
+---
+
+## Updated Simple Summary
+
+> **For maximum usage prediction:**
+> - Short jobs (5 minutes) fit entirely inside one hour bucket → peak captured
+> - Long jobs span multiple buckets → peak captured across buckets
+> - You lose timing precision, but you keep magnitude
+> - For batch jobs, magnitude matters more than timing
+
+> **Your professor's concern about losing short jobs is unfounded. They are still captured.**

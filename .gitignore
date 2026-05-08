@@ -21,3 +21,6 @@ Thumbs.db
 *.bak
 *.swp
 *~
+
+# Local output / generated exports
+dump/

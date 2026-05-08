@@ -47,6 +47,7 @@ from simulation_data import (
     compute_remaining_avail,
     compute_remaining_eff,
     compute_utilization_weight,
+    compute_node_weight,
     compute_omega,
     K_WINDOW, NUM_TENANTS,
 )
@@ -105,10 +106,13 @@ def solve(
     # ── §3: Derived node quantities ────────────────────────────────────────
     #
     # For each node n we compute:
-    #   v̄_n      = fraction of last K rounds where usage > M_n^avail
-    #   M_n^avail = M_n − τ_n                   (fixed available memory)
-    #   R_n^avail = M_n^avail − U_n             (remaining before SLA scaling)
-    #   R_n^eff   = max(0, R_n^avail·(1−v̄_n))  (capacity offered to new jobs)
+    #   v̄_n^SLA  = fraction of last K rounds where usage > M_n^avail
+    #   M_n^avail = M_n − M_n^tax               (fixed available memory)
+    #   R_n^avail = M_n^avail − U_n             (remaining before threshold/SLA)
+    #   M_n^eff   = max(0, R_n^avail·(1−θ_n)·(1−v̄_n^SLA))
+    #               (capacity offered to new jobs — RHS of C2)
+    #
+    # θ_n (node.threshold_frac) reserves a safety buffer before SLA scaling.
     #
     # Reference: goal_programming_v4 §3, "Node Memory — Dynamic"
 
@@ -125,7 +129,7 @@ def solve(
         for n in nodes
     }
     R: dict[int, float] = {
-        n.node_id: compute_remaining_eff(r_avail[n.node_id], v_bar[n.node_id])
+        n.node_id: compute_remaining_eff(r_avail[n.node_id], v_bar[n.node_id], n.threshold_frac)
         for n in nodes
     }
 
@@ -157,6 +161,22 @@ def solve(
 
     u_mem: dict[int, float] = {
         n.node_id: compute_utilization_weight(n, m_avail[n.node_id])
+        for n in nodes
+    }
+
+    # ── §3: Fixed node consolidation weights (w_n^node) ──────────────────
+    #
+    # w_n^node = |N| - n   ∈ {1, 2, …, |N|}
+    #
+    # Node 0 gets the highest weight, node |N|-1 the lowest.  This biases
+    # the objective toward placing jobs on lower-indexed nodes first, so
+    # that the cluster consolidates onto fewer machines even at batch 0
+    # when u_n^mem = 1 for all nodes (no prior history).
+    #
+    # Reference: goal_programming_v4 §3, "Node Consolidation Weight"
+
+    w_node: dict[int, float] = {
+        n.node_id: compute_node_weight(n.node_id, len(nodes))
         for n in nodes
     }
 
@@ -196,11 +216,12 @@ def solve(
 
     # ── §5: Objective — maximise weighted memory utilisation ───────────────
     #
-    # max Z = Σ_{j∈J} Σ_{n∈N}  ω_{t(j)} · m̂_j · u_n^mem · x_{jn}
+    # max Z = Σ_{j∈J} Σ_{n∈N}  ω_{t(j)} · m̂_j · u_n^mem · w_n^node · x_{jn}
     #
     # Each placed job contributes its P95 predicted memory m̂_j, scaled by:
-    #   ω_{t(j)}  ∈ [1,2] — tenant priority weight (fairness feedback)
-    #   u_n^mem   ∈ [1,2] — memory utilization weight (consolidation)
+    #   ω_{t(j)}   ∈ [1,2]     — tenant priority weight (fairness feedback)
+    #   u_n^mem    ∈ [1,2]     — memory utilization weight (consolidation)
+    #   w_n^node   ∈ [1,|N|]  — fixed node weight (low-index bias)
     #
     # Reference: goal_programming_v4 §5
 
@@ -210,8 +231,8 @@ def solve(
         for n in nodes:
             obj.SetCoefficient(
                 x[j.job_id, n.node_id],
-                w * j.pred_mem_mb * u_mem[n.node_id]
-                # ω_{t(j)} · m̂_j · u_n^mem
+                w * j.pred_mem_mb * u_mem[n.node_id] * w_node[n.node_id]
+                # ω_{t(j)} · m̂_j · u_n^mem · w_n^node
             )
     obj.SetMaximization()
 

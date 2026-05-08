@@ -1,0 +1,57 @@
+  New files:
+  - real_time_optimization_model_source_of_truth.txt — ASCII source of truth with the full GLOSSARY at the top (ASCII → LaTeX mapping). Edit symbols here first, then regenerate LaTeX from
+  it.
+  - real_time_optimization_model.tex — Overleaf-ready LaTeX. Copy the full content into Overleaf to compile.
+
+  Symbol changes reflected everywhere:
+
+  ┌─────────────┬─────────────────────────────────────────┐
+  │     Old     │                   New                   │
+  ├─────────────┼─────────────────────────────────────────┤
+  │ τ_n         │ M_n^tax                                 │
+  ├─────────────┼─────────────────────────────────────────┤
+  │ w_n^node    │ W_n^fixed                               │
+  ├─────────────┼─────────────────────────────────────────┤
+  │ v̄_n         │ v̄_n^SLA                                 │
+  ├─────────────┼─────────────────────────────────────────┤
+  │ m̂_j         │ P̂_j^mem                                 │
+  ├─────────────┼─────────────────────────────────────────┤
+  │ l̂_j         │ P̂_j^life                                │
+  ├─────────────┼─────────────────────────────────────────┤
+  │ R_n^eff     │ M_n^eff                                 │
+  ├─────────────┼─────────────────────────────────────────┤
+  │ ω_t derived │ ω_t input (formula moved to Appendix A) │
+  └─────────────┴─────────────────────────────────────────┘
+
+  For Z, I went with "Placement Score" — simple, direct, describes what it measures. Let me know if you want something different (e.g., "Scheduling Quality Score", "Node Fitness Score").
+
+  Code changes (threshold θ_n):
+  - simulation_data.py: added MEM_THRESHOLD_FRAC = 0.10, NodeState.threshold_frac = 0.10, updated generate_nodes(), updated compute_remaining_eff(r_avail, v_bar, theta=0.0) with new
+  formula max(0, R_avail × (1 − θ) × (1 − v̄)). Default is 0.0 so all existing tests still pass.
+  - optimizer_google_or.py: now passes n.threshold_frac to compute_remaining_eff.
+
+  ---
+  Instructor's two scenarios — brief thoughts (not implementing)
+
+  1. Job affinity — tenant jobs must re-run on the same node
+
+  This is called gang scheduling or co-location constraint in the literature. The standard LP formulation adds binary "node occupancy" variables $y_{g,n}$ per affinity group $g$ and node
+  $n$, then adds linking constraints $x_{j,n} \leq y_{g(j),n}$ and $\sum_n y_{g,n} = 1$. It keeps groups together without breaking the MILP structure, just adds variables.
+
+  References to look at:
+  - Kubernetes https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/
+  - "Borg, Omega, and Kubernetes" (Google, 2016) — §5 discusses co-location policies
+  - Scheduling in large-scale distributed systems literature under "gang scheduling"
+
+  2. Tenant exclusivity — no two tenants share a node
+
+  This is a classic bin packing with incompatibility problem. Model it with a binary variable $y_{t,n} = 1$ if tenant $t$ occupies node $n$, then add $\sum_t y_{t,n} \leq 1$ per node and
+  $x_{jn} \leq y_{t(j),n}$. Fair warning: this constraint severely hurts utilization — a node can only serve one tenant at a time, so most nodes will sit idle waiting for the right
+  tenant's jobs.
+
+  References:
+  - Kubernetes https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/ — the practical Kubernetes mechanism
+  - "Multi-tenant isolation in cloud computing" — search this phrase in IEEE/ACM DL
+  - Chaudhari 2025 paper you already have may touch on isolation strategies
+
+✻ Churned for 13m 54s
