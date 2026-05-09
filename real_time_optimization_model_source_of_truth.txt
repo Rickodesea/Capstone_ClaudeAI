@@ -66,24 +66,22 @@ the cluster. The model is scheduler-agnostic and not specific to Kubernetes.
 
 
 ================================================================================
-§0  SYSTEM ARCHITECTURE
+§0  INPUTS TO OPTIMIZER
 ================================================================================
 
 The cluster monitor provides the following inputs to the optimizer each
 scheduling round, and receives the placement assignment x_jn in return:
 
-  Node state inputs:
-    U_n           Currently used memory on each node
-    vbar_n        Rolling SLA violation rate per node
-
-  Fairness input:
-    omega_j       Priority weight per job (inherited from the job's tenant)
+  Cluster manager inputs:
+    U_n           Used memory per node - current state of the memory in use on a node
+    vbar_n        Violations of SLA per node - average SLA violations per node over K rolling window period
+    omega_t       Weight of delay per tennant - current delay weight per tennant over K rolling window period
 
   Prediction layer inputs:
-    P_mem_j       P95 predicted memory per pending job
-    P_cpu_j       P90 predicted CPU peak per pending job
+    P_mem_j       Maximum predicted memory used per pending job at P95 CPU used over the lifetime of the job
+    P_cpu_j       P95 predicted CPU peak per pending job
 
-The optimizer maximizes Z (Placement Score) and outputs x_jn.
+The optimizer maximizes Z, which we call the "Placement Score", and outputs x_jn.
 
   [Cluster Monitor] ---> U_n, vbar_n, omega_j, P_mem_j, P_cpu_j
                     ---> [LP: maximize Z]
@@ -119,7 +117,7 @@ This placement matrix is the sole output of the optimizer.
 ================================================================================
 
 ────────────────────────────────────────
-Node Specification  [hardware]
+§3.1 Node Limitations
 (Physical node properties — fixed facts about the hardware)
 ────────────────────────────────────────
 
@@ -128,8 +126,8 @@ Node Specification  [hardware]
   C_n           Total CPU cores on node n.
 
 ────────────────────────────────────────
-Configuration  [config]
-(Set by the cluster operator before the simulation; do not change at runtime)
+§3.2 Configuration
+(Set by the cluster operator before the simulation; does not change at runtime)
 ────────────────────────────────────────
 
   M_tax_n       Memory tax — fixed overhead reserved for the OS, kubelet, and
