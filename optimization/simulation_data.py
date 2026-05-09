@@ -478,21 +478,24 @@ def compute_remaining_eff(r_avail: float, v_bar: float) -> float:
 
 def compute_utilization_weight(node: NodeState) -> float:
     """
-    u_n^mem — memory utilization weight ∈ [1, 2]  (§3, Appendix B).
+    omega_n^utilize — memory utilization weight ∈ [1, 2]  (§3, Appendix B).
 
-    Formula:  u_n^mem = 1 + min(1, max(0, U_n^mem / max(1, M_n)))
+    Formula:  omega_n^utilize = 1 + min(1, max(0, U_n^mem / max(1, M_n^cap)))
 
-    Denominator is the physical maximum M_n (not M_n^cap) so the weight
-    reflects how loaded the machine is relative to its hardware ceiling.
-    Jobs will never fully saturate M_n in practice (tax and threshold prevent
-    it), so the weight operates in the lower portion of [1, 2] under normal
-    conditions — consistent with the "maxed utilization" baseline.
+    Denominator is M_n^cap (schedulable capacity after OS tax and safety
+    threshold) so the weight reaches exactly 2 when the node is fully packed
+    to its practical ceiling. This gives a stronger consolidation signal than
+    using physical M_n as denominator.
 
-    u_n^mem = 1 → node is idle (no consolidation preference)
-    u_n^mem = 2 → node physically full (max consolidation; not reachable in practice)
+    omega_n^utilize = 1 → node is idle (no consolidation preference)
+    omega_n^utilize = 2 → node fully packed to M_n^cap (maximum consolidation boost)
     Applied in the objective to consolidate jobs onto memory-busier nodes.
+
+    NOTE: the display metric U_n / M_n (printed in ClusterManager) is separate
+    and unchanged; only this weight uses M_n^cap as the denominator.
     """
-    frac = min(1.0, max(0.0, node.used_mb / max(1.0, node.capacity_mb)))
+    m_cap = compute_available_capacity(node)
+    frac  = min(1.0, max(0.0, node.used_mb / max(1.0, m_cap)))
     return 1.0 + frac
 
 

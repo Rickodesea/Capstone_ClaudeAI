@@ -136,13 +136,14 @@ def solve(
     omega_raw   = compute_omega({t: W_t.get(t, 0.0) for t in all_tenants})
     omega: dict[int, float] = {t: omega_raw.get(t, 1.0) for t in all_tenants}
 
-    # ── §3: Memory utilization weights (u_n^mem) ──────────────────────────
+    # ── §3: Memory utilization weights (omega_n^utilize) ─────────────────
     #
-    # u_n^mem = 1 + min(1, U_n^mem / max(1, M_n))   ∈ [1, 2]
+    # omega_n^utilize = 1 + min(1, U_n^mem / max(1, M_n^cap))   ∈ [1, 2]
     #
-    # Denominator is physical RAM M_n (not M_n^cap) so the weight reflects
-    # load relative to the hardware ceiling. Applied in the objective to
-    # consolidate jobs onto memory-busier nodes. C2 prevents infeasible placements.
+    # Denominator is M_n^cap (schedulable capacity) so the weight reaches 2
+    # exactly when the node is fully packed — stronger consolidation signal
+    # than using physical M_n. Applied in the objective to consolidate jobs
+    # onto memory-busier nodes. C2 prevents infeasible placements.
 
     u_mem: dict[int, float] = {
         n.node_id: compute_utilization_weight(n)

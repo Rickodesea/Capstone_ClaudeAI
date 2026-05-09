@@ -153,8 +153,9 @@ class BatchResult:
     jobs_expired:            int
     nodes_assigned:          int  # Unique nodes that received a job THIS batch
     total_nodes_used:        int  # Total nodes with at least one running job
-    avg_eff_mem_pct:         float  # (U_n / M_n^avail) * 100
-    avg_phys_mem_pct:        float  # (U_n / M_n) * 100
+    avg_eff_mem_pct:         float  # (U_n / M_n^cap) * 100, avg over ALL nodes
+    avg_phys_mem_pct:        float  # (U_n / M_n) * 100, avg over all nodes
+    avg_eff_active_pct:      float  # (U_n / M_n^cap) * 100, avg over USED nodes only
 
 
 @dataclass
@@ -318,9 +319,9 @@ class ClusterManager:
                 f"{'Batch':>5}  {'New':>6} {'Placed':>6}  {'Queue':>5}  "
                 f"{'Assign':>6}  {'Used':>5}  "
                 f"{'Spike':>5}  {'Ovrflw':>6}  {'Viols':>5}  "
-                f"{'Util % (U/M)':>14}  {'Eff% (U/C)':>12}"
+                f"{'Util % (U/M)':>14}  {'Eff% (U/C)':>12}  {'Eff% (Active)':>14}"
             )
-            print("-" * 95)
+            print("-" * 112)
 
         try:
             for batch_id in range(num_batches):
@@ -336,7 +337,7 @@ class ClusterManager:
                 )
 
         if self.verbose:
-            print("-" * 95)
+            print("-" * 112)
             print()
             print("  Glossary")
             print("  " + "-" * 83)
@@ -354,6 +355,8 @@ class ClusterManager:
             print("           averaged across all nodes")
             print("  Eff%     Effective utilization = U_n^mem / M_n^cap (schedulable capacity),")
             print("           averaged across all nodes; reaches 100% when node is fully packed")
+            print("  Eff%(A)  Same as Eff% but averaged only over nodes currently in use")
+            print("           (used_mb > 0); shows true packing density of active nodes")
 
         return SimulationResult(
             num_batches      = num_batches,
@@ -551,6 +554,10 @@ class ClusterManager:
             m_cap = compute_available_capacity(n)   # M_n^cap
             eff_pcts.append((n.used_mb / max(1, m_cap)) * 100)
 
+        active_eff_pcts = [p for n, p in zip(self.nodes, eff_pcts) if n.used_mb > 0]
+        avg_eff_active = (sum(active_eff_pcts) / len(active_eff_pcts)
+                          if active_eff_pcts else 0.0)
+
         return BatchResult(
             batch_id                = batch_id,
             jobs_generated          = len(new_jobs),
@@ -566,6 +573,7 @@ class ClusterManager:
             total_nodes_used        = total_nodes_used,
             avg_eff_mem_pct         = sum(eff_pcts) / len(eff_pcts),
             avg_phys_mem_pct        = sum(phys_pcts) / len(phys_pcts),
+            avg_eff_active_pct      = avg_eff_active,
         )
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -707,9 +715,9 @@ class ClusterManager:
 
     def _print_startup(self) -> None:
         """Print configuration summary before the simulation starts."""
-        print("=" * 66)
+        print("=" * 85)
         print("  Cluster Simulation Configuration")
-        print("=" * 66)
+        print("=" * 85)
         print(f"  Nodes              : {NUM_NODES}")
         print(f"  Tenants            : {NUM_TENANTS}")
         print(f"  Jobs/round         : {self._jobs_per_round}")
@@ -720,13 +728,21 @@ class ClusterManager:
         print(f"  Spike prob/max     : {SPIKE_PROB:.0%} / {SPIKE_MAX_FRAC:.0%}")
         print(f"  Max retries        : {MAX_PLACEMENT_RETRIES}")
         print()
-        print(f"  {'Node':>4}  {'RAM (MB)':>10}  {'OS Tax (MB)':>12}  {'M_cap (MB)':>12}  {'CPU cores':>10}")
-        print(f"  {'-'*4}  {'-'*10}  {'-'*12}  {'-'*12}  {'-'*10}")
+        print(
+            f"  {'Node':>4}  {'RAM (MB)':>10}  {'OS Tax (MB)':>12}  "
+            f"{'M_cap (MB)':>12}  {'CPU cores':>10}  {'Used (MB)':>10}  {'Util%':>7}"
+        )
+        print(f"  {'-'*4}  {'-'*10}  {'-'*12}  {'-'*12}  {'-'*10}  {'-'*10}  {'-'*7}")
         from simulation_data import MEM_THRESHOLD_FRAC
         for i, (m, t, c) in enumerate(zip(NODE_MEM_MB, OS_TAX_MB, NODE_CPU_CORES)):
-            m_cap = m - t - MEM_THRESHOLD_FRAC * m
-            print(f"  {i:>4}  {m:>10.0f}  {t:>12.0f}  {m_cap:>12.0f}  {c:>10.1f}")
-        print("=" * 66)
+            m_cap    = m - t - MEM_THRESHOLD_FRAC * m
+            used     = self.nodes[i].used_mb
+            util_pct = (used / m) * 100
+            print(
+                f"  {i:>4}  {m:>10.0f}  {t:>12.0f}  "
+                f"{m_cap:>12.0f}  {c:>10.1f}  {used:>10.0f}  {util_pct:>6.1f}%"
+            )
+        print("=" * 85)
         print()
 
     @staticmethod
@@ -735,7 +751,8 @@ class ClusterManager:
             f"{r.batch_id:>5}  {r.jobs_generated:>6} {r.jobs_placed:>6}  {r.queue_size_after:>5}  "
             f"{r.nodes_assigned:>6}  {r.total_nodes_used:>5}  "
             f"{r.spike_count:>5}  {r.physical_overflow_count:>6}  {r.node_violations:>5}  "
-            f"{r.avg_phys_mem_pct:>13.1f}%  {r.avg_eff_mem_pct:>11.1f}%"
+            f"{r.avg_phys_mem_pct:>13.1f}%  {r.avg_eff_mem_pct:>11.1f}%  "
+            f"{r.avg_eff_active_pct:>13.1f}%"
         )
 
 

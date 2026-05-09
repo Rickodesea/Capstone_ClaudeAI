@@ -18,7 +18,11 @@ import os
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from simulation_data import Job, NodeState
+from simulation_data import (
+    Job, NodeState,
+    compute_utilization_weight, compute_available_capacity,
+    MEM_THRESHOLD_FRAC,
+)
 from optimizer_google_or import solve
 
 
@@ -169,6 +173,212 @@ def test_loaded_node_preferred():
     print("  PASSED\n")
 
 
+# ── Test 5: omega_utilize formula uses M_cap denominator ──────────────────────
+
+def test_omega_utilize_formula():
+    """
+    Verify compute_utilization_weight uses M_cap_n (not M_n) as the denominator.
+
+    Node with M_n=16384, OS tax=1024, threshold_frac=0.10:
+      M_theta = 0.10 * 16384 = 1638.4
+      M_cap   = 16384 - 1024 - 1638.4 = 13721.6  (≈ 13722 after rounding)
+
+    Case A — node idle (used_mb=0):     omega = 1 + 0     = 1.0
+    Case B — node fully packed (used_mb = M_cap): omega = 1 + 1 = 2.0
+    Case C — node half packed (used_mb = M_cap/2): omega = 1.5
+    """
+    print("TEST 5: omega_utilize formula uses M_cap denominator ...")
+
+    n = _node(0, capacity_mb=16_384, os_tax_mb=1_024)   # threshold_frac=0.10 default
+
+    # Case A
+    n.used_mb = 0.0
+    w = compute_utilization_weight(n)
+    assert abs(w - 1.0) < 1e-9, f"Expected 1.0 for idle node, got {w}"
+
+    # Case B — fully packed to M_cap
+    m_cap = compute_available_capacity(n)
+    n.used_mb = m_cap
+    w = compute_utilization_weight(n)
+    assert abs(w - 2.0) < 1e-9, f"Expected 2.0 at full M_cap, got {w}"
+
+    # Case C — half packed
+    n.used_mb = m_cap / 2.0
+    w = compute_utilization_weight(n)
+    assert abs(w - 1.5) < 1e-6, f"Expected 1.5 at half M_cap, got {w}"
+
+    # Also check clamping: usage above M_cap stays at 2.0
+    n.used_mb = m_cap * 1.5
+    w = compute_utilization_weight(n)
+    assert abs(w - 2.0) < 1e-9, f"Expected 2.0 when above M_cap (clamped), got {w}"
+
+    print("  PASSED\n")
+
+
+# ── Test 6: CPU constraint blocks infeasible node ──────────────────────────────
+
+def test_cpu_constraint_blocks_node():
+    """
+    C4: a job whose P95 CPU peak exceeds a node's core count must NOT be placed
+    on that node.  It must land on a node with sufficient cores.
+
+    Node 0: 4 cores.  Node 1: 32 cores.
+    Job with pred_cpu_p95 = 8.0 cannot go to node 0 (8 > 4) → must go to node 1.
+    """
+    print("TEST 6: CPU constraint blocks infeasible node ...")
+
+    node_small = _node(0, cpu_cores=4.0)
+    node_big   = _node(1, cpu_cores=32.0)
+
+    job = Job(
+        job_id="cpu_j0", tenant_id=0,
+        req_mem_mb=500.0, req_cpu=8.0,
+        pred_mem_mb=400.0, pred_cpu_p95=8.0,
+        arrival_round=0,
+    )
+
+    placements = solve(jobs=[job], nodes=[node_small, node_big], W_t={})
+
+    assert placements.get("cpu_j0") == 1, (
+        f"Job with pred_cpu_p95=8.0 must go to node 1 (32 cores), "
+        f"not node 0 (4 cores); got {placements.get('cpu_j0')}"
+    )
+    print("  PASSED\n")
+
+
+# ── Test 7: Full node 0 causes overflow to node 1 (not node 2) ────────────────
+
+def test_overflow_goes_to_node_1_not_node_2():
+    """
+    When node 0 is at full M_eff capacity and node 1 has ample room,
+    overflow jobs must land on node 1 — not skip to node 2.
+
+    sigma weights: node 0=3, node 1=2, node 2=1.
+    Node 0 M_eff = 0 (completely blocked).
+    """
+    print("TEST 7: Overflow from full node 0 goes to node 1, not node 2 ...")
+
+    node0 = _node(0, capacity_mb=4_096, os_tax_mb=512)
+    node0.used_mb = compute_available_capacity(node0)   # U = M_cap → M_avail = 0
+
+    node1 = _node(1, capacity_mb=16_384, os_tax_mb=1_024)
+    node2 = _node(2, capacity_mb=16_384, os_tax_mb=1_024)
+
+    jobs = [_job(f"j{i}", pred_mem_mb=300.0) for i in range(5)]
+
+    placements = solve(jobs=jobs, nodes=[node0, node1, node2], W_t={})
+
+    on_0 = _placed_on(placements, 0)
+    on_1 = _placed_on(placements, 1)
+    on_2 = _placed_on(placements, 2)
+
+    print(f"  Node 0 (full): {on_0}  |  Node 1: {on_1}  |  Node 2: {on_2}")
+    assert on_0 == 0, f"Node 0 is full — expected 0 jobs, got {on_0}"
+    assert on_1 >= on_2, (
+        f"Node 1 should have >= jobs vs node 2 (sigma bias); got {on_1} vs {on_2}"
+    )
+    print("  PASSED\n")
+
+
+# ── Test 8: Partial vbar halves effective capacity ────────────────────────────
+
+def test_partial_vbar_limits_placement():
+    """
+    With vbar_n = 0.5 (half of recent rounds violated):
+      M_eff = M_avail * (1 - 0.5) = M_avail / 2
+
+    Single node so sigma doesn't interfere.  Jobs are sized so that the full
+    M_avail fits all 6 jobs but the halved M_eff only fits 3.
+    We send 6 jobs — expect exactly 3 placed (the rest blocked by M_eff).
+    """
+    print("TEST 8: vbar=0.5 halves M_eff, limiting placements ...")
+
+    # M_cap = 4096 - 512 - 0.10*4096 = 4096 - 512 - 409.6 = 3174.4 MB
+    node0 = _node(0, capacity_mb=4_096, os_tax_mb=512,
+                  violation_history=[True, False] * 5)    # vbar = 0.5
+
+    from simulation_data import compute_available_capacity, compute_remaining_eff
+    m_cap   = compute_available_capacity(node0)     # ≈ 3174 MB
+    m_eff   = compute_remaining_eff(m_cap, 0.5)     # ≈ 1587 MB (half)
+
+    # Each job needs 500 MB.  floor(m_eff / 500) = 3 jobs fit; 6 sent.
+    jobs = [_job(f"j{i}", pred_mem_mb=500.0) for i in range(6)]
+
+    placements = solve(jobs=jobs, nodes=[node0], W_t={})
+
+    placed = sum(1 for v in placements.values() if v is not None)
+    max_can_fit = int(m_eff // 500.0)
+
+    print(f"  M_eff={m_eff:.0f} MB, 500 MB/job → max_fit={max_can_fit}, placed={placed}/6")
+    assert placed == max_can_fit, (
+        f"Expected exactly {max_can_fit} placements given M_eff={m_eff:.0f} MB "
+        f"and 500 MB/job; got {placed}"
+    )
+    print("  PASSED\n")
+
+
+# ── Test 9: All nodes full → jobs remain unscheduled ──────────────────────────
+
+def test_all_nodes_full_leaves_jobs_unscheduled():
+    """
+    When every node's M_eff = 0, the solver cannot place any job.
+    All placements should be None.
+    """
+    print("TEST 9: All nodes full → jobs unscheduled ...")
+
+    nodes = []
+    for i in range(3):
+        n = _node(i, capacity_mb=4_096, os_tax_mb=512)
+        n.used_mb = compute_available_capacity(n)   # M_avail = 0 → M_eff = 0
+        nodes.append(n)
+
+    jobs = [_job(f"j{i}") for i in range(5)]
+
+    placements = solve(jobs=jobs, nodes=nodes, W_t={})
+
+    unscheduled = [j for j in jobs if placements.get(j.job_id) is None]
+    print(f"  Unscheduled: {len(unscheduled)}/5")
+    assert len(unscheduled) == 5, (
+        f"All 5 jobs should be unscheduled when cluster is full; "
+        f"got {5 - len(unscheduled)} placed"
+    )
+    print("  PASSED\n")
+
+
+# ── Test 10: omega_utilize loaded node reaches higher score vs empty ───────────
+
+def test_omega_utilize_score_grows_with_load():
+    """
+    The consolidation score (omega_utilize * sigma) for a loaded node should
+    exceed that of an empty node with the same sigma, once the loaded node
+    has non-trivial usage.  This confirms the positive feedback loop that
+    drives consolidation.
+    """
+    print("TEST 10: omega_utilize grows with load, strengthening consolidation ...")
+
+    # Two equal nodes, same sigma
+    n_loaded = _node(0, capacity_mb=8_192, os_tax_mb=512)
+    n_empty  = _node(0, capacity_mb=8_192, os_tax_mb=512)
+
+    m_cap = compute_available_capacity(n_loaded)
+
+    n_loaded.used_mb = m_cap * 0.70   # 70% loaded
+    n_empty.used_mb  = 0.0
+
+    w_loaded = compute_utilization_weight(n_loaded)
+    w_empty  = compute_utilization_weight(n_empty)
+
+    print(f"  Loaded (70%): omega_utilize={w_loaded:.3f}  |  Empty: omega_utilize={w_empty:.3f}")
+    assert w_loaded > w_empty, (
+        f"Loaded node omega_utilize ({w_loaded:.3f}) should exceed "
+        f"empty node ({w_empty:.3f})"
+    )
+    assert abs(w_loaded - 1.70) < 0.01, (
+        f"Expected ~1.70 at 70% M_cap load (M_cap denominator), got {w_loaded:.3f}"
+    )
+    print("  PASSED\n")
+
+
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -176,4 +386,10 @@ if __name__ == "__main__":
     test_violated_node_blocked()
     test_empty_cluster_concentrates_on_node_0()
     test_loaded_node_preferred()
+    test_omega_utilize_formula()
+    test_cpu_constraint_blocks_node()
+    test_overflow_goes_to_node_1_not_node_2()
+    test_partial_vbar_halves_capacity()
+    test_all_nodes_full_leaves_jobs_unscheduled()
+    test_omega_utilize_score_grows_with_load()
     print("All tests passed.")
