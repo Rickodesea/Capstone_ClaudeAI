@@ -57,6 +57,7 @@ Usage
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -134,8 +135,7 @@ class BatchResult:
         consecutive_failures   how many consecutive zero-placement calls at exit
                                0 = queue drained cleanly
                                ≥ MAX_PLACEMENT_RETRIES = gave up (nodes full)
-        node_violations        number of nodes where U_n > M_n^avail (SLA violation)
-                               (SLA violation — exceeds safety threshold)
+        node_violations        number of nodes where U_n^mem > M_n^cap (SLA violation)
         spike_count            number of placed jobs whose act_mem > pred_mem
         physical_overflow_count number of nodes where U_n + τ_n > M_n
                                (critical: tenant jobs + OS exceed physical RAM)
@@ -147,7 +147,7 @@ class BatchResult:
     queue_size_after:        int
     solver_calls:            int
     consecutive_failures:    int
-    node_violations:         int   # U_n > M_n^avail
+    node_violations:         int   # U_n^mem > M_n^cap (SLA breach)
     spike_count:             int   # act_mem > pred_mem
     physical_overflow_count: int   # U_n + τ_n > M_n  (critical)
     jobs_expired:            int
@@ -164,7 +164,7 @@ class SimulationResult:
     total_generated:  int
     total_placed:     int
     final_queue_size: int
-    total_violations: int   # SLA: U_n > M_n^avail
+    total_violations: int   # SLA: U_n^mem > M_n^cap
     total_spikes:     int   # job-level: act_mem > pred_mem
     total_overflows:  int   # critical: U_n + τ_n > M_n
     total_expired:    int   # jobs that completed naturally
@@ -181,7 +181,7 @@ class SimulationResult:
             f"  generated  : {self.total_generated}",
             f"  placed     : {self.total_placed}  ({self.placement_rate():.1%})",
             f"  queue left : {self.final_queue_size}",
-            f"  violations : {self.total_violations}  (U_n > M_n^avail)",
+            f"  violations : {self.total_violations}  (U_n^mem > M_n^cap)",
             f"  spikes     : {self.total_spikes}  (act > pred)",
             f"  overflows  : {self.total_overflows}  (U_n + tax > capacity)",
             f"  expired    : {self.total_expired}",
@@ -276,13 +276,13 @@ class ClusterManager:
         # Used to compute per-tenant wait-time averages.
         self.scheduling_log: dict[str, dict] = {}
 
-        # ── Fairness state (goal_programming_v4 §3, §4) ───────────────────
-        # W_t  : current per-tenant average wait time (seconds).
-        #        Fed to optimizer so it can compute ω_t weights.
-        # _tenant_wait_times : raw list of individual wait times per tenant,
-        #        used to update W_t after each placement group.
+        # ── Fairness state (§3, §4) ───────────────────────────────────────
+        # W_t  : per-tenant average wait time over the last K rounds (seconds).
+        #        Fed to optimizer so it can compute ω_delay,t weights.
+        # _tenant_wait_times : rolling K-window of individual wait times per
+        #        tenant (deque with maxlen=K), so W_t reflects only recent rounds.
         self.W_t: dict[int, float] = {}
-        self._tenant_wait_times: dict[int, list[float]] = {}
+        self._tenant_wait_times: dict[int, deque] = {}
 
         # ── Simulated clock ────────────────────────────────────────────────
         # sim_time advances by BATCH_DURATION_SEC at the start of each batch.
@@ -318,9 +318,9 @@ class ClusterManager:
                 f"{'Batch':>5}  {'New':>6} {'Placed':>6}  {'Queue':>5}  "
                 f"{'Assign':>6}  {'Used':>5}  "
                 f"{'Spike':>5}  {'Ovrflw':>6}  {'Viols':>5}  "
-                f"{'Eff Mem %':>10}  {'Phys Mem %':>10}"
+                f"{'Util % (U/M)':>14}  {'Eff% (U/C)':>12}"
             )
-            print("-" * 90)
+            print("-" * 95)
 
         try:
             for batch_id in range(num_batches):
@@ -336,7 +336,7 @@ class ClusterManager:
                 )
 
         if self.verbose:
-            print("-" * 90)
+            print("-" * 95)
             print()
             print("  Glossary")
             print("  " + "-" * 83)
@@ -348,12 +348,12 @@ class ClusterManager:
             print("  Used     Total nodes with at least one running job at end of batch")
             print("  Spike    Jobs whose actual runtime memory exceeded the P95 prediction")
             print("  Ovrflw   Nodes where tenant job memory + OS overhead exceeded physical RAM")
-            print("  Viols    Nodes where U_n > M_n^avail (per-node SLA threshold breached;")
-            print("           a single overloaded node counts as 1 regardless of cluster average)")
-            print("  Eff Mem% Cluster-average ratio of used job memory to available capacity")
-            print("           (U_n / M_n^avail), averaged across all nodes")
-            print("  Phys Mem% Cluster-average ratio of used job memory to physical RAM")
-            print("           (U_n / M_n), averaged across all nodes")
+            print("  Viols    Nodes where U_n^mem > M_n^cap (SLA breach: usage exceeded capacity")
+            print("           ceiling including OS tax and safety threshold buffer)")
+            print("  Util%    Cluster-average memory utilization = U_n^mem / M_n (physical RAM),")
+            print("           averaged across all nodes")
+            print("  Eff%     Effective utilization = U_n^mem / M_n^cap (schedulable capacity),")
+            print("           averaged across all nodes; reaches 100% when node is fully packed")
 
         return SimulationResult(
             num_batches      = num_batches,
@@ -509,7 +509,10 @@ class ClusterManager:
                     spikes_this_batch += 1
 
                 # Accumulate wait time for this tenant (used to recompute W_t)
-                self._tenant_wait_times.setdefault(j.tenant_id, []).append(wait_sec)
+                # Rolling K-window deque: keeps only the last K wait times per tenant
+                if j.tenant_id not in self._tenant_wait_times:
+                    self._tenant_wait_times[j.tenant_id] = deque(maxlen=self._k_window)
+                self._tenant_wait_times[j.tenant_id].append(wait_sec)
 
             # ── Remove placed jobs from queue ──────────────────────────────
             placed_ids = {j.job_id for j in placed_jobs}
@@ -545,8 +548,8 @@ class ClusterManager:
         phys_pcts = []
         for n in self.nodes:
             phys_pcts.append((n.used_mb / n.capacity_mb) * 100)
-            m_avail = compute_available_capacity(n)
-            eff_pcts.append((n.used_mb / max(1, m_avail)) * 100)
+            m_cap = compute_available_capacity(n)   # M_n^cap
+            eff_pcts.append((n.used_mb / max(1, m_cap)) * 100)
 
         return BatchResult(
             batch_id                = batch_id,
@@ -631,13 +634,15 @@ class ClusterManager:
         violations = 0
 
         for n in self.nodes:
-            n.used_mb = used[n.node_id]   # update U_n
+            n.used_mb = used[n.node_id]   # update U_n^mem
 
-            # A violation occurs when actual job memory exceeds the fixed
-            # available capacity M_n^avail = M_n − τ_n.
-            m_avail = compute_available_capacity(n)
+            # SLA violation: U_n^mem > M_n^cap (usage exceeds capacity ceiling).
+            # M_n^cap = M_n - M_n^tax - M_n^theta (includes OS tax + safety buffer).
+            # When violated, vbar_n rises → M_n^eff shrinks → fewer new jobs
+            # admitted → avoids OOM kill as the node recovers.
+            m_cap = compute_available_capacity(n)
 
-            in_violation = n.used_mb > m_avail  # U_n > M_n^avail → SLA breach
+            in_violation = n.used_mb > m_cap  # U_n^mem > M_n^cap → SLA breach
 
             if record_history:
                 # Append once per batch so K_WINDOW covers K past batches
@@ -688,14 +693,12 @@ class ClusterManager:
 
     def _update_W_t(self) -> None:
         """
-        Recompute W_t — per-tenant average scheduling delay in seconds.
+        Recompute W_t — per-tenant average scheduling delay over the last K rounds.
 
-        W_t is the W̄_t parameter from the math model (§3, Fairness Feedback).
-        It is the average of all wait times ever recorded for each tenant.
-        Longer-waiting tenants get higher ω_t weights in the next solver call.
-
-        self._tenant_wait_times grows monotonically; W_t converges as more
-        jobs are scheduled over the simulation.
+        W_t is the W̄_t parameter from the math model (§3, Appendix C).
+        Only the last K wait times per tenant are kept (rolling K-window deque),
+        so the weight reflects recent fairness rather than all-time history.
+        Longer-waiting tenants get higher ω_delay,t in the next solver call.
         """
         self.W_t = {
             t: sum(ws) / len(ws)
@@ -717,10 +720,12 @@ class ClusterManager:
         print(f"  Spike prob/max     : {SPIKE_PROB:.0%} / {SPIKE_MAX_FRAC:.0%}")
         print(f"  Max retries        : {MAX_PLACEMENT_RETRIES}")
         print()
-        print(f"  {'Node':>4}  {'RAM (MB)':>10}  {'OS Tax (MB)':>12}  {'Avail (MB)':>12}  {'CPU cores':>10}")
+        print(f"  {'Node':>4}  {'RAM (MB)':>10}  {'OS Tax (MB)':>12}  {'M_cap (MB)':>12}  {'CPU cores':>10}")
         print(f"  {'-'*4}  {'-'*10}  {'-'*12}  {'-'*12}  {'-'*10}")
+        from simulation_data import MEM_THRESHOLD_FRAC
         for i, (m, t, c) in enumerate(zip(NODE_MEM_MB, OS_TAX_MB, NODE_CPU_CORES)):
-            print(f"  {i:>4}  {m:>10.0f}  {t:>12.0f}  {m-t:>12.0f}  {c:>10.1f}")
+            m_cap = m - t - MEM_THRESHOLD_FRAC * m
+            print(f"  {i:>4}  {m:>10.0f}  {t:>12.0f}  {m_cap:>12.0f}  {c:>10.1f}")
         print("=" * 66)
         print()
 
@@ -730,7 +735,7 @@ class ClusterManager:
             f"{r.batch_id:>5}  {r.jobs_generated:>6} {r.jobs_placed:>6}  {r.queue_size_after:>5}  "
             f"{r.nodes_assigned:>6}  {r.total_nodes_used:>5}  "
             f"{r.spike_count:>5}  {r.physical_overflow_count:>6}  {r.node_violations:>5}  "
-            f"{r.avg_eff_mem_pct:>9.1f}%  {r.avg_phys_mem_pct:>9.1f}%"
+            f"{r.avg_phys_mem_pct:>13.1f}%  {r.avg_eff_mem_pct:>11.1f}%"
         )
 
 

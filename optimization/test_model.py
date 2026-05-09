@@ -38,14 +38,14 @@ def _node(node_id, capacity_mb=16_384, os_tax_mb=1_024,
     return n
 
 
-def _job(job_id, tenant_id=0, pred_mem_mb=500.0, pred_cpu_p90=1.0):
+def _job(job_id, tenant_id=0, pred_mem_mb=500.0, pred_cpu_p95=1.0):
     return Job(
         job_id=job_id,
         tenant_id=tenant_id,
         req_mem_mb=round(pred_mem_mb * 1.5, 2),
-        req_cpu=pred_cpu_p90,
+        req_cpu=pred_cpu_p95,
         pred_mem_mb=pred_mem_mb,
-        pred_cpu_p90=pred_cpu_p90,
+        pred_cpu_p95=pred_cpu_p95,
         arrival_round=0,
     )
 

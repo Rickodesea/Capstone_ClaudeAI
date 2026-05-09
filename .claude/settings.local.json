@@ -28,7 +28,8 @@
       "PowerShell(Get-Command *)",
       "PowerShell(pip install *)",
       "PowerShell(python -m playwright install chromium 2>&1 | Select-Object -Last 5)",
-      "PowerShell(python dump\\\\html_to_pdf.py)"
+      "PowerShell(python dump\\\\html_to_pdf.py)",
+      "Bash(python -m pytest test_cluster_manager.py test_model.py -v)"
     ],
     "deny": [],
     "ask": []

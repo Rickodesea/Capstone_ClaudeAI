@@ -192,17 +192,21 @@ class TestMathModelQuantities:
     # ── M_n^avail (available capacity) ───────────────────────────────────
 
     def test_m_avail_formula(self):
-        """M_n^avail = M_n - τ_n (fixed, no violation scaling)."""
-        n = NodeState(0, capacity_mb=1000.0, os_tax_mb=100.0)
-        assert compute_available_capacity(n) == 900.0
+        """M_n^cap = M_n - M_n^tax - M_n^theta (threshold baked into capacity)."""
+        # threshold_frac=0.10 → M_theta = 0.10 * 1000 = 100
+        # M_cap = 1000 - 100 - 100 = 800
+        n = NodeState(0, capacity_mb=1000.0, os_tax_mb=100.0, threshold_frac=0.10)
+        assert compute_available_capacity(n) == 800.0
 
     # ── R_n^avail and R_n^eff ────────────────────────────────────────────
 
     def test_r_avail_basic(self):
-        """R_n^avail = M_n^avail - U_n."""
-        n = NodeState(0, capacity_mb=1000.0, os_tax_mb=100.0, used_mb=400.0)
-        m_avail = compute_available_capacity(n)
-        assert compute_remaining_avail(n, m_avail) == 500.0
+        """M_n^avail = M_n^cap - U_n^mem."""
+        # M_cap = 1000 - 100 - 0.10*1000 = 800; M_avail = 800 - 400 = 400
+        n = NodeState(0, capacity_mb=1000.0, os_tax_mb=100.0, used_mb=400.0,
+                      threshold_frac=0.10)
+        m_cap = compute_available_capacity(n)
+        assert compute_remaining_avail(n, m_cap) == 400.0
 
     def test_r_eff_no_violations(self):
         """R_n^eff = R_n^avail when v̄_n = 0 (no SLA penalty)."""
@@ -329,22 +333,23 @@ class TestOptimizer:
 
         # Two identical jobs from different tenants
         job_high = Job("jh", tenant_id=0, req_mem_mb=10.0, req_cpu=1.0,
-                       pred_mem_mb=8.0, pred_cpu_p90=0.5,
+                       pred_mem_mb=8.0, pred_cpu_p95=0.5,
                        arrival_round=0, arrival_timestamp=now)
         job_low  = Job("jl", tenant_id=1, req_mem_mb=10.0, req_cpu=1.0,
-                       pred_mem_mb=8.0, pred_cpu_p90=0.5,
+                       pred_mem_mb=8.0, pred_cpu_p95=0.5,
                        arrival_round=0, arrival_timestamp=now)
 
-        # Tight node: R_n^eff = 15 MB so only one 8 MB job fits (8+8=16 > 15)
-        tight_node = NodeState(node_id=99, capacity_mb=20.0, os_tax_mb=0.0,
+        # Tight node: M_cap = 20-0-2=18, M_avail = 18-5=13; one 8 MB job fits (8+8=16>13)
+        # node_id=0 so consolidation weight is positive (|N|-n = 1-0 = 1)
+        tight_node = NodeState(node_id=0, capacity_mb=20.0, os_tax_mb=0.0,
                                cpu_cores=100.0, used_mb=5.0)
 
-        # Tenant 0 waited 120 s, tenant 1 waited 0 → ω_0 >> ω_1
+        # Tenant 0 waited 120 s, tenant 1 waited 0 → ω_delay,0 >> ω_delay,1
         W_t = {0: 120.0, 1: 0.0}
         placements = solve([job_high, job_low], [tight_node], W_t=W_t)
 
-        assert placements["jh"] == 99, (
-            "High-wait tenant job should be preferred by the ω_t weighting"
+        assert placements["jh"] == 0, (
+            "High-wait tenant job should be preferred by the ω_delay,t weighting"
         )
 
 
@@ -580,7 +585,7 @@ class TestClusterManager:
             fill_job = Job(
                 job_id="fill",  tenant_id=0,
                 req_mem_mb=n.capacity_mb, req_cpu=1.0,
-                pred_mem_mb=n.capacity_mb, pred_cpu_p90=0.0,
+                pred_mem_mb=n.capacity_mb, pred_cpu_p95=0.0,
                 arrival_round=0, arrival_timestamp=now,
             )
             cm._running_jobs.append(RunningJob(

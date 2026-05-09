@@ -5,28 +5,29 @@ MILP solver for one scheduling round, implemented with Google OR-Tools.
 
 Mathematical model reference
 ─────────────────────────────
-This file implements the formulation documented in goal_programming_v4.html.
+This file implements the formulation documented in real_time_optimization_model.tex.
 Every section reference below (§1 – §7) points to that document.
 
 Decision variable  (§1)
     x_{jn} ∈ {0,1}   1 = job j placed on node n, 0 = not placed
 
 Objective  (§5)
-    max Z = Σ_{j∈J} Σ_{n∈N}  ω_{t(j)} · m̂_j · u_n^mem · x_{jn}
+    max Z = Σ_{j∈J} Σ_{n∈N}  ω_{delay,t(j)} · P̂_j^mem · u_n^mem · σ_n^consolid · x_{jn}
 
 Constraints  (§6)
     C1: Σ_{n∈N} x_{jn}              ≤ 1          ∀ j∈J   (one node per job)
-    C2: Σ_{j∈J} m̂_j · x_{jn}       ≤ R_n^eff    ∀ n∈N   (node memory capacity)
+    C2: Σ_{j∈J} P̂_j^mem · x_{jn}   ≤ M_n^eff    ∀ n∈N   (node memory capacity)
     C3: x_{jn} ∈ {0,1}                                     (binary domain)
-    C4: x_{jn} = 0  if p̂_j^CPU > C_n             ∀ j,n   (per-pair CPU fitment)
+    C4: x_{jn} = 0  if P̂_j^CPU > C_n             ∀ j,n   (per-pair CPU fitment)
 
 Key parameters before each solve call  (§3)
-    v̄_n      rolling SLA violation rate on node n (last K rounds)
-    M_n^avail = M_n - τ_n                   fixed available memory
-    R_n^avail = M_n^avail - U_n             remaining before SLA adjustment
-    R_n^eff   = max(0, R_n^avail*(1-v̄_n))  effective capacity (RHS of C2)
-    u_n^mem   = 1 + clamp(U_n/M_n^avail,0,1)   memory util weight ∈ [1,2]   (derived)
-    ω_t       = 1 + clamp((W̄_t-W̄)/W̄,0,1)     tenant priority weight ∈ [1,2]  (derived)
+    v̄_n^SLA     rolling SLA violation rate on node n (last K rounds)
+    M_n^cap      = M_n - M_n^tax - M_n^theta       (capacity after OS tax + threshold)
+    M_n^avail    = M_n^cap - U_n^mem               (remaining capacity)
+    M_n^eff      = max(0, M_n^avail * (1 - v̄_n^SLA))  (RHS of C2)
+    u_n^mem      = 1 + clamp(U_n^mem / M_n, 0, 1)      (utilization weight ∈ [1,2])
+    ω_delay,t    = 1 + max(0, (W̄_t - W̄) / max(1, W̄)) (tenant delay weight, K-window)
+
 Solver choice
 ─────────────
 Uses pywraplp (OR-Tools linear/integer programming API).
@@ -53,7 +54,6 @@ from simulation_data import (
 )
 
 # ── Solver selection ───────────────────────────────────────────────────────────
-# Change this to switch solvers without touching any other code.
 SOLVER_ID: str = "CBC"   # "CBC" | "GLOP" | "SCIP"
 
 
@@ -68,29 +68,25 @@ def solve(
     """
     Solve one scheduling round and return the placement assignment.
 
-    This function constructs and solves the MILP from goal_programming_v4.
-    It is called once (or several times) per batch by the ClusterManager.
-
     Parameters
     ----------
     jobs  : pending jobs in the queue this round  (§2 — set J)
     nodes : current state of all cluster nodes    (§2 — set N)
-    W_t   : avg scheduling delay per tenant,
-            in batches (§3 — W̄_t, Fairness Feedback).
+    W_t   : avg scheduling delay per tenant over last K rounds (§3 — W̄_t).
+            Maintained as a rolling K-window by ClusterManager.
             Pass an empty dict for the very first round (no history yet).
-    K     : rolling window length for v̄_n         (§3 — violation rate)
+    K     : rolling window length for v̄_n^SLA and ω_delay,t (§3)
 
     Returns
     -------
     dict  job_id → node_id (int) if the job was placed, or None if unscheduled.
           Unscheduled jobs return to the queue; their wait time grows, which
-          raises their ω_t and makes them more attractive in the next round.
+          raises their ω_delay,t and makes them more attractive in the next round.
     """
 
     # ── Create solver instance ─────────────────────────────────────────────
     solver = pywraplp.Solver.CreateSolver(SOLVER_ID)
     if solver is None:
-        # Fallback: try the other exact MILP solver
         fallback = "SCIP" if SOLVER_ID == "CBC" else "CBC"
         solver   = pywraplp.Solver.CreateSolver(fallback)
     if solver is None:
@@ -99,81 +95,66 @@ def solve(
             "Install ortools-python (pip install ortools)."
         )
 
-    # Time limit prevents the C++ solver from blocking Python indefinitely
-    # when the job queue is large.  FEASIBLE is accepted as a valid result.
     solver.set_time_limit(10_000)   # 10 seconds max per solve call
 
     # ── §3: Derived node quantities ────────────────────────────────────────
     #
     # For each node n we compute:
-    #   v̄_n^SLA  = fraction of last K rounds where usage > M_n^avail
-    #   M_n^avail = M_n − M_n^tax               (fixed available memory)
-    #   R_n^avail = M_n^avail − U_n             (remaining before threshold/SLA)
-    #   M_n^eff   = max(0, R_n^avail·(1−θ_n)·(1−v̄_n^SLA))
-    #               (capacity offered to new jobs — RHS of C2)
+    #   v̄_n^SLA  = fraction of last K rounds where U_n^mem > M_n^cap
+    #   M_n^cap   = M_n - M_n^tax - M_n^theta        (capacity after tax + threshold)
+    #   M_n^avail = M_n^cap - U_n^mem                (remaining capacity)
+    #   M_n^eff   = max(0, M_n^avail * (1 - v̄_n^SLA)) (capacity offered to new jobs)
     #
-    # θ_n (node.threshold_frac) reserves a safety buffer before SLA scaling.
-    #
-    # Reference: goal_programming_v4 §3, "Node Memory — Dynamic"
+    # Reference: §3 Derived, Appendix A
 
     v_bar: dict[int, float] = {
         n.node_id: compute_violation_rate(n.violation_history, K)
         for n in nodes
     }
-    m_avail: dict[int, float] = {
+    m_cap: dict[int, float] = {
         n.node_id: compute_available_capacity(n)
         for n in nodes
     }
     r_avail: dict[int, float] = {
-        n.node_id: compute_remaining_avail(n, m_avail[n.node_id])
+        n.node_id: compute_remaining_avail(n, m_cap[n.node_id])
         for n in nodes
     }
     R: dict[int, float] = {
-        n.node_id: compute_remaining_eff(r_avail[n.node_id], v_bar[n.node_id], n.threshold_frac)
+        n.node_id: compute_remaining_eff(r_avail[n.node_id], v_bar[n.node_id])
         for n in nodes
     }
 
-    # ── §3: Tenant priority weights ────────────────────────────────────────
+    # ── §3: Tenant delay weights ───────────────────────────────────────────
     #
-    # ω_t = f_ω(W̄_t, W̄) = 1 + min(1, max(0, (W̄_t − W̄) / max(1, W̄)))
+    # ω_delay,t = 1 + max(0, (W̄_t − W̄) / max(1, W̄))
     #
-    # ω_t ∈ [1, 2].  Tenants with above-average wait get ω_t > 1 — their
-    # jobs contribute more to Z, so the solver prefers placing them.
-    #
-    # When W_t is empty (first round), all tenants get ω_t = 1.0 (equal weight).
-    #
-    # Reference: goal_programming_v4 §3, "Fairness Feedback — ω_t"
+    # Computed over the last K scheduling rounds (rolling window maintained by
+    # ClusterManager via a K-size deque per tenant).
+    # When W_t is empty (first round), all tenants get ω = 1.0 (equal weight).
 
     all_tenants = list(range(NUM_TENANTS))
     omega_raw   = compute_omega({t: W_t.get(t, 0.0) for t in all_tenants})
     omega: dict[int, float] = {t: omega_raw.get(t, 1.0) for t in all_tenants}
 
-    # ── §3: Memory utilization weights (u_n^mem) ─────────────────────────
+    # ── §3: Memory utilization weights (u_n^mem) ──────────────────────────
     #
-    # u_n^mem = 1 + min(1, U_n / max(1, M_n^avail))   ∈ [1, 2]
+    # u_n^mem = 1 + min(1, U_n^mem / max(1, M_n))   ∈ [1, 2]
     #
-    # Nodes with higher memory utilization receive a larger objective
-    # coefficient, steering the solver to consolidate onto already-busy
-    # nodes and leave idle nodes available for power-down.
-    # C2 still prevents physically infeasible placements.
-    #
-    # Reference: goal_programming_v4 §3, "Memory Utilization Weight"
+    # Denominator is physical RAM M_n (not M_n^cap) so the weight reflects
+    # load relative to the hardware ceiling. Applied in the objective to
+    # consolidate jobs onto memory-busier nodes. C2 prevents infeasible placements.
 
     u_mem: dict[int, float] = {
-        n.node_id: compute_utilization_weight(n, m_avail[n.node_id])
+        n.node_id: compute_utilization_weight(n)
         for n in nodes
     }
 
-    # ── §3: Fixed node consolidation weights (w_n^node) ──────────────────
+    # ── §3: Fixed node consolidation weights (σ_n^consolid) ──────────────
     #
-    # w_n^node = |N| - n   ∈ {1, 2, …, |N|}
+    # σ_n^consolid = |N| - n   ∈ {1, 2, …, |N|}
     #
-    # Node 0 gets the highest weight, node |N|-1 the lowest.  This biases
-    # the objective toward placing jobs on lower-indexed nodes first, so
-    # that the cluster consolidates onto fewer machines even at batch 0
-    # when u_n^mem = 1 for all nodes (no prior history).
-    #
-    # Reference: goal_programming_v4 §3, "Node Consolidation Weight"
+    # Node 0 gets the highest weight; biases the objective toward lower-indexed
+    # nodes first, consolidating even at batch 0 when u_n^mem = 1 for all nodes.
 
     w_node: dict[int, float] = {
         n.node_id: compute_node_weight(n.node_id, len(nodes))
@@ -181,70 +162,41 @@ def solve(
     }
 
     # ── §1 + §6 C3: Decision variables x_{jn} ∈ {0,1} ────────────────────
-    #
-    # One binary variable per (job, node) pair.
-    # IntVar(0,1,...) enforces C3 directly.
-    # For LP relaxation (SOLVER_ID == "GLOP"), NumVar(0,1,...) is used instead
-    # and the fractional solution is rounded at extraction time.
-    #
-    # Reference: goal_programming_v4 §1, §6 C3
 
     lp_relax = (SOLVER_ID == "GLOP")
 
     # ── §6 C4: Per-pair CPU fitment ───────────────────────────────────────
     #
-    # A job j cannot be placed on node n if its peak CPU demand exceeds the
-    # node's total cores: x_{jn} = 0  when  p̂_j^CPU > C_n.
-    # Unlike the old aggregate constraint, this is a hard per-(j,n) admission
-    # check — it prevents placing a 16-core job on an 8-core node regardless
-    # of how much CPU headroom remains (no overcommitment at node capacity).
-    # Enforced by clamping the variable upper bound to 0 for infeasible pairs.
-    #
-    # Reference: goal_programming_v4 §6, C4
+    # x_{jn} = 0 when P̂_j^CPU > C_n.
+    # Blocks placing a job whose P95 CPU peak exceeds the node's total cores.
 
     x: dict[tuple[str, int], pywraplp.Variable] = {}
     for j in jobs:
         for n in nodes:
             var_name  = f"x_{j.job_id}_{n.node_id}"
-            cpu_fits  = j.pred_cpu_p90 <= n.cpu_cores   # C4 feasibility check
+            cpu_fits  = j.pred_cpu_p95 <= n.cpu_cores   # C4 feasibility check
             ub        = 1 if cpu_fits else 0
             x[j.job_id, n.node_id] = (
-                solver.NumVar(0.0, float(ub), var_name)   # LP relaxation
+                solver.NumVar(0.0, float(ub), var_name)
                 if lp_relax
-                else solver.IntVar(0, ub, var_name)        # exact MILP (C3 + C4)
+                else solver.IntVar(0, ub, var_name)
             )
 
-    # ── §5: Objective — maximise weighted memory utilisation ───────────────
+    # ── §5: Objective — maximise weighted memory placement ─────────────────
     #
-    # max Z = Σ_{j∈J} Σ_{n∈N}  ω_{t(j)} · m̂_j · u_n^mem · w_n^node · x_{jn}
-    #
-    # Each placed job contributes its P95 predicted memory m̂_j, scaled by:
-    #   ω_{t(j)}   ∈ [1,2]     — tenant priority weight (fairness feedback)
-    #   u_n^mem    ∈ [1,2]     — memory utilization weight (consolidation)
-    #   w_n^node   ∈ [1,|N|]  — fixed node weight (low-index bias)
-    #
-    # Reference: goal_programming_v4 §5
+    # max Z = Σ_{j∈J} Σ_{n∈N}  ω_{delay,t(j)} · P̂_j^mem · u_n^mem · σ_n^consolid · x_{jn}
 
     obj = solver.Objective()
     for j in jobs:
-        w = omega.get(j.tenant_id, 1.0)          # ω_{t(j)}
+        w = omega.get(j.tenant_id, 1.0)          # ω_{delay,t(j)}
         for n in nodes:
             obj.SetCoefficient(
                 x[j.job_id, n.node_id],
                 w * j.pred_mem_mb * u_mem[n.node_id] * w_node[n.node_id]
-                # ω_{t(j)} · m̂_j · u_n^mem · w_n^node
             )
     obj.SetMaximization()
 
     # ── §6 C1: At most one node per job ───────────────────────────────────
-    #
-    # Σ_{n∈N} x_{jn} ≤ 1   ∀ j∈J
-    #
-    # ≤ 1 (not = 1): a job may remain unscheduled if no node has room.
-    # Unscheduled jobs stay in the ClusterManager queue, accumulating delay
-    # that will raise their ω_t in subsequent rounds.
-    #
-    # Reference: goal_programming_v4 §6, C1
 
     for j in jobs:
         ct = solver.Constraint(0.0, 1.0, f"c1_{j.job_id}")
@@ -253,16 +205,7 @@ def solve(
 
     # ── §6 C2: Node memory capacity ────────────────────────────────────────
     #
-    # Σ_{j∈J} m̂_j · x_{jn} ≤ R_n^eff   ∀ n∈N
-    #
-    # The total P95 predicted memory of all jobs placed on node n may not
-    # exceed R_n^eff (effective remaining after OS tax and SLA scaling).
-    # This is the overcommitment mechanism: the model uses m̂_j (P95) rather
-    # than the declared request, so it admits more jobs than a naive
-    # declared-memory scheduler would.  A violation occurs if the actual
-    # usage (the 5 % tail) materialises at runtime.
-    #
-    # Reference: goal_programming_v4 §6, C2
+    # Σ_{j∈J} P̂_j^mem · x_{jn} ≤ M_n^eff   ∀ n∈N
 
     for n in nodes:
         ct = solver.Constraint(0.0, R[n.node_id], f"c2_{n.node_id}")
@@ -272,21 +215,17 @@ def solve(
     # ── Solve ──────────────────────────────────────────────────────────────
     status = solver.Solve()
 
-    # OPTIMAL = provably best solution; FEASIBLE = valid but not proven optimal
     if status not in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
-        # Infeasible or solver error — return all unscheduled
         return {j.job_id: None for j in jobs}
 
     # ── Extract placements ─────────────────────────────────────────────────
-    # Read x_{jn} values from the solved model.
-    # A value > 0.5 is treated as 1 (handles LP-relaxation rounding).
     placements: dict[str, int | None] = {}
     for j in jobs:
         assigned: int | None = None
         for n in nodes:
             if x[j.job_id, n.node_id].solution_value() > 0.5:
                 assigned = n.node_id
-                break   # C1 guarantees at most one node; stop searching
+                break
         placements[j.job_id] = assigned
 
     return placements
