@@ -402,8 +402,7 @@ def generate_nodes(rng: Optional[np.random.Generator] = None) -> list[NodeState]
     """
     Create the initial node states with randomised pre-existing usage.
 
-    Each node starts with 10–40 % of its available capacity (after OS tax)
-    already used — simulating a cluster that is partially loaded at t=0.
+    simulating a cluster that is partially loaded at t=0.
     The cluster manager will recompute used_mb from running jobs from batch 1
     onward; this initial value matters only for the first solver call.
     """
@@ -413,8 +412,9 @@ def generate_nodes(rng: Optional[np.random.Generator] = None) -> list[NodeState]
         cap      = NODE_MEM_MB[i]
         tax      = OS_TAX_MB[i]
         cores    = NODE_CPU_CORES[i]
-        # Initial usage: random fraction of (capacity - OS tax)
-        used_mem = float(rng.uniform(0.10, 0.40)) * (cap - tax)
+        # Initial usage starts at 0; ClusterManager._preload_nodes() populates
+        # self._running_jobs before batch 0 so used_mb is driven by real jobs.
+        used_mem = 0.0
         nodes.append(NodeState(
             node_id        = i,
             capacity_mb    = cap,

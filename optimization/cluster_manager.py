@@ -69,12 +69,14 @@ from simulation_data import (
     generate_jobs, generate_nodes,
     compute_violation_rate, compute_available_capacity,
     compute_remaining_avail, compute_remaining_eff,
+    compute_utilization_weight, compute_node_weight,
     sample_spike_fraction,
     JOBS_PER_ROUND, K_WINDOW,
     MAX_PLACEMENT_RETRIES, MAX_JOBS_PER_SOLVE,
     MIN_LIFETIME_SEC, MAX_LIFETIME_SEC, BATCH_DURATION_SEC,
     NODE_MEM_MB, OS_TAX_MB, NODE_CPU_CORES, NUM_NODES, NUM_TENANTS,
     SPIKE_PROB, SPIKE_MAX_FRAC, NUM_BATCHES,
+    REQUEST_MEM_MIN_MB, REQUEST_MEM_MAX_MB,
 )
 from optimizer_google_or import solve
 
@@ -237,10 +239,11 @@ class ClusterManager:
 
     def __init__(
         self,
-        seed:          Optional[int]  = None,
-        verbose:       bool           = True,
-        jobs_per_round: Optional[int] = None,
-        k_window:      Optional[int]  = None,
+        seed:           Optional[int]  = None,
+        verbose:        bool           = True,
+        jobs_per_round: Optional[int]  = None,
+        k_window:       Optional[int]  = None,
+        log_file:       Optional[str]  = "simulation_log.txt",
     ) -> None:
         """
         Parameters
@@ -249,17 +252,17 @@ class ClusterManager:
         verbose       : print per-batch summary and startup config
         jobs_per_round: override JOBS_PER_ROUND
         k_window      : override K_WINDOW  (violation rolling window)
+        log_file      : path for detailed per-batch log (None = no log file)
         """
         self.rng     = np.random.default_rng(seed)
         self.verbose = verbose
+        self._log_handle = open(log_file, "w", encoding="utf-8") if log_file else None
 
         # Effective configuration (module defaults if not overridden)
         self._jobs_per_round = jobs_per_round if jobs_per_round is not None else JOBS_PER_ROUND
         self._k_window       = k_window       if k_window       is not None else K_WINDOW
 
         # ── Cluster state ──────────────────────────────────────────────────
-        # Nodes are initialised with some pre-existing usage; recomputed
-        # from running jobs from batch 1 onward.
         self.nodes: list[NodeState] = generate_nodes(self.rng)
 
         # ── Job queue (persists across batches) ────────────────────────────
@@ -290,6 +293,13 @@ class ClusterManager:
         # All timestamps on jobs are expressed in this simulated time so that
         # wait_sec is meaningful across batches.
         self.sim_time: datetime = datetime.now(timezone.utc)
+
+        # ── Pre-load nodes with synthetic already-running jobs ─────────────
+        # Simulates a partially-occupied cluster at startup. Generates 0–4
+        # RunningJob objects per node; then refreshes node.used_mb so that
+        # the first solver call and the startup printout see accurate usage.
+        self._preload_nodes()
+        self._refresh_node_states(record_history=False)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Public API
@@ -358,6 +368,10 @@ class ClusterManager:
             print("  Eff%(A)  Same as Eff% but averaged only over nodes currently in use")
             print("           (used_mb > 0); shows true packing density of active nodes")
 
+        if self._log_handle:
+            self._log_handle.close()
+            self._log_handle = None
+
         return SimulationResult(
             num_batches      = num_batches,
             total_generated  = sum(r.jobs_generated          for r in batch_results),
@@ -399,6 +413,7 @@ class ClusterManager:
         #   violation → v̄_n rises → R_n^eff shrinks → fewer new jobs admitted
         #   → over time violations subside as the node recovers
         node_violations_start = self._refresh_node_states(record_history=True)
+        self._log_batch_header(batch_id)
 
         # ── Step 4: Generate new jobs and add to queue ────────────────────
         # arrival_timestamp is set to sim_time (current simulated time).
@@ -453,6 +468,7 @@ class ClusterManager:
                 K     = self._k_window,
             )
             solver_calls += 1
+            self._log_solve_result(solver_calls, queue_slice, placements)
 
             # Split queue_slice: placed vs still waiting
             placed_jobs: list[Job] = [
@@ -579,6 +595,50 @@ class ClusterManager:
     # ─────────────────────────────────────────────────────────────────────────
     # Internal helpers
     # ─────────────────────────────────────────────────────────────────────────
+
+    def _preload_nodes(self) -> None:
+        """
+        Populate nodes with synthetic RunningJob objects before batch 0.
+
+        Each node gets 0–4 pre-existing jobs (drawn uniformly with randint).
+        Lifetimes are a 50/50 mix of:
+          short : uniform [60, 300] s   — may expire in the first few batches
+          long  : uniform [86400, 999999] s — effectively permanent for the run
+
+        act_mem_mb is drawn from [REQUEST_MEM_MIN_MB, REQUEST_MEM_MAX_MB]; no
+        spike is applied (pre-loaded jobs are assumed stable).
+
+        After this method returns, call _refresh_node_states() so node.used_mb
+        reflects the pre-loaded memory before the first solver call.
+        """
+        for n in self.nodes:
+            # TODO: disable preload nodes
+            continue
+            n_jobs = int(self.rng.integers(0, 5))   # 0 to 4 inclusive
+            for k in range(n_jobs):
+                mem_mb = float(self.rng.uniform(REQUEST_MEM_MIN_MB, REQUEST_MEM_MAX_MB))
+                if self.rng.random() < 0.5:
+                    lifetime_sec = float(self.rng.uniform(60.0, 300.0))
+                else:
+                    lifetime_sec = float(self.rng.uniform(86400.0, 999999.0))
+
+                synthetic_job = Job(
+                    job_id        = f"init_n{n.node_id}_j{k}",
+                    tenant_id     = int(self.rng.integers(0, NUM_TENANTS)),
+                    req_mem_mb    = round(mem_mb, 2),
+                    req_cpu       = 1.0,
+                    pred_mem_mb   = round(mem_mb, 2),
+                    pred_cpu_p95  = 1.0,
+                    arrival_round = -1,
+                )
+                self._running_jobs.append(RunningJob(
+                    job          = synthetic_job,
+                    node_id      = n.node_id,
+                    act_mem_mb   = round(mem_mb, 2),
+                    is_spike     = False,
+                    start_time   = self.sim_time,
+                    lifetime_sec = lifetime_sec,
+                ))
 
     def _make_jobs(self, batch_id: int) -> list[Job]:
         """
@@ -713,11 +773,93 @@ class ClusterManager:
             for t, ws in self._tenant_wait_times.items()
         }
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # Logging helpers
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _write_log(self, line: str) -> None:
+        if self._log_handle:
+            self._log_handle.write(line + "\n")
+            self._log_handle.flush()
+
+    def _log_batch_header(self, batch_id: int) -> None:
+        """Write node states (capacity, usage, weights) at the start of a batch."""
+        self._write_log(f"\n{'═'*90}")
+        self._write_log(f"  BATCH {batch_id}   sim_time={self.sim_time.strftime('%H:%M:%S')}")
+        self._write_log(f"{'═'*90}")
+        self._write_log(
+            f"  {'Node':>4}  {'used_mb':>8}  {'m_cap':>8}  {'m_eff':>8}  "
+            f"{'vbar':>6}  {'σ':>4}  {'ω_util':>7}  {'eff%':>6}"
+        )
+        self._write_log(
+            f"  {'-'*4}  {'-'*8}  {'-'*8}  {'-'*8}  "
+            f"{'-'*6}  {'-'*4}  {'-'*7}  {'-'*6}"
+        )
+        for n in self.nodes:
+            vbar   = compute_violation_rate(n.violation_history, self._k_window)
+            m_cap  = compute_available_capacity(n)
+            r_avail = compute_remaining_avail(n, m_cap)
+            m_eff  = compute_remaining_eff(r_avail, vbar)
+            omega  = compute_utilization_weight(n)
+            sigma  = compute_node_weight(n.node_id, len(self.nodes))
+            eff_pct = (n.used_mb / max(1.0, m_cap)) * 100
+            self._write_log(
+                f"  {n.node_id:>4}  {n.used_mb:>8.0f}  {m_cap:>8.0f}  {m_eff:>8.0f}  "
+                f"{vbar:>6.3f}  {sigma:>4.0f}  {omega:>7.3f}  {eff_pct:>5.1f}%"
+            )
+
+    def _log_solve_result(
+        self,
+        solve_num:   int,
+        queue_slice: list[Job],
+        placements:  dict[str, int | None],
+    ) -> None:
+        """Write per-job placement decisions and per-node summary for one solve call."""
+        placed = [(j, placements[j.job_id]) for j in queue_slice if placements.get(j.job_id) is not None]
+        unplaced_count = sum(1 for j in queue_slice if placements.get(j.job_id) is None)
+
+        self._write_log(
+            f"\n  -- Solve #{solve_num}: sent={len(queue_slice)}  "
+            f"placed={len(placed)}  unplaced={unplaced_count}"
+        )
+
+        if not placed:
+            return
+
+        # Per-job detail
+        self._write_log(
+            f"  {'job_id':<16}  {'node':>4}  {'pred_mb':>8}  {'cpu_p95':>8}  {'tenant':>6}"
+        )
+        self._write_log(f"  {'-'*16}  {'-'*4}  {'-'*8}  {'-'*8}  {'-'*6}")
+        for j, nid in sorted(placed, key=lambda x: x[1]):   # sort by node for readability
+            self._write_log(
+                f"  {j.job_id:<16}  {nid:>4}  {j.pred_mem_mb:>8.0f}  "
+                f"{j.pred_cpu_p95:>8.2f}  {j.tenant_id:>6}"
+            )
+
+        # Per-node summary
+        node_totals: dict[int, list[float]] = {}
+        for j, nid in placed:
+            node_totals.setdefault(nid, []).append(j.pred_mem_mb)
+
+        self._write_log(f"\n  Per-node this solve:")
+        self._write_log(f"  {'Node':>4}  {'Jobs':>5}  {'Total pred_mb':>14}  {'m_cap':>8}  {'cap_used%':>10}")
+        self._write_log(f"  {'-'*4}  {'-'*5}  {'-'*14}  {'-'*8}  {'-'*10}")
+        for nid in sorted(node_totals):
+            n        = self.nodes[nid]
+            m_cap    = compute_available_capacity(n)
+            total_mb = sum(node_totals[nid])
+            cap_pct  = (total_mb / max(1.0, m_cap)) * 100
+            self._write_log(
+                f"  {nid:>4}  {len(node_totals[nid]):>5}  {total_mb:>14.0f}  "
+                f"{m_cap:>8.0f}  {cap_pct:>9.1f}%"
+            )
+
     def _print_startup(self) -> None:
         """Print configuration summary before the simulation starts."""
-        print("=" * 85)
+        print("=" * 95)
         print("  Cluster Simulation Configuration")
-        print("=" * 85)
+        print("=" * 95)
         print(f"  Nodes              : {NUM_NODES}")
         print(f"  Tenants            : {NUM_TENANTS}")
         print(f"  Jobs/round         : {self._jobs_per_round}")
@@ -730,19 +872,23 @@ class ClusterManager:
         print()
         print(
             f"  {'Node':>4}  {'RAM (MB)':>10}  {'OS Tax (MB)':>12}  "
-            f"{'M_cap (MB)':>12}  {'CPU cores':>10}  {'Used (MB)':>10}  {'Util%':>7}"
+            f"{'M_cap (MB)':>12}  {'CPU cores':>10}  {'Used (MB)':>10}  {'Util%':>7}  {'Init Jobs':>9}"
         )
-        print(f"  {'-'*4}  {'-'*10}  {'-'*12}  {'-'*12}  {'-'*10}  {'-'*10}  {'-'*7}")
+        print(f"  {'-'*4}  {'-'*10}  {'-'*12}  {'-'*12}  {'-'*10}  {'-'*10}  {'-'*7}  {'-'*9}")
         from simulation_data import MEM_THRESHOLD_FRAC
+        init_counts = {n.node_id: 0 for n in self.nodes}
+        for rj in self._running_jobs:
+            init_counts[rj.node_id] += 1
         for i, (m, t, c) in enumerate(zip(NODE_MEM_MB, OS_TAX_MB, NODE_CPU_CORES)):
-            m_cap    = m - t - MEM_THRESHOLD_FRAC * m
-            used     = self.nodes[i].used_mb
-            util_pct = (used / m) * 100
+            m_cap      = m - t - MEM_THRESHOLD_FRAC * m
+            used       = self.nodes[i].used_mb
+            util_pct   = (used / m) * 100
+            init_count = init_counts.get(i, 0)
             print(
                 f"  {i:>4}  {m:>10.0f}  {t:>12.0f}  "
-                f"{m_cap:>12.0f}  {c:>10.1f}  {used:>10.0f}  {util_pct:>6.1f}%"
+                f"{m_cap:>12.0f}  {c:>10.1f}  {used:>10.0f}  {util_pct:>6.1f}%  {init_count:>9}"
             )
-        print("=" * 85)
+        print("=" * 95)
         print()
 
     @staticmethod
