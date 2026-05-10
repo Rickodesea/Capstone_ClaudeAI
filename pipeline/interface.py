@@ -179,6 +179,8 @@ def run_pipeline(cfg: PipelineConfig) -> None:
         n_workloads_per_tenant = cfg.n_workloads_per_tenant,
         n_nodes                = cfg.n_nodes,
         n_time_slots           = cfg.n_time_slots,
+        node_capacity          = cfg.node_capacity,
+        sla_eps                = cfg.sla_eps,
     )
     last_t = P['T'][-1]
     last_j = P['Wi'][last_t][-1]
@@ -189,6 +191,9 @@ def run_pipeline(cfg: PipelineConfig) -> None:
           f"({cfg.n_workloads_per_tenant} per tenant)")
     print(f"  Compliance: wl({last_t},{last_j}) restricted to "
           f"nodes {P['N_allowed'][(last_t, last_j)]}")
+    print(f"  Node capacity:    {cfg.node_capacity}  |  "
+          f"SLA eps: {cfg.sla_eps}  (kappa ~ "
+          f"{(((1-cfg.sla_eps)/cfg.sla_eps)**0.5):.2f})")
     print(f"  Real-time solver: {cfg.realtime_solver}  "
           f"({cfg.n_jobs_per_slot} jobs/slot)")
 
@@ -198,7 +203,14 @@ def run_pipeline(cfg: PipelineConfig) -> None:
     model, vars_ = build_model(P, env)
     model.Params.TimeLimit    = cfg.plan_time_limit
     model.Params.MIPGap       = cfg.plan_mip_gap
-    model.Params.LogToConsole = 0
+    # Show Gurobi log for medium/high so progress is visible during long solves.
+    # Sample 1 is fast enough that the log is noise; suppress it there.
+    model.Params.LogToConsole = 0 if cfg.plan_time_limit <= 60 else 1
+
+    print(f"  Solving MISOCP  (time limit: {cfg.plan_time_limit}s, "
+          f"gap target: {cfg.plan_mip_gap*100:.0f}%)  ...")
+    print(f"  Workloads: {len(P['all_wl'])}  |  "
+          f"Nodes: {len(P['N'])}  |  Slots: {len(P['H'])}", flush=True)
     model.optimize()
 
     status_str = {2: "OPTIMAL", 9: "TIME_LIMIT", 13: "SUBOPTIMAL"}.get(
@@ -298,10 +310,10 @@ def run_pipeline(cfg: PipelineConfig) -> None:
 # ── Helpers ───────────────────────────────────────────────────────────────
 
 def _banner(title: str) -> None:
-    print()
-    print("=" * 64)
-    print(f"  {title}")
-    print("=" * 64)
+    print(flush=True)
+    print("=" * 64, flush=True)
+    print(f"  {title}", flush=True)
+    print("=" * 64, flush=True)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────

@@ -1,0 +1,17 @@
+  H = list(range(n_time_slots)) in plan_ahead_data.py — H is just a list of integers [0, 1, 2, ...]. There are no timestamps, no durations, no wall-clock time anywhere in the code. The
+  model does not know or care whether slot 0 means "Monday" or "4am-8am" or "Day 3."
+
+  What you control:
+  - n_time_slots — how many planning periods to optimize at once (2, 3, 4 in the current configs)
+  - What a slot means in real life — defined entirely by you (operator), not the code. A slot could be a 4-hour block, a full day, or a full week
+  - How often to re-run — also not in the code. You would trigger it externally (a cron job, a monitoring system, a manual call) whenever you want: once a day, once a week, every 3 days —
+  whatever fits your deployment
+
+  The source of truth says "e.g., once per day or once per planning horizon H" — that is just an illustrative example, not a hardcoded policy.
+
+  So practically: if you want weekly planning with 7 daily slots, you set n_time_slots=7 and run the pipeline once per week. If you want 3-day planning with 6 half-day slots, you set
+  n_time_slots=6 and run it every 3 days. The math inside the model (costs, revenues, safety margins) scales correctly because pi_bar and v_op already scale with n_time_slots — so a longer
+   horizon contract naturally charges more.
+
+  The only thing that would need thought for very long horizons (e.g., n_time_slots=30) is Gurobi solve time — the model scales roughly quadratically in workloads due to the co-location
+  variables, so large horizons would hit the time limit with a bigger MIP gap.

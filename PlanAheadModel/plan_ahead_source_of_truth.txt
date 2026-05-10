@@ -78,7 +78,7 @@ ASCII shorthand        LaTeX                                  Description
   beta_lat_ijk         \beta_{i,j,k}^{\text{lat}}            Primitive overhead on latency for workload (i,j)
 
   Parameters — Objective
-  lam_s                \lambda_s                             Weight for objective term s (s = 1..5)
+  lam_s                \lambda_s                             Weight for objective term s (s = 0..5)
 
   Parameters — Probabilistic Capacity
   kappa_eps            \kappa(\varepsilon)                   Cantelli one-sided quantile: sqrt((1-eps)/eps)
@@ -325,12 +325,19 @@ The L2 norm term || chol_r * xi_vec ||_2 is implemented in Gurobi as a
 second-order cone constraint (SOCP). This makes the overall model a
 Mixed-Integer Second-Order Cone Program (MISOCP).
 
-NOTE on kappa approximation: in the current implementation kappa is computed
-globally using kap_global = kappa( min(eps_i) ), which conservatively applies
-the strictest tenant's requirement to all nodes. A more accurate (less
-conservative) approach would use per-node eps_eff_nt, requiring a piecewise
-approximation since kappa is nonlinear in eps_eff_nt. The global approximation
-is safe (never over-admits) but may under-utilise capacity.
+Per-node kappa (current implementation):
+  kap_node[n] = kappa( min{ eps_i : n in N_allowed[(i,j)] for some j in Wi_i } )
+
+  For each node n, kappa is computed using the strictest eps_i among only the
+  tenants that have at least one workload whose N_allowed set includes node n.
+  This is less conservative than the global minimum (which applied the strictest
+  tenant across all tenants regardless of which nodes they can access).
+
+  A further improvement would compute per-node eps_eff_nt dynamically from the
+  y[i,n,t] binary variables (actual tenant occupancy at solve time), but this
+  requires a piecewise approximation since kappa is nonlinear in eps. The
+  per-node floor approach used here is safe (never over-admits) and requires no
+  new binary variables.
 
 
 ================================================================================
@@ -363,10 +370,12 @@ into auxiliary binary variables with three linear constraints each.
 
 C1 — Placement integrity:
 
-  SUM{n in N} x_ijnt  <=  a_i      forall i in T, j in Wi_i, t in H
+  SUM{n in N} x_ijnt  ==  a_i      forall i in T, j in Wi_i, t in H
 
-  A workload is placed on at most one node, and only if tenant i is admitted.
-  Link from placement to admission decision.
+  A workload is placed on EXACTLY one node if and only if tenant i is admitted.
+  == (equality) is critical: it forces placement when admitted, preventing the
+  degenerate solution where a tenant earns admission revenue without using nodes.
+  (Original code used <=, which is incorrect — see implementation notes.)
 
 C1b — Tenant-on-node indicator link:
 
@@ -385,9 +394,11 @@ C1c — Compliance / data residency:
 
 C2 — Probabilistic capacity (SOCP):
 
-  MEAN_LOAD_{n,r,t}  +  kap_global * || chol_r * xi_vec_{n,r,t} ||_2
+  MEAN_LOAD_{n,r,t}  +  kap_node_{n} * || chol_r * xi_vec_{n,r,t} ||_2
     <=  C_nr * z_nt
       forall n in N, r in R, t in H
+
+  kap_node_{n} = kappa( min{ eps_i : tenant i has access to node n } )
 
   (See §4 for full derivation.)
 
@@ -464,7 +475,7 @@ C7 — Fairness (DRF max-min):
 
 The model minimizes the following multi-term weighted objective:
 
-  min   lam_1 * INFRA_COST
+  min   lam_0 * INFRA_COST
       + lam_1 * SLA_PENALTY
       - lam_2 * ADMISSION_REVENUE
       - lam_3 * FAIRNESS
@@ -493,7 +504,7 @@ MIGRATION_COST     =  SUM{i,j,n,t} gamma_ij * m_mig_ijnt
                       Disruption from migrating workloads across slots.
 
 The weights lam_s encode the operator's priority ordering. Typical defaults:
-  lam_1 = 1.0   (infra cost — always active)
+  lam_0 = 1.0   (infra cost — always active)
   lam_1 = 10.0  (SLA penalty — high: SLA violations are expensive)
   lam_2 = 1.0   (admission revenue)
   lam_3 = 5.0   (fairness — significant weight)
@@ -583,7 +594,7 @@ Decision variables:
   sigma_fair                                         continuous in [0,1]
 
 Objective:
-  min  lam_1 * SUM{n,t} pi_n * z_nt
+  min  lam_0 * SUM{n,t} pi_n * z_nt
      + lam_1 * SUM{i,j,t} p_ij * e_ijt
      - lam_2 * SUM{i} (pi_bar_i - v_op_i) * a_i
      - lam_3 * sigma_fair

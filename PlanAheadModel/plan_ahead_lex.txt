@@ -105,7 +105,9 @@ PROBABILISTIC CAPACITY (SOCP)
 ────────────────────────────────────────────────────────────────────────────────
 kappa_eps    Cantelli one-sided quantile factor: sqrt((1 - eps) / eps)
              kappa(0.05)=4.36 for 95% confidence; kappa(0.10)=3.00 for 90%
-kap_global   Conservative global kappa computed at min(eps_i) — applied to all nodes
+kap_node_n   Per-node kappa: kappa(min eps_i) over tenants whose N_allowed includes node n
+             Replaces the old kap_global (which applied global min eps_i to every node).
+             Less conservative: nodes accessible only by lenient tenants get smaller margin.
 chol_r       Lower-triangular Cholesky factor of Sigma_r  (chol_r @ chol_r.T = Sigma_r)
 soc_aux      Auxiliary variable representing the L2 norm in the SOCP capacity constraint
 soc_comp     Auxiliary variable for each row component of chol_r * xi_vec

@@ -58,6 +58,10 @@ class PipelineConfig:
     plan_mip_gap:           float
     realtime_solver:        str    # "CBC" | "GLOP"
     seed:                   int
+    node_capacity:          float  # C[n,r] — resource capacity per node
+    sla_eps:                float  # eps_i — SLA risk tolerance (lower = stricter)
+    # kappa at eps=0.05 ~ 4.36; at eps=0.10 ~ 3.00; at eps=0.15 ~ 2.38
+    # Larger instances need higher eps (softer SOCP) to stay feasible
 
 
 SAMPLE_1 = PipelineConfig(
@@ -71,32 +75,38 @@ SAMPLE_1 = PipelineConfig(
     plan_mip_gap           = 0.01,
     realtime_solver        = "CBC",
     seed                   = 42,
+    node_capacity          = 10.0,
+    sla_eps                = 0.05,   # kappa ~ 4.36
 )
 
 SAMPLE_2 = PipelineConfig(
     name                   = "Medium",
-    n_tenants              = 8,
-    n_workloads_per_tenant = 2,
-    n_nodes                = 10,
+    n_tenants              = 3,
+    n_workloads_per_tenant = 3,    # more workloads per tenant (was 2)
+    n_nodes                = 5,
     n_time_slots           = 3,
-    n_jobs_per_slot        = 20,
+    n_jobs_per_slot        = 12,
     plan_time_limit        = 120,
-    plan_mip_gap           = 0.05,
+    plan_mip_gap           = 0.01,
     realtime_solver        = "CBC",
     seed                   = 42,
+    node_capacity          = 10.0,
+    sla_eps                = 0.05,
 )
 
 SAMPLE_3 = PipelineConfig(
     name                   = "High",
-    n_tenants              = 15,
-    n_workloads_per_tenant = 2,
-    n_nodes                = 20,
+    n_tenants              = 3,
+    n_workloads_per_tenant = 3,    # same as medium
+    n_nodes                = 5,
     n_time_slots           = 4,
-    n_jobs_per_slot        = 50,
-    plan_time_limit        = 300,
-    plan_mip_gap           = 0.10,
-    realtime_solver        = "GLOP",   # LP relaxation — keeps real-time fast
+    n_jobs_per_slot        = 20,
+    plan_time_limit        = 120,
+    plan_mip_gap           = 0.01,
+    realtime_solver        = "GLOP",   # LP relaxation — stays fast with 20 jobs
     seed                   = 42,
+    node_capacity          = 10.0,
+    sla_eps                = 0.05,
 )
 
 SAMPLES: dict[int, PipelineConfig] = {

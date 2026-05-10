@@ -1,0 +1,766 @@
+================================================================================
+STATE OF WORK
+Capstone Project — Multi-Tenant Cluster Scheduling
+Last updated: 2026-05-10
+================================================================================
+This document explains everything about the project in plain language.
+It is written for someone who may not be deeply familiar with optimization
+or mathematical programming. Jargon is explained when introduced.
+================================================================================
+
+
+────────────────────────────────────────────────────────────────────────────────
+1. WHAT IS THIS PROJECT ABOUT? (high level)
+────────────────────────────────────────────────────────────────────────────────
+
+Imagine a company runs a computer cluster — a group of servers — that many
+different "tenants" (customers or internal teams) share. Each tenant submits
+jobs (programs to run). The cluster must decide:
+  - Which tenants to accept
+  - Which servers each tenant can use
+  - How to schedule the individual jobs in real time
+
+This project builds a TWO-LAYER scheduling system:
+
+  Layer 1 (Plan-Ahead): Once per day (or planning period), solve a big
+  optimization problem that decides which tenants are admitted and which
+  servers they can use. Think of it like issuing "building access cards"
+  to approved tenants, specifying which floors they may enter.
+
+  Layer 2 (Real-Time): Every ~60 seconds, place the actual arriving jobs
+  from admitted tenants onto their authorised servers. Runs fast, respects
+  the access card issued by Layer 1.
+
+The plan-ahead model uses GUROBI (a commercial solver) to solve a hard
+math problem called MISOCP (Mixed-Integer Second-Order Cone Program).
+The real-time model uses OR-Tools (open source) to solve a simpler MILP
+(Mixed-Integer Linear Program).
+
+
+────────────────────────────────────────────────────────────────────────────────
+2. WHAT IS A "WORKLOAD"? (very important concept)
+────────────────────────────────────────────────────────────────────────────────
+
+You might expect "workload" to mean a specific running job. In the plan-ahead
+model, it means something different and more abstract.
+
+A workload (i, j) is a STATISTICAL DEMAND PROFILE for tenant i's service j.
+It is NOT a single job — it is a forecast of everything that tenant i is
+expected to run under service category j during the entire planning period.
+
+Why model it this way? Because the plan-ahead runs hours or days in advance.
+At that point, we don't know which specific jobs will arrive. We only have:
+  - d_ijr: the declared resource REQUEST (e.g., "we expect to need 2 CPUs")
+  - mu_ijr: the mean predicted USAGE (from historical data, e.g., "you actually
+    only use 1.3 CPUs on average")
+  - Sigma_r: the covariance matrix (how correlated usage is across workloads —
+    if all workloads spike at the same time, the node gets overloaded together)
+
+A workload captures BOTH long-running services (a database that always runs)
+AND short-running batch jobs (tasks that come and go), all averaged into one
+statistical profile for that service category.
+
+Analogy: a hotel reserving a block of 20 rooms for a conference doesn't know
+which guests will show up at what hour. It just reserves capacity knowing that
+approximately 20 people will need rooms across the event period.
+
+The real-time model (Layer 2) handles the ACTUAL arriving jobs — "Job X from
+tenant 3 wants 0.8 CPUs and 512 MB RAM, assign it to a node now."
+
+
+────────────────────────────────────────────────────────────────────────────────
+3. THE PLAN-AHEAD MODEL — WHAT IT DECIDES
+────────────────────────────────────────────────────────────────────────────────
+
+The plan-ahead model solves a large optimization problem with 7 groups of
+constraints (labelled C1 through C7). Here is what each one does in plain
+English:
+
+C1 — Placement Integrity
+  "If tenant i is admitted, place EXACTLY one workload on one node per time
+  slot. If not admitted, place nothing."
+  The == (equality) sign is critical here — see Bug Fix 1 below.
+
+C1b — Tenant-on-Node Indicator
+  "If any of tenant i's workloads is placed on node n at time t, mark that
+  tenant as 'present' on that node." This is used later for the safety margin.
+
+C1c — Compliance / Data Residency
+  "Some workloads may only run on certain nodes for legal or compliance reasons
+  (e.g., data must stay in a specific region). Never place those workloads on
+  forbidden nodes, ever."
+
+C2 — Probabilistic Capacity (the SOCP constraint)
+  "The expected load on each node, PLUS a safety margin for uncertainty, must
+  not exceed the node's capacity."
+  This is the hardest constraint mathematically — it uses a Second-Order Cone
+  (hence MISOCP). More on this in Section 5.
+
+C3 — Isolation Primitives
+  "Each workload must use exactly one security isolation level: bare Linux
+  containers, gVisor (user-space kernel), or Kata containers (VM-based).
+  Tenants with strict compliance requirements must use at least gVisor."
+
+C4 — Control-Plane Budgets
+  "The cluster's management layer (Kubernetes API, etcd database, etc.) has
+  limited capacity for configuration changes. Don't exceed those limits."
+
+C5 — SLA Latency Satisfaction (in the plan-ahead model)
+  "If a tenant is admitted, their predicted response time (base latency +
+  co-location interference + isolation overhead) must not exceed their SLA
+  target — or at least not by too much."
+  Note: there is also a C5 in the real-time model — different constraint,
+  same label. The real-time C5 is about access control (Section 8 below).
+
+C6 — Migration Limits
+  "When workloads move between nodes across time slots, that is called
+  migration. Migrations are disruptive and expensive. Limit how many can
+  happen per tenant per slot."
+
+C7 — DRF Fairness
+  "No tenant should be much worse off than others. sigma_fair (the fairness
+  variable) must be at most the satisfaction fraction of every admitted tenant.
+  Maximizing sigma_fair means raising the floor for the worst-off tenant."
+
+The objective (what the solver minimizes) is a weighted sum:
+  + infra cost (fewer active nodes = lower electricity/hardware cost)
+  + SLA penalty (penalise latency violations)
+  - admission revenue (earn money by admitting tenants)
+  - fairness (reward equitable allocation)
+  + isolation cost (gVisor/Kata cost more than bare containers)
+  + migration cost (migrations are disruptive)
+
+The solver finds the assignment of tenants to nodes that makes this
+weighted sum as small as possible (minimizes it).
+
+
+────────────────────────────────────────────────────────────────────────────────
+4. THE THREE CRITICAL BUGS THAT WERE FIXED
+────────────────────────────────────────────────────────────────────────────────
+
+──────────────────────────────────────────
+BUG FIX 1: The C1 Constraint (= vs <=)
+──────────────────────────────────────────
+
+WHAT THE BUG WAS:
+  C1 used "less than or equal to" (<=):
+    SUM over nodes: x[i,j,n,t]  <=  a[i]
+
+  This reads: "the number of nodes the workload is placed on must be at most
+  equal to whether the tenant is admitted."
+
+WHAT WENT WRONG:
+  The <= allows placing on ZERO nodes even when admitted (a[i]=1), because
+  "0 <= 1" is true. The constraint never required the solver to ACTUALLY place
+  workloads anywhere.
+
+  The solver found a clever exploit:
+    1. Admit ALL tenants (a[i]=1 for all i) — earn full admission revenue.
+    2. Place NO workloads anywhere (all x=0 — still satisfies <= constraint).
+    3. No nodes need to be active — zero infrastructure cost.
+    4. With no workloads placed, the fairness variable sigma was unconstrained
+       and drifted to 1.0 (maximum possible fairness reward).
+    5. Objective = revenue + maximum fairness reward - 0 cost = most negative
+       value possible. Solver declared this "optimal."
+
+  This was a completely meaningless solution — admit everyone, schedule no one,
+  call it fair. The model was broken at its core.
+
+HOW IT WAS FIXED:
+  Changed to equality (==):
+    SUM over nodes: x[i,j,n,t]  ==  a[i]
+
+  Now if a[i]=1 (admitted), the sum MUST equal 1 — exactly one node must be
+  used. If a[i]=0 (rejected), the sum must equal 0 — no placement.
+
+RESULT:
+  Tests went from 7 failures to 17/17 passing. The solver now properly places
+  all workloads and earns revenue only by doing real scheduling.
+
+──────────────────────────────────────────
+BUG FIX 2: Q_quota and DRF Fairness Scaling
+──────────────────────────────────────────
+
+BACKGROUND — WHAT IS DRF (Dominant Resource Fairness)?
+  DRF is a fairness concept: each tenant gets credit based on how much of their
+  "dominant resource" (the one they use most relative to their quota) they receive.
+
+  The satisfaction of tenant i is calculated as:
+    s_i = (total dominant-resource demand placed) / Q_quota[i, dominant_resource]
+
+  sigma_fair = minimum of s_i across all admitted tenants.
+  The solver tries to MAXIMISE sigma_fair (maximize the minimum — make the
+  worst-off tenant as well-off as possible).
+
+WHAT THE BUG WAS:
+  Q_quota was set to:
+    Q_quota = node_capacity * n_nodes / n_tenants  =  10 * 4 / 3  =  13.33
+
+  This was meant to represent "fair share of total cluster capacity per tenant"
+  but the formula was wrong — it gave a quota of 13.33 per resource per tenant.
+
+WHAT WENT WRONG:
+  With quota = 13.33 and typical demand of ~1-2 units, each tenant's satisfaction
+  s_i was approximately 1.5 / 13.33 = 0.11.
+
+  The reward for fairness in the objective was: lam[3] * sigma_fair = 5 * 0.11 = 0.55.
+  This was too small to justify the infrastructure cost of admitting tenants.
+  The solver again preferred rejecting everyone because the fairness reward was
+  not worth the node cost.
+
+HOW IT WAS FIXED:
+  Changed to:
+    Q_quota = node_capacity / 2  =  10 / 2  =  5.0
+
+  This preserves the original intended ratio (10/2 = 5, which matched the
+  original manual setting). Now satisfaction s_i is approximately 1.5/5.0 = 0.30,
+  and the fairness reward lam[3] * 0.30 = 1.5 is meaningful enough to compete
+  with infrastructure cost.
+
+RESULT:
+  The solver now finds that admitting tenants and placing workloads is
+  profitable. Q_quota scales correctly when node_capacity changes.
+
+──────────────────────────────────────────
+BUG FIX 3: Revenue Must Scale With Time
+──────────────────────────────────────────
+
+BACKGROUND:
+  In the objective, two forces compete:
+  - Infrastructure COST = lam[0] * pi_n * z[n,t] — paid for every active node
+    at every time slot (grows with |H|, the number of time slots)
+  - Admission REVENUE = lam[2] * (pi_bar_i - v_op_i) * a[i] — paid once per
+    admitted tenant, fixed amount regardless of how many time slots there are
+
+WHAT WENT WRONG:
+  With pi_bar = 3.0 (fixed) and 3 time slots:
+    Total cost for 3 admitted tenants on 4 nodes for 3 slots = 1.0 * 1.0 * 4 * 3 = 12.0
+    Total revenue for 3 tenants = 1.0 * (3.0 - 0.5) * 3 = 7.5
+
+    Cost (12.0) > Revenue (7.5)
+
+    The solver correctly concluded: "reject everyone, cost=0, revenue=0, obj=0"
+    is better than "admit everyone, cost=12, revenue=7.5, obj=+4.5."
+
+  Rejecting everyone was genuinely the mathematically correct response to the
+  broken parameters — the model was undercharging for a 3-slot contract.
+
+HOW IT WAS FIXED:
+  Made revenue scale with the planning horizon length:
+    pi_bar[i] = 3.0 * |H|     (e.g., for |H|=3 slots: pi_bar = 9.0)
+    v_op[i]   = 0.5 * |H|     (e.g., for |H|=3 slots: v_op = 1.5)
+
+  The logic: if a tenant uses the cluster for 3 time periods, you should charge
+  them 3x as much as for 1 time period. Cost also grows 3x, so balance is
+  maintained regardless of horizon length.
+
+RESULT:
+  With |H|=3: revenue per tenant = (9.0 - 1.5) = 7.5, total for 3 tenants = 22.5.
+  Cost = 12.0. Revenue > Cost. Admitting tenants is now profitable.
+  All three tenants are admitted in every test.
+
+
+────────────────────────────────────────────────────────────────────────────────
+5. THE SOCP CAPACITY CONSTRAINT — EXPLAINED SIMPLY
+────────────────────────────────────────────────────────────────────────────────
+
+WHY A SIMPLE CAPACITY CHECK IS NOT ENOUGH:
+  If we just said "total expected usage <= capacity", we would plan the node
+  at exactly 100% utilization on average. That means 50% of the time the node
+  is OVER capacity. Jobs get throttled, SLAs are violated, tenants complain.
+  We need a safety margin.
+
+THE CANTELLI INEQUALITY:
+  The Cantelli inequality is a mathematical tool that says:
+  "If you add kappa(eps) times the standard deviation to the mean, the
+  probability that actual usage exceeds this bound is at most eps."
+
+  kappa(eps) = sqrt( (1 - eps) / eps )
+
+  Examples:
+    eps = 0.05 (5% risk tolerance)  ->  kappa = sqrt(0.95/0.05) = sqrt(19) = 4.36
+    eps = 0.10 (10% risk tolerance) ->  kappa = sqrt(0.90/0.10) = sqrt(9.0) = 3.00
+
+  So with eps=0.05, if we reserve mean + 4.36 * uncertainty, the node will
+  be overloaded at most 5% of the time.
+
+THE FULL CONSTRAINT (C2):
+  For each node n, resource r (CPU or memory), time slot t:
+
+    Mean_Load + kappa * ||Cholesky(Sigma_r) * placement_vector||  <=  Capacity
+
+  - Mean_Load: expected resource consumption from all workloads placed on node n,
+    weighted by their isolation primitive overhead (gVisor uses 20% more CPU)
+  - ||Cholesky(Sigma_r) * placement_vector||: the uncertainty term. Sigma_r is the
+    covariance matrix of resource usage across all workloads. Cholesky decomposes it
+    into a triangular matrix. The ||...|| is the Euclidean length (L2 norm) of the
+    resulting vector. This represents the joint standard deviation of total load.
+  - This L2 norm constraint is what makes it a SECOND-ORDER CONE CONSTRAINT (SOCP)
+    — that is why the plan-ahead model is called a MISOCP.
+
+WHAT "PER-NODE KAPPA" MEANS (our improvement):
+  Originally the code used a single global kappa computed from the most
+  conservative tenant's risk tolerance (the lowest eps_i across ALL tenants).
+  This was applied to every node, even nodes that strict tenants could never
+  access.
+
+  Our improvement: compute kappa separately for each node, using only the
+  strictest eps_i among tenants that have permission to use that node. Nodes
+  that are restricted to more lenient tenants get a smaller safety margin,
+  so more workloads can fit there.
+
+  This required no new binary variables — just precompute kap_node[n] before
+  building the model, using N_allowed[i,j] to determine which tenants can
+  reach each node.
+
+
+────────────────────────────────────────────────────────────────────────────────
+6. THE PLAN-AHEAD MODEL — CODE STRUCTURE
+────────────────────────────────────────────────────────────────────────────────
+
+Before this project, the code was all in one file (multi_tenant_cluster.py)
+with everything mixed together: data generation, model building, solving,
+output, and tests all in one place. This made it impossible to test individual
+parts or reuse components.
+
+The code was refactored into 4 separate modules:
+
+plan_ahead_data.py
+  What it does: generates all the input data (the "P" dictionary passed to
+  the optimizer). Creates tenants, nodes, workload demand profiles, covariance
+  matrices, pricing, compliance rules, and all parameters.
+  Key improvement: Q_quota = node_capacity/2, pi_bar/v_op scale with |H|.
+
+plan_ahead_optimizer.py
+  What it does: takes the data from plan_ahead_data.py and builds the Gurobi
+  optimization model. Adds all variables (x, y, z, w, etc.), adds all
+  constraints (C1-C7), sets the objective, and solves it.
+  Key improvement: C1 uses == not <=. Per-node kappa computed before model build.
+  After solving: extract_tenant_access_schedule() converts x variable values
+  into the TenantAccessSchedule dict that the real-time model uses.
+
+plan_ahead_sensitivity.py
+  What it does: runs the model multiple times with different parameter settings
+  to understand how sensitive the solution is to changes.
+  Five sweeps: eps_i (SLA risk), Delta_i (migration limit), node capacity,
+  fairness weight lam[3], and SLA penalty weight lam[1].
+
+test_plan_ahead.py
+  What it does: runs 17 automated tests that verify the model is working
+  correctly. Each test checks one specific behaviour.
+  Example tests: "admitted tenants have workloads placed", "isolated tenant
+  uses at least gVisor", "compliance workload stays on allowed nodes".
+  All 17 tests pass.
+
+
+────────────────────────────────────────────────────────────────────────────────
+7. THE REAL-TIME MODEL — WHAT IT DOES AND HOW IT IMPROVED
+────────────────────────────────────────────────────────────────────────────────
+
+The real-time model (optimizer_google_or.py) runs every ~60 seconds.
+It receives a list of arriving jobs and must assign each job to a server node.
+
+Inputs:
+  jobs             — list of Job objects (tenant_id, req_mem_mb, req_cpu,
+                     pred_mem_mb, pred_cpu_p95, arrival_round)
+  nodes            — list of NodeState objects (node_id, capacity_mb, cpu_cores,
+                     used_mb, threshold_frac)
+  tenant_node_access — dict[tenant_id -> list[node_id]] from the plan-ahead
+
+Constraints in the real-time model:
+  C1 (real-time): each job placed on AT MOST one node
+  C2 (real-time): total memory on a node must not exceed capacity × threshold
+  C3 (real-time): total CPU on a node must not exceed available CPU
+  C4 (real-time): each job placed on AT MOST one node (same as C1, reinforcement)
+  C5 (real-time): if tenant i has an access list, job j from tenant i can ONLY
+                  be placed on nodes in that list
+
+C5 Implementation (key improvement):
+  Instead of adding C5 as a separate constraint (which adds a row to the
+  constraint matrix and slows the solver), we enforce it at variable creation:
+
+    has_access = (tenant_node_access is None or
+                  n.node_id in tenant_node_access.get(j.tenant_id, []))
+    ub = 1 if (cpu_fits and has_access) else 0
+    x_jn = solver.IntVar(0, ub, ...)   # upper bound = 0 means impossible
+
+  Setting the upper bound to 0 is equivalent to fixing the variable to 0.
+  The solver never even considers placing job j on forbidden node n.
+  Benefit: tighter LP relaxation, faster convergence, fewer memory allocations.
+
+Solver choices (configurable per pipeline sample):
+  "CBC"  — exact Mixed-Integer Linear Program solver (OR-Tools). Finds the
+           provably optimal placement. Used for Sample 1 (8 jobs) and Sample 2
+           (12 jobs). Slows significantly past ~24 jobs × 5 nodes.
+  "GLOP" — LP relaxation with rounding. Solves the continuous relaxation
+           (allows fractional assignments), then rounds to integers. 10x faster
+           than CBC, slight quality loss. Used for Sample 3 (20 jobs).
+
+Recommended future improvement: First-Fit Decreasing (FFD) heuristic.
+  Sort jobs by predicted memory descending. For each job, try each allowed
+  node in order; place on the first that fits. O(|J| log|J| + |J|×|N|).
+  ~30 lines of code. Would run in microseconds for thousands of jobs.
+
+
+────────────────────────────────────────────────────────────────────────────────
+8. HOW THE TWO LAYERS CONNECT — THE C5 HANDSHAKE
+────────────────────────────────────────────────────────────────────────────────
+
+This is how the plan-ahead output feeds the real-time scheduler:
+
+Step 1: Plan-ahead output (once per horizon)
+  After the MISOCP solves, extract_tenant_access_schedule() reads the x variable
+  values and builds:
+    TenantAccessSchedule = dict[(tenant_id, time_slot) -> list[node_id]]
+
+  Example: { (0, 0): [2, 3],   # tenant 0 may use nodes 2 and 3 at slot 0
+             (0, 1): [3],       # tenant 0 may only use node 3 at slot 1
+             (1, 0): [0, 1],    # tenant 1 may use nodes 0 and 1 at slot 0
+             ... }
+
+  Also produced: TenantLease objects that represent the same information as
+  a human-readable "reservation contract":
+    TenantLease(tenant_id=0, authorised_nodes=[2,3], start_slot=0, end_slot=1)
+
+Step 2: Per real-time round, slice to current slot
+  filter_active_access(schedule, t=0) returns { 0: [2,3], 1: [0,1] }
+
+Step 3: Real-time solver enforces C5
+  When building the x[job][node] binary variables:
+    - For a job from tenant 0: set UB=0 for nodes 0 and 1 (not in access list)
+    - For a job from tenant 0: set UB=1 for nodes 2 and 3 (allowed)
+  The solver cannot violate this — the variable simply cannot become 1.
+
+Step 4: Job placement respects the contract
+  Every placed job links back to a plan-ahead lease. The real-time scheduler
+  cannot exceed the boundaries set by the plan-ahead, just like a hotel guest
+  cannot enter floors their key card doesn't allow.
+
+
+────────────────────────────────────────────────────────────────────────────────
+9. PIPELINE CONFIGURATIONS (3 COMPLEXITY LEVELS)
+────────────────────────────────────────────────────────────────────────────────
+
+All configurations are limited to max 3 tenants, max 5 nodes (as requested).
+Complexity increases by adding more workloads per tenant and more time slots.
+
+Sample 1 — Simple
+  3 tenants, 4 nodes, 2 time slots, 2 workloads per tenant (6 workloads total)
+  8 jobs per time slot in real-time, CBC solver
+  Gurobi: OPTIMAL solution found in under 1 second
+  Result: all 3 tenants admitted, 8/8 jobs placed per slot
+  Use: quick demo, verifying correctness, default test case
+
+Sample 2 — Medium
+  3 tenants, 5 nodes, 3 time slots, 3 workloads per tenant (9 workloads total)
+  12 jobs per time slot, CBC solver
+  Gurobi: hits 120-second time limit at ~22% MIP gap
+    (this means: found a good solution, but cannot prove it is THE best one)
+  Result: all 3 tenants admitted, 12/12 jobs placed per slot
+  Note: MIP gap means the solution might be improvable by up to 22% in theory
+
+Sample 3 — High
+  3 tenants, 5 nodes, 4 time slots, 3 workloads per tenant (9 workloads total)
+  20 jobs per time slot, GLOP solver (LP relaxation — faster)
+  Gurobi: hits 120-second time limit at ~29% MIP gap
+  Model: 6,932 constraints, 2,268 variables (1,811 binary), 40 SOCP terms
+  Result: all 3 tenants admitted, 20/20 jobs placed per slot
+
+MIP Gap explained: when a Mixed-Integer Program hits a time limit, it reports
+the "MIP gap" — the percentage difference between the best solution found and
+the best possible lower bound. 22% gap means the solution is at most 22% worse
+than the true optimum. With an academic Gurobi license and 120 seconds, this is
+normal for instances of this complexity.
+
+
+────────────────────────────────────────────────────────────────────────────────
+10. SENSITIVITY ANALYSIS — ACTUAL RESULTS AND INTERPRETATION
+────────────────────────────────────────────────────────────────────────────────
+
+Sensitivity analysis means: change one parameter at a time, keep everything
+else fixed, and measure how the objective changes. This shows which constraints
+are "active" (actually limiting the solution) and which are "inactive" (not
+currently binding — changing them makes no difference).
+
+The objective is MINIMIZED. More negative = better.
+Think: "the most negative objective = most revenue earned, lowest cost, most fair."
+
+──────────────────────
+SWEEP 1: eps_i (SLA Risk Tolerance)
+  eps is the probability that resource usage EXCEEDS the capacity bound.
+  Lower eps = stricter safety = larger kappa = bigger safety margin.
+
+  Results:
+    eps=0.01 -> obj = -8.67    kappa = 9.95, SOCP margin very large
+    eps=0.02 -> obj = -8.67    kappa = 7.00, still binding
+    eps=0.05 -> obj = -13.27   kappa = 4.36, default: SOCP stops binding
+    eps=0.10 -> obj = -13.27   plateau: looser SLA adds nothing more
+    eps=0.20 -> obj = -13.27   plateau continues
+    eps=0.30 -> obj = -13.27   plateau
+
+  What this means:
+    At eps < 0.05 (kappa > 4.36), the safety margin is so large that workloads
+    don't fit on nodes — fewer tenants admitted, worse objective.
+    At eps >= 0.05, the SOCP constraint is no longer the bottleneck — relaxing
+    it further doesn't help because something else limits the solution.
+    Our default eps=0.05 is right at the boundary. Good choice.
+
+──────────────────────
+SWEEP 2: Delta_i (Migration Budget)
+  Delta_i = maximum migrations allowed per tenant per time slot.
+
+  Results:
+    delta=0  -> -13.27
+    delta=1  -> -13.27
+    delta=2  -> -13.27
+    delta=10 -> -13.27   completely flat
+
+  What this means:
+    With only 2 time slots, there is exactly one opportunity to migrate
+    (at t=1). The optimal solution doesn't need to migrate at all — workloads
+    land in their best position at t=0 and stay there. The budget never matters.
+    LIMITATION: migration constraints cannot be evaluated properly with 2 time
+    slots. They would activate with 5+ slots and heterogeneous demand.
+
+──────────────────────
+SWEEP 3: Node Capacity (C_nr)
+
+  Results:
+    cap=5.0  -> -6.67     constrained: not all tenants can fit
+    cap=7.5  -> -9.67     partially constrained
+    cap=10.0 -> -13.27    default: all 3 tenants admitted for first time
+    cap=12.5 -> -13.27    plateau: same solution
+    cap=15.0 -> -13.27    plateau continues
+    cap=20.0 -> -15.07    improvement: packing is better, infra cost drops
+
+  What this means:
+    Capacity is the right kind of binding constraint — the model correctly
+    rejects (or partially admits) when nodes are too small. The jump from
+    7.5 to 10 is where all 3 tenants first become admissible together.
+    The further improvement at cap=20 comes from fewer nodes needing to be
+    activated (lower infrastructure cost component in objective).
+    This is the most meaningful sensitivity result to show an instructor.
+
+──────────────────────
+SWEEP 4: Fairness Weight lam[3]
+
+  Results:
+    lam3=0.0  -> -10.20
+    lam3=1.0  -> -10.81   (diff = -0.61 = -1 * 0.6131)
+    lam3=2.0  -> -11.43   (diff = -1.23 = -2 * 0.6131)
+    lam3=5.0  -> -13.27   (diff = -3.07 = -5 * 0.6131)
+    lam3=10.0 -> -16.33   (diff = -6.13 = -10 * 0.6131)
+    lam3=20.0 -> -22.46   (diff = -12.3 = -20 * 0.6131)
+
+  What this means:
+    The objective changes by exactly lam3 * 0.6131 each step. This means
+    sigma_fair = 0.6131 in EVERY solution regardless of the weight.
+    The solver always produces the same admission and placement decisions,
+    and always achieves exactly 61.3% DRF fairness — no matter how much or
+    how little we reward fairness in the objective.
+
+    Why? Because for this symmetric synthetic instance (all tenants have
+    similar demand), the "fair" solution and the "cost-optimal" solution
+    are the same placement. Fairness is "free" — you don't have to sacrifice
+    efficiency to be fair.
+
+    IMPORTANT CAVEAT: this would NOT be true for heterogeneous real workloads
+    where different tenants have very different resource demands. The fairness-
+    efficiency tradeoff would become real and the sensitivity would show it.
+
+──────────────────────
+SWEEP 5: SLA Penalty Weight lam[1]
+
+  Results:
+    lam1=1.0  -> -13.27
+    lam1=50.0 -> -13.27   completely flat
+
+  What this means:
+    SLA latency violations NEVER OCCUR in any solution. The excess latency
+    variable e_ijt = 0 always. Why? The latency model parameters are too slack:
+    - Base latency l0 = 10 ms
+    - Interference per co-located workload = 2 ms
+    - Isolation primitive overhead = 0 to 5 ms
+    - SLA target L = 50 ms
+    Even with all workloads co-located on one node, total latency would be
+    10 + 3*2 + 5 = 21 ms — still far below the 50 ms target.
+    The SLA penalty term simply never activates.
+
+    LIMITATION: The latency model parameters are purely synthetic and too
+    generous. Real data would have tighter SLA targets and larger interference
+    values. This constraint would matter a lot in production.
+
+──────────────────────
+SUMMARY OF ACTIVE vs INACTIVE:
+  Active (objective changes):    eps_i, node capacity
+  Inactive (no effect):          Delta_i, lam[1], and effectively lam[3]
+
+  These inactive constraints are MODEL CORRECT — they are properly implemented.
+  They are just not binding with the current synthetic data.
+  With real Google trace data (lower variance Sigma, tighter L values,
+  heterogeneous demands), all 5 sweeps would show meaningful variation.
+
+
+────────────────────────────────────────────────────────────────────────────────
+11. WEAKNESSES IN THE PLAN-AHEAD MODEL (HONEST)
+────────────────────────────────────────────────────────────────────────────────
+
+11a. Synthetic Covariance Is Too Large
+  The covariance matrix Sigma_r is generated as A*A.T / n_wl where A is a random
+  matrix. This gives large off-diagonal values — meaning the model thinks all
+  workloads' usage fluctuations are highly correlated.
+  Effect: the SOCP safety margin (kappa * sqrt(x^T Sigma x)) is huge relative to
+  capacity, often dominating. Workloads fail to fit not because of mean usage but
+  because of inflated predicted variance.
+  Fix: use real Google trace data, or replace Sigma with an identity matrix for
+  cleaner demos where all workloads are assumed independent.
+
+11b. MIP Gap on Larger Instances
+  Sample 2 ends at ~22% gap, Sample 3 at ~29% gap after 120 seconds.
+  The solution is feasible (valid, respects all constraints) but not proven optimal.
+  The solver found a good solution but ran out of time before proving it cannot be
+  improved. With commercial Gurobi and more time, these gaps would close.
+
+11c. Latency Model Is Too Slack
+  With L=50ms target and small interference values (2ms/workload), SLA violations
+  never occur. The latency terms in C5 and the objective are inactive.
+  For this to matter, either L needs to be tightened (e.g., 15ms for latency-
+  sensitive services) or alpha_lat needs calibration from real measurements.
+
+11d. Control-Plane Budgets Are Too Generous
+  B_etcd=200, B_qps=100, B_svc=50 are set far above what the small synthetic
+  instances consume. These constraints (C4a-C4d) never bind.
+  In a real cluster, etcd write rate and API server QPS are hard limits that cause
+  cluster instability when exceeded. They need calibration from actual metrics.
+
+11e. No Prior State at t=0
+  The migration constraints (C6) model workloads moving between time slots.
+  But the current code always starts from "no workloads placed" — there is no
+  concept of what was already running before this planning horizon started.
+  In production, the plan-ahead re-runs periodically and needs to receive the
+  current placement as input to correctly compute migration costs.
+
+11f. Migration Constraints Need More Time Slots
+  With only 2 time slots (Samples 1 and 2), migration happens once at t=1.
+  The optimal solution typically has no migrations. To test migration properly,
+  you need 5+ time slots with changing demand across slots.
+
+
+────────────────────────────────────────────────────────────────────────────────
+12. CURRENT STATE OF ALL FILES
+────────────────────────────────────────────────────────────────────────────────
+
+PlanAheadModel/ (plan-ahead optimization model)
+  plan_ahead_data.py          — data synthesis, Gurobi credentials, kappa helper
+                                 Key: Q_quota=capacity/2, pi_bar/v_op scale with |H|
+  plan_ahead_optimizer.py     — builds MISOCP (C1-C7), solves, extracts schedule
+                                 Key: C1 uses ==, per-node kap_node[n]
+  plan_ahead_sensitivity.py   — 5 parameter sweeps (runs standalone)
+  test_plan_ahead.py          — 17 behavioral tests, all passing
+  plan_ahead_lex.txt          — symbol lexicon (corrected: lam_0 through lam_5)
+  plan_ahead_source_of_truth.txt — full mathematical model reference
+                                   (corrected: C1==, kap_node, lam_0 for infra)
+
+optimization/ (real-time optimization model)
+  optimizer_google_or.py      — OR-Tools real-time solver
+                                 Key: C5 enforced via UB=0 at variable creation
+  simulation_data.py          — Job and NodeState dataclasses
+
+pipeline/ (integration layer)
+  interface.py                — end-to-end demo runner (all 3 layers)
+  pipeline_configs.py         — Sample 1/2/3 configurations
+
+Root/
+  generate_op_model_overview.py — generates op_model_overview.pptx (19 slides)
+  op_model_overview.pptx       — detailed slide deck for instructor presentation
+  state-of-work.txt            — this file
+
+
+────────────────────────────────────────────────────────────────────────────────
+13. HOW TO RUN EVERYTHING
+────────────────────────────────────────────────────────────────────────────────
+
+  # Run the full pipeline
+  cd pipeline
+
+  # Sample 1 (simple, solves in under 1 second):
+  python interface.py 1
+
+  # Sample 2 (medium, ~2 minutes with Gurobi log):
+  python interface.py 2
+
+  # Sample 3 (high complexity, ~2 minutes, GLOP for real-time):
+  python interface.py 3
+
+  # Run all 17 plan-ahead unit tests:
+  cd PlanAheadModel
+  python test_plan_ahead.py
+
+  # Run sensitivity analysis (takes several minutes):
+  python plan_ahead_sensitivity.py
+
+  # Regenerate the slide deck:
+  cd ..
+  python generate_op_model_overview.py
+
+
+────────────────────────────────────────────────────────────────────────────────
+14. WHAT TO EXPECT AT THE PRESENTATION
+────────────────────────────────────────────────────────────────────────────────
+
+Slide deck: op_model_overview.pptx (19 slides)
+  1.  Title slide
+  2.  Pipeline architecture overview
+  3.  Plan-ahead improvements summary
+  4.  What is a workload? (conceptual explanation)
+  5.  Bug Fix 1: C1 constraint (= vs <=) — the most critical bug
+  6.  Bug Fix 2: Q_quota and DRF fairness — what went wrong and why
+  7.  Bug Fix 3: Revenue scaling with planning horizon
+  8.  The SOCP capacity constraint — explained simply
+  9.  Real-time model improvements and C5 constraint
+  10. How C5 connects the two layers (the handshake)
+  11. Test results and pipeline validation table
+  12. Sensitivity analysis results with interpretation
+  13. Challenges encountered
+  14. Pros and cons
+  15. Capstone expectations
+  16. Future work
+  17. Improvements achievable now
+  18. Plan-ahead model honest assessment
+  19. Closing / questions
+
+Talking points for the instructor:
+  - The C1 == fix is the most important technical contribution
+  - The per-node kappa is a genuine improvement over the original approach
+  - All 31 tests pass (17 plan-ahead + 14 real-time)
+  - The pipeline runs end-to-end for all 3 complexity samples
+  - Inactive sensitivity constraints are a DATA problem, not a MODEL problem
+    (real trace data would activate them)
+
+
+────────────────────────────────────────────────────────────────────────────────
+15. RECOMMENDED NEXT STEPS
+────────────────────────────────────────────────────────────────────────────────
+
+Short term (quick wins):
+  - Add compliance assertion in pipeline: verify every real-time job lands on
+    a node inside its plan-ahead lease. One line, prevents silent regressions.
+  - Replace random Sigma_r with identity matrix for cleaner sensitivity demos.
+    This makes all 5 sweeps show independent variation instead of SOCP dominating.
+
+Medium term (before final submission):
+  - Implement FFD heuristic (~30 lines) as third real-time solver option.
+    Enables testing with hundreds of jobs without performance issues.
+  - Add state initialization: pass current placement as t=0 input to plan-ahead.
+    This makes migration constraints (C6) activate properly in multi-slot runs.
+
+Long term (future research):
+  - Ingest real Google cluster-usage traces v3.
+  - Add rolling horizon: re-run plan-ahead every |H|/2 slots with updated forecasts.
+  - Kubernetes API integration: map model decisions to actual Pod scheduling,
+    RuntimeClass selection, and NetworkPolicy rules.
+
+
+================================================================================
+END OF STATE-OF-WORK
+================================================================================

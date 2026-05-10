@@ -71,11 +71,13 @@ def wl_index(all_wl: list[tuple[int, int]], i: int, j: int) -> int:
 # ── Synthetic data generation ────────────────────────────────────────────────
 
 def build_synthetic_data(
-    seed:                   int = 42,
-    n_tenants:              int = 3,
-    n_workloads_per_tenant: int = 2,
-    n_nodes:                int = 4,
-    n_time_slots:           int = 2,
+    seed:                   int   = 42,
+    n_tenants:              int   = 3,
+    n_workloads_per_tenant: int   = 2,
+    n_nodes:                int   = 4,
+    n_time_slots:           int   = 2,
+    node_capacity:          float = 10.0,
+    sla_eps:                float = 0.05,
 ) -> dict:
     """Return a parameter dict for a synthetic instance of given size.
 
@@ -117,16 +119,21 @@ def build_synthetic_data(
         Sigma[r] = (A @ A.T) / n_wl
 
     # Node capacities and tenant quotas
-    C        = {(n, r): 10.0 for n in N for r in R}
-    Q_quota  = {(i, r): 5.0  for i in T for r in R}
-    alpha_oc = {r: 1.5       for r in R}
+    # Q_quota = node_capacity / 2 preserves the original ratio (10/2=5) and
+    # scales proportionally when node_capacity changes for larger instances.
+    C        = {(n, r): node_capacity          for n in N for r in R}
+    Q_quota  = {(i, r): node_capacity / 2.0   for i in T for r in R}
+    alpha_oc = {r: 1.5 for r in R}
 
     # --- Pricing and risk ----------------------------------------------------
-    p      = {(i, j): float(i + j + 1)  for i in T for j in Wi[i]}
-    pi_n   = {n: 1.0                    for n in N}
-    pi_bar = {i: 3.0                    for i in T}
-    v_op   = {i: 0.5                    for i in T}
-    eps_i  = {i: 0.05                   for i in T}   # 5% SLA risk tolerance
+    # pi_bar and v_op scale with n_time_slots: total contract value over the
+    # planning horizon grows with horizon length, keeping admission attractive
+    # relative to per-slot infrastructure cost.
+    p      = {(i, j): float(i + j + 1)       for i in T for j in Wi[i]}
+    pi_n   = {n: 1.0                          for n in N}
+    pi_bar = {i: 3.0 * n_time_slots           for i in T}
+    v_op   = {i: 0.5 * n_time_slots           for i in T}
+    eps_i  = {i: sla_eps                      for i in T}   # SLA risk tolerance
 
     # --- Isolation primitive parameters -------------------------------------
     eta = {(0, r): 1.00 for r in R}

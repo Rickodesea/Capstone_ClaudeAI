@@ -33,7 +33,8 @@
       "Bash(python -m pytest test_model.py test_cluster_manager.py -q)",
       "Bash(python cluster_manager.py 3)",
       "PowerShell(pip show *)",
-      "PowerShell(New-Item *)"
+      "PowerShell(New-Item *)",
+      "Bash(python generate_op_model_overview.py)"
     ],
     "deny": [],
     "ask": []
