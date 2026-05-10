@@ -35,6 +35,7 @@
 \newcommand{\Pmem}{\hat{P}_j^{\text{mem}}}
 \newcommand{\Pcpu}{\hat{P}_j^{\text{CPU}}}
 \newcommand{\Plife}{\hat{P}_j^{\text{life}}}
+\newcommand{\Aaccess}{A_{\tau}^{(t(j))}}
 
 % ── title ─────────────────────────────────────────────────────────────────────
 \title{\textbf{Real-Time Optimization Model}\\[0.5em]
@@ -199,6 +200,28 @@ $\omdelay$ & \textbf{Scheduling delay weight} for job $j$ --- inherited from
 \end{tabular}
 \end{center}
 
+% ── Plan-Ahead Input ─────────────────────────────────────────────────────────
+\subsection*{Plan-Ahead Input}
+\textit{Provided once per planning horizon by the plan-ahead MISOCP.}
+
+\medskip
+\begin{center}
+\begin{tabular}{@{}l p{10.5cm}@{}}
+\toprule
+Symbol & Meaning \\
+\midrule
+$A_{\tau}^{(t(j))}$ & \textbf{Authorised node set} for the tenant that owns
+  job $j$ at the current planning slot $\tau$.
+  Derived from the plan-ahead model's \texttt{TenantAccessSchedule}:
+  $A_{\tau}^{(i)} = \{n \in N : \sum_{j'} x_{i,j',n,\tau}^{\text{PA}} \ge 1\}$.
+  Sliced to the current slot each round via
+  \texttt{filter\_active\_access(schedule, $\tau$)}.
+  If \texttt{tenant\_node\_access} is \texttt{None}, the constraint is
+  inactive and all nodes are permitted (backward-compatible mode) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
 % ── Prediction Layer Inputs ──────────────────────────────────────────────────
 \subsection*{Prediction Layer Inputs}
 \textit{Provided by the prediction layer for each pending job.}
@@ -355,6 +378,22 @@ job's P95 predicted CPU peak. CPU cores are time-shared --- the kernel handles
 overcommit via throttling. This check blocks only the genuinely infeasible
 case where a job's peak CPU demand exceeds the node's hardware ceiling.
 
+\paragraph{C5 --- Plan-ahead tenant-node access control.}
+\[
+  x_{jn} = 0 \;\text{ if }\; n \notin A_{\tau}^{(t(j))}
+  \qquad \forall\, j \in J,\; n \in N
+\]
+A job may only be placed on a node that the plan-ahead model has authorised
+for its tenant at the current planning slot $\tau$.
+$A_{\tau}^{(t(j))}$ is the authorised node set derived from the
+\texttt{TenantAccessSchedule} output of the plan-ahead MISOCP.
+If \texttt{tenant\_node\_access} is \texttt{None} (plan-ahead not active),
+the constraint is inactive and all nodes are permitted.
+
+\textit{Implementation note:} C5 is enforced by setting the upper bound of
+$x_{jn}$ to 0 at variable creation (not as an explicit constraint row).
+This gives a tighter LP relaxation and requires no additional solver memory.
+
 % =============================================================================
 \section{Complete Model}
 % =============================================================================
@@ -374,6 +413,8 @@ case where a job's peak CPU demand exceeds the node's hardware ceiling.
   \text{C3:}&\quad x_{jn} \in \{0,1\}
     && \forall\, j \in J,\; n \in N \\[4pt]
   \text{C4:}&\quad x_{jn} = 0 \;\text{ if }\; \Pcpu > C_n
+    && \forall\, j \in J,\; n \in N \\[4pt]
+  \text{C5:}&\quad x_{jn} = 0 \;\text{ if }\; n \notin A_{\tau}^{(t(j))}
     && \forall\, j \in J,\; n \in N
 \end{align*}
 
@@ -394,6 +435,7 @@ Input & Source & Updated \\
 \midrule
 $\Umem$,\; $\vbarsla$,\; $\omdelayt$ & Cluster monitor & Each round ($K$-window) \\
 $\Pmem$,\; $\Pcpu$                  & Prediction layer & Each round \\
+$A_{\tau}^{(t(j))}$                 & Plan-ahead MISOCP & Once per planning horizon $\tau$ \\
 $K$,\; $\Mtax$,\; $\Mtheta$,\; $\sigconsolid$ & Configuration & Constant \\
 \bottomrule
 \end{tabular}

@@ -34,7 +34,8 @@
       "Bash(python cluster_manager.py 3)",
       "PowerShell(pip show *)",
       "PowerShell(New-Item *)",
-      "Bash(python generate_op_model_overview.py)"
+      "Bash(python generate_op_model_overview.py)",
+      "Bash(Remove-Item *)"
     ],
     "deny": [],
     "ask": []
