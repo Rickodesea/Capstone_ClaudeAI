@@ -19,6 +19,11 @@ Constraints  (§6)
     C2: Σ_{j∈J} P̂_j^mem · x_{jn}   ≤ M_n^eff    ∀ n∈N   (node memory capacity)
     C3: x_{jn} ∈ {0,1}                                     (binary domain)
     C4: x_{jn} = 0  if P̂_j^CPU > C_n             ∀ j,n   (per-pair CPU fitment)
+    C5: x_{jn} = 0  if n ∉ A_{t(j)}              ∀ j,n   (plan-ahead access control)
+
+        A_{t(j)} is the set of nodes that tenant t(j) is authorised to use at the
+        current scheduling time, as determined by the plan-ahead model output.
+        When no access map is provided all tenants may use all nodes (default).
 
 Key parameters before each solve call  (§3)
     v̄_n^SLA     rolling SLA violation rate on node n (last K rounds)
@@ -27,6 +32,7 @@ Key parameters before each solve call  (§3)
     M_n^eff      = max(0, M_n^avail * (1 - v̄_n^SLA))  (RHS of C2)
     u_n^mem      = 1 + clamp(U_n^mem / M_n, 0, 1)      (utilization weight ∈ [1,2])
     ω_delay,t    = 1 + max(0, (W̄_t - W̄) / max(1, W̄)) (tenant delay weight, K-window)
+    A_t          = set of node IDs authorised for tenant t this round (from plan-ahead)
 
 Solver choice
 ─────────────
@@ -60,26 +66,33 @@ SOLVER_ID: str = "CBC"   # "CBC" | "GLOP" | "SCIP"
 # ── Public API ─────────────────────────────────────────────────────────────────
 
 def solve(
-    jobs:  list[Job],
-    nodes: list[NodeState],
-    W_t:   dict[int, float],
-    K:     int = K_WINDOW,
+    jobs:               list[Job],
+    nodes:              list[NodeState],
+    W_t:                dict[int, float],
+    K:                  int = K_WINDOW,
+    tenant_node_access: dict[int, list[int]] | None = None,
 ) -> dict[str, int | None]:
     """
     Solve one scheduling round and return the placement assignment.
 
     Parameters
     ----------
-    jobs  : pending jobs in the queue this round  (§2 — set J)
-    nodes : current state of all cluster nodes    (§2 — set N)
-    W_t   : avg scheduling delay per tenant over last K rounds (§3 — W̄_t).
-            Maintained as a rolling K-window by ClusterManager.
-            Pass an empty dict for the very first round (no history yet).
-    K     : rolling window length for v̄_n^SLA and ω_delay,t (§3)
+    jobs               : pending jobs in the queue this round  (§2 — set J)
+    nodes              : current state of all cluster nodes    (§2 — set N)
+    W_t                : avg scheduling delay per tenant over last K rounds (§3 — W̄_t).
+                         Maintained as a rolling K-window by ClusterManager.
+                         Pass an empty dict for the very first round (no history yet).
+    K                  : rolling window length for v̄_n^SLA and ω_delay,t (§3)
+    tenant_node_access : plan-ahead access map — tenant_id -> [allowed node_ids]  (§6 C5).
+                         When provided, a job from tenant t can only be placed on
+                         nodes in tenant_node_access[t].  Tenants absent from the
+                         map are treated as having no access to any node (all blocked).
+                         Pass None (default) to disable access control — all tenants
+                         may use all nodes, preserving backward-compatible behaviour.
 
     Returns
     -------
-    dict  job_id → node_id (int) if the job was placed, or None if unscheduled.
+    dict  job_id -> node_id (int) if the job was placed, or None if unscheduled.
           Unscheduled jobs return to the queue; their wait time grows, which
           raises their ω_delay,t and makes them more attractive in the next round.
     """
@@ -171,12 +184,23 @@ def solve(
     # x_{jn} = 0 when P̂_j^CPU > C_n.
     # Blocks placing a job whose P95 CPU peak exceeds the node's total cores.
 
+    # ── §6 C5: Plan-ahead access control ─────────────────────────────────
+    #
+    # x_{jn} = 0 when n ∉ A_{t(j)}.
+    # A_{t(j)} is provided by the plan-ahead model for the current time slot.
+    # When tenant_node_access is None, access control is disabled (all pairs
+    # are unrestricted) so the model remains backward compatible.
+
     x: dict[tuple[str, int], pywraplp.Variable] = {}
     for j in jobs:
         for n in nodes:
-            var_name  = f"x_{j.job_id}_{n.node_id}"
-            cpu_fits  = j.pred_cpu_p95 <= n.cpu_cores   # C4 feasibility check
-            ub        = 1 if cpu_fits else 0
+            var_name = f"x_{j.job_id}_{n.node_id}"
+            cpu_fits = j.pred_cpu_p95 <= n.cpu_cores        # C4
+            has_access = (
+                tenant_node_access is None                   # C5: disabled
+                or n.node_id in tenant_node_access.get(j.tenant_id, [])
+            )
+            ub = 1 if (cpu_fits and has_access) else 0
             x[j.job_id, n.node_id] = (
                 solver.NumVar(0.0, float(ub), var_name)
                 if lp_relax

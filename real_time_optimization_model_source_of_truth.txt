@@ -51,6 +51,7 @@ clamp(x, lo, hi)       \min\!\left(hi,\;\max\!\left(lo,\;x\right)\right)   Clamp
 [0,1]                  [0,1]                                  Unit interval (real-valued)
 >=                     \geq                                   Greater than or equal
 subseteq               \subseteq                              Subset of or equal to
+A_t                    A_t                                    Set of nodes authorised for tenant t (plan-ahead output)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
@@ -83,12 +84,20 @@ scheduling round, and receives the placement assignment x_jn in return:
     P_mem_j         Maximum predicted memory per pending job
     P_cpu_j         P95 predicted CPU peak per pending job
 
+  Plan-ahead inputs (optional):
+    A_t             Authorised node set per tenant — set of node IDs that
+                    tenant t may use at the current scheduling time.
+                    Derived from the plan-ahead model output for the active
+                    time window. When not provided, all tenants may use all
+                    nodes (default backward-compatible behaviour).
+
 The optimizer maximizes Z (Placement Score) and outputs x_jn.
 
-  [Cluster Monitor] ---> U_mem_n, vbar_n, omega_delay_t, P_mem_j, P_cpu_j
-                    ---> [LP: maximize Z]
-                    ---> x_jn
-                    ---> [Cluster Monitor submits jobs to nodes]
+  [Plan-Ahead Model] ---> A_t (per tenant, per time window)
+  [Cluster Monitor]  ---> U_mem_n, vbar_n, omega_delay_t, P_mem_j, P_cpu_j, A_t
+                     ---> [LP: maximize Z]
+                     ---> x_jn
+                     ---> [Cluster Monitor submits jobs to nodes]
 
 
 ================================================================================
@@ -112,6 +121,9 @@ This placement matrix is the sole output of the optimizer.
   T       All tenants sharing the cluster
   J_t     Jobs belonging to tenant t;
           J_t subseteq J,  and  union over t in T of J_t  =  J
+  A_t     Authorised node set for tenant t at the current scheduling time.
+          Derived from the plan-ahead model output. A_t subseteq N.
+          When not provided (plan-ahead disabled), A_t = N for all t.
 
 
 ================================================================================
@@ -342,6 +354,25 @@ C4 — Per-pair CPU fitment:
   throttling. This check blocks only the genuinely infeasible case where a
   job's peak demand exceeds the node's hardware ceiling.
 
+C5 — Plan-ahead access control:
+
+  x_jn = 0   if   n not in A_{t(j)}      forall j in J, n in N
+
+  Blocks placing job j on node n when the plan-ahead model has not
+  authorised tenant t(j) to use node n during the current time window.
+  A_{t(j)} is passed in from the plan-ahead model output at call time.
+
+  When A_t is not provided (tenant_node_access = None), this constraint
+  is inactive — equivalent to A_t = N for all t (unrestricted access).
+
+  Implementation: enforced by setting the variable upper bound ub=0 at
+  variable creation, identical to how C4 handles CPU infeasibility.
+  No additional constraint rows are added to the LP.
+
+  Interaction with C4: both C4 and C5 are folded into the same ub
+  computation: ub = 1 only when the job both fits the CPU ceiling AND
+  the tenant has access to the node.
+
 
 ================================================================================
 §7  COMPLETE MODEL
@@ -355,6 +386,8 @@ Subject to:
   C2:  SUM{j in J} P_mem_j * x_jn  <=  M_eff_n         forall n in N
   C3:  x_jn  in  {0,1}                                 forall j in J, n in N
   C4:  x_jn = 0  if  P_cpu_j > C_n                     forall j in J, n in N
+  C5:  x_jn = 0  if  n not in A_{t(j)}                 forall j in J, n in N
+       (inactive when plan-ahead access map is not provided)
 
 Where:
   (quantities derived by the optimizer from inputs and configuration)
@@ -371,6 +404,8 @@ Inputs per round:
                     used as omega_delay_j = omega_delay_t where t=t(j)
   P_mem_j           Maximum predicted memory per job         [prediction]
   P_cpu_j           P95 predicted CPU peak per job           [prediction]
+  A_t               authorised node set per tenant           [plan-ahead]
+                    optional; omit to disable C5
 
 Configuration parameters (constant, not decision variables):
   K                 rolling window length                    [config]

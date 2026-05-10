@@ -8,9 +8,9 @@ import gurobipy as gp
 from gurobipy import GRB
 
 params = {
-          "WLSACCESSID":"fc17fa3a-ef7f-41d2-b95c-20c3b221a483",
-          "WLSSECRET":"6bee54d1-5c9f-4f12-9d64-0c7b16e0dd52",
-          "LICENSEID":2804943
+          "WLSACCESSID":"", # values are saved in .env in same path
+          "WLSSECRET":"", # ^^
+          "LICENSEID": int(0) # ^^
           }
 env = gp.Env(params = params)
 

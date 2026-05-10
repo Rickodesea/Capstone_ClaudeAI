@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from simulation_data import (
     Job, NodeState,
     compute_utilization_weight, compute_available_capacity,
+    compute_omega,
     MEM_THRESHOLD_FRAC,
 )
 from optimizer_google_or import solve
@@ -101,8 +102,8 @@ def test_violated_node_blocked():
     """
     print("TEST 2: Fully-violated node receives no new jobs ...")
 
-    node0 = _node(0, violation_history=[True] * 10)   # v̄_0 = 1.0 → R_eff = 0
-    node1 = _node(1, violation_history=[False] * 10)  # v̄_1 = 0.0 → full capacity
+    node0 = _node(0, violation_history=[True] * 10)   # v̄_0 = 1.0 -> R_eff = 0
+    node1 = _node(1, violation_history=[False] * 10)  # v̄_1 = 0.0 -> full capacity
 
     jobs = [_job(f"j{i}") for i in range(8)]
 
@@ -130,7 +131,7 @@ def test_empty_cluster_concentrates_on_node_0():
 
     nodes = [_node(i) for i in range(3)]   # 3 equal nodes, all empty
 
-    # 10 jobs × 300 MB = 3000 MB; node 0 capacity = 15360 MB → all fit
+    # 10 jobs × 300 MB = 3000 MB; node 0 capacity = 15360 MB -> all fit
     jobs = [_job(f"j{i}", pred_mem_mb=300.0) for i in range(10)]
 
     placements = solve(jobs=jobs, nodes=nodes, W_t={})
@@ -155,10 +156,10 @@ def test_loaded_node_preferred():
     print("TEST 4: Memory-loaded node preferred for consolidation ...")
 
     avail = 16_384 - 1_024   # 15 360 MB
-    node0 = _node(0, used_mb=avail * 0.70)  # 70% loaded → u_mem ≈ 1.7
-    node1 = _node(1, used_mb=0.0)           # empty      → u_mem = 1.0
+    node0 = _node(0, used_mb=avail * 0.70)  # 70% loaded -> u_mem ≈ 1.7
+    node1 = _node(1, used_mb=0.0)           # empty      -> u_mem = 1.0
 
-    # 5 jobs × 200 MB = 1000 MB; remaining on node 0 = 0.3 * 15360 = 4608 MB → fits
+    # 5 jobs × 200 MB = 1000 MB; remaining on node 0 = 0.3 * 15360 = 4608 MB -> fits
     jobs = [_job(f"j{i}", pred_mem_mb=200.0) for i in range(5)]
 
     placements = solve(jobs=jobs, nodes=[node0, node1], W_t={})
@@ -223,7 +224,7 @@ def test_cpu_constraint_blocks_node():
     on that node.  It must land on a node with sufficient cores.
 
     Node 0: 4 cores.  Node 1: 32 cores.
-    Job with pred_cpu_p95 = 8.0 cannot go to node 0 (8 > 4) → must go to node 1.
+    Job with pred_cpu_p95 = 8.0 cannot go to node 0 (8 > 4) -> must go to node 1.
     """
     print("TEST 6: CPU constraint blocks infeasible node ...")
 
@@ -259,7 +260,7 @@ def test_overflow_goes_to_node_1_not_node_2():
     print("TEST 7: Overflow from full node 0 goes to node 1, not node 2 ...")
 
     node0 = _node(0, capacity_mb=4_096, os_tax_mb=512)
-    node0.used_mb = compute_available_capacity(node0)   # U = M_cap → M_avail = 0
+    node0.used_mb = compute_available_capacity(node0)   # U = M_cap -> M_avail = 0
 
     node1 = _node(1, capacity_mb=16_384, os_tax_mb=1_024)
     node2 = _node(2, capacity_mb=16_384, os_tax_mb=1_024)
@@ -309,7 +310,7 @@ def test_partial_vbar_limits_placement():
     placed = sum(1 for v in placements.values() if v is not None)
     max_can_fit = int(m_eff // 500.0)
 
-    print(f"  M_eff={m_eff:.0f} MB, 500 MB/job → max_fit={max_can_fit}, placed={placed}/6")
+    print(f"  M_eff={m_eff:.0f} MB, 500 MB/job -> max_fit={max_can_fit}, placed={placed}/6")
     assert placed == max_can_fit, (
         f"Expected exactly {max_can_fit} placements given M_eff={m_eff:.0f} MB "
         f"and 500 MB/job; got {placed}"
@@ -317,19 +318,19 @@ def test_partial_vbar_limits_placement():
     print("  PASSED\n")
 
 
-# ── Test 9: All nodes full → jobs remain unscheduled ──────────────────────────
+# ── Test 9: All nodes full -> jobs remain unscheduled ──────────────────────────
 
 def test_all_nodes_full_leaves_jobs_unscheduled():
     """
     When every node's M_eff = 0, the solver cannot place any job.
     All placements should be None.
     """
-    print("TEST 9: All nodes full → jobs unscheduled ...")
+    print("TEST 9: All nodes full -> jobs unscheduled ...")
 
     nodes = []
     for i in range(3):
         n = _node(i, capacity_mb=4_096, os_tax_mb=512)
-        n.used_mb = compute_available_capacity(n)   # M_avail = 0 → M_eff = 0
+        n.used_mb = compute_available_capacity(n)   # M_avail = 0 -> M_eff = 0
         nodes.append(n)
 
     jobs = [_job(f"j{i}") for i in range(5)]
@@ -379,6 +380,153 @@ def test_omega_utilize_score_grows_with_load():
     print("  PASSED\n")
 
 
+# ── Test 11: omega_delay_t formula correctness ────────────────────────────────
+
+def test_omega_delay_formula():
+    """
+    Directly verify that compute_omega produces the correct per-tenant weights.
+
+    W_t = {0: 100, 1: 200, 2: 0}
+    W_bar = (100 + 200 + 0) / 3 = 100.0
+
+    omega_0 = 1 + max(0, (100 - 100) / 100) = 1.000  (at the mean: no boost)
+    omega_1 = 1 + max(0, (200 - 100) / 100) = 2.000  (100 s above mean: 2x weight)
+    omega_2 = 1 + max(0, (  0 - 100) / 100) = 1.000  (below mean: clamped to 1)
+    """
+    print("TEST 11: omega_delay_t formula returns correct values ...")
+
+    W_t = {0: 100.0, 1: 200.0, 2: 0.0}
+    omega = compute_omega(W_t)
+
+    print(f"  W_t={W_t}  W_bar=100.0")
+    print(f"  omega: " + ",  ".join(f"t{t}={omega[t]:.3f}" for t in sorted(omega)))
+
+    assert abs(omega[0] - 1.000) < 1e-9, f"Expected omega_0=1.000, got {omega[0]:.6f}"
+    assert abs(omega[1] - 2.000) < 1e-9, f"Expected omega_1=2.000, got {omega[1]:.6f}"
+    assert abs(omega[2] - 1.000) < 1e-9, f"Expected omega_2=1.000, got {omega[2]:.6f}"
+    print("  PASSED\n")
+
+
+# ── Test 12: Delayed tenant exclusively fills constrained capacity ─────────────
+
+def test_delayed_tenant_fills_capacity():
+    """
+    When node capacity fits exactly 3 jobs and each of two tenants submits 3
+    jobs of equal size, the high-delay tenant should claim all 3 slots.
+
+    Setup:
+      - 1 node, M_cap = 2048 - 256 - 0.10*2048 = 1587 MB
+        -> floor(1587 / 500) = 3 jobs max
+      - W_t = {0: 500, 1: 0}
+        -> W_bar = 250,  omega_0 = 2.0,  omega_1 = 1.0
+      - 3 jobs x 500 MB from tenant 0  +  3 jobs x 500 MB from tenant 1
+
+    Objective coefficient per job:
+      tenant 0: 2.0 * 500 = 1000
+      tenant 1: 1.0 * 500 =  500
+
+    Best feasible solution = 3 x tenant 0  (Z=3000) vs any mix including
+    tenant 1 (Z<=2500), so solver must place all 3 tenant 0 jobs.
+    """
+    print("TEST 12: Delayed tenant exclusively fills constrained capacity ...")
+
+    nodes = [_node(0, capacity_mb=2_048, os_tax_mb=256, cpu_cores=32.0)]
+
+    jobs = (
+        [_job(f"t0_j{i}", tenant_id=0, pred_mem_mb=500.0) for i in range(3)] +
+        [_job(f"t1_j{i}", tenant_id=1, pred_mem_mb=500.0) for i in range(3)]
+    )
+
+    W_t = {0: 500.0, 1: 0.0}   # omega_0=2.0, omega_1=1.0
+
+    placements = solve(jobs=jobs, nodes=nodes, W_t=W_t)
+
+    t0 = sum(1 for j in jobs if j.tenant_id == 0 and placements.get(j.job_id) is not None)
+    t1 = sum(1 for j in jobs if j.tenant_id == 1 and placements.get(j.job_id) is not None)
+
+    print(f"  Placed: tenant 0 = {t0}/3  (omega=2.0),  tenant 1 = {t1}/3  (omega=1.0)")
+    assert t0 + t1 == 3, f"Expected exactly 3 placements (node full), got {t0 + t1}"
+    assert t0 == 3, (
+        f"All 3 slots should go to high-delay tenant 0 (omega=2.0 vs 1.0); "
+        f"got t0={t0}, t1={t1}"
+    )
+    print("  PASSED\n")
+
+
+# ── Test 13: C5 — plan-ahead access control blocks unauthorised nodes ──────────
+
+def test_plan_ahead_access_blocks_node():
+    """
+    C5: when tenant_node_access is provided, a job from tenant t can only
+    land on nodes in A_t.
+
+    Setup:
+      - 3 nodes, all empty, all fit jobs easily
+      - 2 tenants: tenant 0 allowed only [node 0], tenant 1 allowed only [node 1]
+      - 3 jobs from tenant 0, 3 jobs from tenant 1
+
+    Expected:
+      - All tenant 0 jobs land on node 0 (only authorised node)
+      - All tenant 1 jobs land on node 1 (only authorised node)
+      - Node 2 receives nothing (neither tenant is authorised there)
+    """
+    print("TEST 13: C5 plan-ahead access control blocks unauthorised nodes ...")
+
+    nodes = [
+        _node(0, capacity_mb=16_384, os_tax_mb=1_024, cpu_cores=32.0),
+        _node(1, capacity_mb=16_384, os_tax_mb=1_024, cpu_cores=32.0),
+        _node(2, capacity_mb=16_384, os_tax_mb=1_024, cpu_cores=32.0),
+    ]
+
+    jobs = (
+        [_job(f"t0_j{i}", tenant_id=0, pred_mem_mb=500.0) for i in range(3)] +
+        [_job(f"t1_j{i}", tenant_id=1, pred_mem_mb=500.0) for i in range(3)]
+    )
+
+    # Tenant 0 -> node 0 only,  tenant 1 -> node 1 only
+    access = {0: [0], 1: [1]}
+
+    placements = solve(jobs=jobs, nodes=nodes, W_t={}, tenant_node_access=access)
+
+    t0_nodes = {placements[j.job_id] for j in jobs if j.tenant_id == 0 and placements.get(j.job_id) is not None}
+    t1_nodes = {placements[j.job_id] for j in jobs if j.tenant_id == 1 and placements.get(j.job_id) is not None}
+    t0_placed = sum(1 for j in jobs if j.tenant_id == 0 and placements.get(j.job_id) is not None)
+    t1_placed = sum(1 for j in jobs if j.tenant_id == 1 and placements.get(j.job_id) is not None)
+    node2_count = _placed_on(placements, 2)
+
+    print(f"  Tenant 0: {t0_placed}/3 placed, nodes used = {t0_nodes}")
+    print(f"  Tenant 1: {t1_placed}/3 placed, nodes used = {t1_nodes}")
+    print(f"  Node 2 placements: {node2_count} (should be 0)")
+
+    assert t0_placed == 3, f"All 3 tenant 0 jobs should be placed; got {t0_placed}"
+    assert t1_placed == 3, f"All 3 tenant 1 jobs should be placed; got {t1_placed}"
+    assert t0_nodes == {0}, f"Tenant 0 should only use node 0; used {t0_nodes}"
+    assert t1_nodes == {1}, f"Tenant 1 should only use node 1; used {t1_nodes}"
+    assert node2_count == 0, f"Node 2 should receive no jobs; got {node2_count}"
+    print("  PASSED\n")
+
+
+def test_plan_ahead_none_allows_all():
+    """
+    C5 is inactive when tenant_node_access=None (default).
+    All jobs should be placed normally (consolidation onto node 0 first).
+    """
+    print("TEST 14: C5 disabled (None) allows all tenants on all nodes ...")
+
+    nodes = [
+        _node(0, capacity_mb=16_384, os_tax_mb=1_024, cpu_cores=32.0),
+        _node(1, capacity_mb=16_384, os_tax_mb=1_024, cpu_cores=32.0),
+    ]
+    jobs = [_job(f"j{i}", tenant_id=i % 2, pred_mem_mb=500.0) for i in range(4)]
+
+    placements = solve(jobs=jobs, nodes=nodes, W_t={}, tenant_node_access=None)
+
+    placed = sum(1 for v in placements.values() if v is not None)
+    print(f"  Placed: {placed}/4  (no access restriction)")
+    assert placed == 4, f"All 4 jobs should be placed with no access restriction; got {placed}"
+    print("  PASSED\n")
+
+
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -389,7 +537,11 @@ if __name__ == "__main__":
     test_omega_utilize_formula()
     test_cpu_constraint_blocks_node()
     test_overflow_goes_to_node_1_not_node_2()
-    test_partial_vbar_halves_capacity()
+    test_partial_vbar_limits_placement()
     test_all_nodes_full_leaves_jobs_unscheduled()
     test_omega_utilize_score_grows_with_load()
+    test_omega_delay_formula()
+    test_delayed_tenant_fills_capacity()
+    test_plan_ahead_access_blocks_node()
+    test_plan_ahead_none_allows_all()
     print("All tests passed.")

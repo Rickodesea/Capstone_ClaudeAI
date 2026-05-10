@@ -1,0 +1,613 @@
+================================================================================
+PLAN-AHEAD CLUSTER OPTIMIZATION MODEL — SOURCE OF TRUTH
+plan_ahead_source_of_truth.txt
+================================================================================
+EDITING CONVENTION
+  1. To change a symbol, update the GLOSSARY entry first.
+  2. Update every occurrence of that ASCII shorthand in the body below.
+================================================================================
+
+
+GLOSSARY — ASCII shorthand to LaTeX mapping
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ASCII shorthand        LaTeX                                  Description
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Sets
+  T                    \mathcal{T}                            Set of tenants
+  Wi_i                 \mathcal{W}_i                          Set of workloads for tenant i
+  N                    \mathcal{N}                            Set of cluster nodes
+  R                    \mathcal{R}                            Set of resource types (CPU, MEM)
+  H                    \mathcal{H}                            Set of planning time slots
+  Q                    \mathcal{Q}                            Set of QoS classes
+  K_prim               \mathcal{K}                            Set of isolation primitives
+
+  Decision Variables
+  x_ijnt               x_{i,j,n,t}                           Placement: workload j of tenant i on node n at time t
+  y_int                y_{i,n,t}                             Tenant-on-node indicator
+  z_nt                 z_{n,t}                               Node active indicator
+  w_ijkt               w_{i,j,k,t}                           Isolation primitive k selected for workload (i,j) at t
+  m_mig_ijnt           m_{i,j,n,t}^{\text{mig}}              Migration indicator: workload (i,j) arrives at node n at t
+  a_i                  a_i                                   Admission indicator for tenant i
+  e_ijt                e_{i,j,t}                             SLA latency violation slack (>= 0)
+  eps_eff_nt           \varepsilon_{n,t}^{\text{eff}}         Effective per-node SLA risk level
+  xi_ijnkt             \xi_{i,j,n,k,t}                       McCormick linearization of x * w
+  zeta_ijijpjpnt       \zeta_{i,j,i',j',n,t}                 McCormick linearization of x * x (co-location indicator)
+  sigma_fair           \sigma                                 Fairness auxiliary: min satisfaction across tenants
+
+  Parameters — Resource
+  d_ijr                d_{i,j,r}                             Declared resource demand of workload (i,j) for resource r
+  mu_ijr               \mu_{i,j,r}                           Mean predicted resource usage of workload (i,j) for r
+  Sigma_r              \Sigma_r                              Empirical covariance matrix of resource r across workloads
+  C_nr                 C_{n,r}                               Capacity of node n for resource r
+  Q_quota_ir           Q_{i,r}                               Resource quota for tenant i, resource r
+  alpha_oc_r           \alpha_r^{\text{oc}}                  Overcommit ratio for resource r
+
+  Parameters — Pricing and Risk
+  p_ij                 p_{i,j}                               SLA penalty weight for workload (i,j)
+  pi_n                 \pi_n                                 Infrastructure cost per active node-slot
+  pi_bar_i             \bar{\pi}_i                           Revenue from admitting tenant i
+  v_op_i               v_i^{\text{op}}                       Operational cost of serving tenant i
+  eps_i                \varepsilon_i                         SLA risk tolerance for tenant i (Cantelli bound)
+
+  Parameters — Isolation Primitives
+  eta_kr               \eta_{k,r}                            Resource overhead multiplier of primitive k for resource r
+  c_k                  c_k                                   Operational cost premium for primitive k
+  rho_kkp              \rho_{k,k'}                           Residual interference between primitives k and k'
+  tau_iip              \tau_{i,i'}                           Interference tolerance between tenants i and i'
+  k_min_i              k_{\min,i}                            Minimum required isolation primitive level for tenant i
+
+  Parameters — Control Plane
+  omega_etcd_ik        \omega_{i,k}^{\text{etcd}}            etcd write budget consumed by tenant i with primitive k
+  omega_qps_ik         \omega_{i,k}^{\text{qps}}             API-server QPS budget consumed by tenant i with primitive k
+  omega_svc_ik         \omega_{i,k}^{\text{svc}}             Service count budget consumed by tenant i with primitive k
+  B_etcd               B^{\text{etcd}}                       Cluster-wide etcd write budget per time slot
+  B_qps                B^{\text{qps}}                        Cluster-wide API-server QPS budget per time slot
+  B_svc                B^{\text{svc}}                        Cluster-wide service count budget per time slot
+  delta_qps            \delta^{\text{qps}}                   QPS spike per migration event
+  B_qps_churn          B^{\text{qps,churn}}                  Max allowed QPS churn from migrations per time slot
+
+  Parameters — SLA and Migration
+  q_assign_ij          q(i,j)                                QoS class assigned to workload (i,j)
+  L_iq                 L_{i,q}                               Latency target for tenant i, QoS class q (ms)
+  gamma_ij             \gamma_{i,j}                          Migration cost weight for workload (i,j)
+  Delta_i              \Delta_i                              Per-tenant disruption budget (max migrations per slot)
+
+  Parameters — Latency Model
+  l0_ij                l^0_{i,j}                             Base latency for workload (i,j) in isolation (ms)
+  alpha_lat_ijijp      \alpha_{i,j,i',j'}^{\text{lat}}       Co-location interference factor on latency
+  beta_lat_ijk         \beta_{i,j,k}^{\text{lat}}            Primitive overhead on latency for workload (i,j)
+
+  Parameters — Objective
+  lam_s                \lambda_s                             Weight for objective term s (s = 1..5)
+
+  Parameters — Probabilistic Capacity
+  kappa_eps            \kappa(\varepsilon)                   Cantelli one-sided quantile: sqrt((1-eps)/eps)
+  chol_r               L_r                                   Cholesky factor of Sigma_r
+  dom_r_i              r^*_i                                 Dominant resource for tenant i (DRF)
+  s_i                  s_i                                   DRF satisfaction fraction for tenant i
+
+  Output
+  A_t_i                A_t^{(i)}                             Authorised node set for tenant i at time slot t
+                                                             (plan-ahead model output consumed by real-time model)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+================================================================================
+INTRODUCTION
+================================================================================
+
+The plan-ahead model solves a weekly (or multi-day) resource reservation
+problem for a multi-tenant compute cluster. It is run periodically (e.g., once
+per day or once per planning horizon H) and produces a schedule that assigns
+each tenant a set of authorised nodes for each time slot in H.
+
+The real-time optimizer is run every scheduling epoch (e.g., every 60 seconds)
+and places individual jobs. It receives the current time slot's authorised node
+sets (A_t_i) from the plan-ahead output and enforces them via constraint C5.
+
+Pipeline:
+  [Prediction Model] ---> mu_ijr, Sigma_r, d_ijr  (workload profiles)
+  [Operator Config]  ---> C_nr, Q_quota_ir, K_min_i, lam_s, L_iq, ...
+  [Plan-Ahead Model] ---> solves MISOCP once per planning horizon
+                     ---> outputs A_t_i for each tenant i and time slot t
+  [Real-Time Model]  ---> called every epoch; receives A_t_i for current t
+                     ---> enforces C5 (tenant-node access control)
+
+The model simultaneously decides:
+  - Which tenants to admit (a_i)
+  - Where to place each admitted tenant's workloads (x_ijnt)
+  - Which isolation primitive to use (w_ijkt)
+  - How many active nodes to use (z_nt)
+  - When workloads migrate across time slots (m_mig_ijnt)
+
+Tradeoffs encoded in the objective:
+  - Minimise infrastructure cost (fewer active nodes)
+  - Minimise SLA penalty (latency violations)
+  - Maximise admission revenue
+  - Maximise fairness (DRF min-satisfaction)
+  - Minimise isolation overhead and migration cost
+
+
+================================================================================
+§1  DECISION VARIABLES
+================================================================================
+
+  x_ijnt   in {0,1}    Placement: 1 = workload j of tenant i is on node n at t
+  y_int    in {0,1}    Tenant-on-node: 1 = tenant i has at least one workload on n at t
+  z_nt     in {0,1}    Node active: 1 = node n is in use at time t
+  w_ijkt   in {0,1}    Isolation primitive: 1 = primitive k is used for (i,j) at t
+  m_mig_ijnt in {0,1}  Migration: 1 = workload (i,j) moved onto node n at time t
+                        (only meaningful for t >= 1; forced 0 at t=0)
+  a_i      in {0,1}    Admission: 1 = tenant i is admitted in this planning horizon
+  e_ijt    >= 0        SLA slack: excess latency beyond L_{i,q(i,j)} for (i,j) at t
+  eps_eff_nt in [0,1]  Effective node risk: minimum of eps_i across tenants on node n at t
+  xi_ijnkt in {0,1}    McCormick product xi = x_ijnt * w_ijkt   (auxiliary, C4a)
+  zeta_...  in {0,1}   McCormick product zeta = x_ijnt * x_i'j'nt  (auxiliary, C4b)
+  sigma_fair in [0,1]  Fairness: max-min DRF satisfaction across admitted tenants
+
+
+================================================================================
+§2  SETS
+================================================================================
+
+  T        Tenants sharing the cluster: T = {0, 1, ..., |T|-1}
+  Wi_i     Workloads of tenant i: Wi_i = {0, 1, ..., |Wi_i|-1}
+  N        Cluster nodes: N = {0, 1, ..., |N|-1}
+  R        Resource types: R = {CPU=0, MEM=1}
+  H        Planning time slots: H = {0, 1, ..., |H|-1}
+           Each slot represents a planning period (e.g., a 4-hour block)
+  Q        QoS classes: Q = {guaranteed=0, burstable=1}
+  K_prim   Isolation primitives: K_prim = {none=0, gVisor=1, Kata=2}
+
+  wl_pairs  Ordered pairs of distinct workloads (i,j) < (i',j') — used to
+            avoid duplicate co-location variables in zeta.
+
+
+================================================================================
+§3  PARAMETERS
+================================================================================
+
+────────────────────────────────────────
+§3.1  Resource Demand
+────────────────────────────────────────
+
+  d_ijr    Declared resource demand of workload (i,j) for resource r.
+           Used for DRF satisfaction computation (§7.4 fairness term).
+
+  mu_ijr   Mean predicted resource usage of workload (i,j) for resource r.
+           Source: prediction model output (or synthesised from traces).
+           Used in the probabilistic capacity constraint mean load term.
+
+  Sigma_r  Empirical covariance matrix of resource r across all workloads,
+           shape (|Wi_total| x |Wi_total|). Positive semi-definite.
+           Source: prediction model output (estimated from historical data).
+           Used in the SOCP safety buffer term (§6 C2).
+
+  C_nr     Capacity of node n for resource r.
+           Source: MachineEvents table (Google traces) or operator config.
+
+  Q_quota_ir  Resource quota for tenant i, resource r.
+              Used as denominator in DRF satisfaction computation.
+
+  alpha_oc_r  Overcommit ratio for resource r. Capacity may be offered up
+              to alpha_oc_r * C_nr across all workloads on a node.
+              (Currently only C_nr is used as RHS; alpha_oc is available
+              for soft-overcommit extensions.)
+
+────────────────────────────────────────
+§3.2  Pricing and Risk
+────────────────────────────────────────
+
+  p_ij     SLA penalty weight for workload (i,j). Coefficient on e_ijt in
+           the objective. Higher value = costlier SLA violation for this
+           workload.
+
+  pi_n     Infrastructure cost per active node-slot. Coefficient on z_nt
+           in the objective.
+
+  pi_bar_i  Revenue from admitting tenant i (contract value, e.g., billing
+            rate per planning horizon).
+
+  v_op_i   Operational cost of serving tenant i (support, overhead, etc.).
+           Net revenue per tenant = pi_bar_i - v_op_i.
+
+  eps_i    SLA risk tolerance for tenant i — maximum allowable probability
+           of capacity overrun, used in the Cantelli probabilistic bound.
+           Smaller = stricter (more conservative capacity reservation).
+
+────────────────────────────────────────
+§3.3  Isolation Primitives
+────────────────────────────────────────
+
+  Isolation primitives model Kubernetes security isolation mechanisms:
+    k=0  none   : standard Linux namespace isolation
+    k=1  gVisor : user-space kernel (higher overhead, stronger isolation)
+    k=2  Kata   : VM-based containers (moderate overhead, strong isolation)
+
+  eta_kr   Resource overhead multiplier for primitive k on resource r.
+           Effective resource usage = eta_kr * mu_ijr * xi_ijnkt.
+           eta_{0,r} = 1.0 (no overhead for bare containers).
+
+  c_k      Operational cost premium for running primitive k (licensing,
+           compute overhead, etc.).
+
+  rho_kkp  Residual interference between a workload using primitive k and
+           one using k' on the same node. rho in [0,1].
+           rho = 0 : fully isolated (no interference after primitive applied)
+           rho = 1 : no isolation (same as bare metal sharing)
+
+  tau_iip  Maximum acceptable residual interference between tenants i and i'.
+           Constraint C3 enforces rho_kkp <= tau_iip for co-located workloads.
+
+  k_min_i  Minimum isolation primitive level required for tenant i.
+           Tenant compliance requirement (e.g., regulatory mandate for gVisor).
+
+────────────────────────────────────────
+§3.4  Control Plane Budgets
+────────────────────────────────────────
+
+  Control-plane resources (etcd writes, API-server QPS, service count) are
+  shared cluster-wide. Each tenant's workloads consume a per-primitive budget:
+
+  omega_etcd_ik  etcd write operations per workload of tenant i with primitive k.
+  omega_qps_ik   API-server QPS per workload of tenant i with primitive k.
+  omega_svc_ik   Kubernetes service objects per workload of tenant i with primitive k.
+
+  B_etcd       Cluster-wide etcd write budget per time slot.
+  B_qps        Cluster-wide API-server QPS budget per time slot.
+  B_svc        Cluster-wide service count budget per time slot.
+  delta_qps    QPS spike cost per migration event (endpoint churn).
+  B_qps_churn  Maximum allowed migration-induced QPS churn per time slot.
+
+────────────────────────────────────────
+§3.5  SLA and Migration
+────────────────────────────────────────
+
+  q_assign_ij  QoS class for workload (i,j). Determines the latency target L_{i,q}.
+
+  L_iq         Latency SLA target for tenant i, QoS class q (milliseconds).
+               Constraint C5 enforces modelled latency <= L_iq + e_ijt.
+
+  gamma_ij     Migration cost weight for workload (i,j). Multiplied by m_mig
+               in the objective to penalise unnecessary migrations.
+
+  Delta_i      Per-tenant disruption budget — maximum number of workload
+               migrations allowed per time slot.
+
+────────────────────────────────────────
+§3.6  Latency Model
+────────────────────────────────────────
+
+  l0_ij        Base latency for workload (i,j) in isolation (ms).
+               Source: historical measurement or operator estimate.
+
+  alpha_lat_ijijp  Latency increase on workload (i,j) due to co-location with
+                   workload (i',j') on the same node. Modelled linearly via the
+                   co-location indicator zeta.
+
+  beta_lat_ijk     Latency overhead added by isolation primitive k for
+                   workload (i,j) (e.g., gVisor adds syscall overhead).
+
+
+================================================================================
+§4  PROBABILISTIC CAPACITY CONSTRAINT (SOCP)
+================================================================================
+
+The plan-ahead model must guarantee with high probability (confidence level
+1 - eps_i) that resource usage on each node does not exceed capacity. Because
+workload resource usage is stochastic, we apply the Cantelli inequality
+(one-sided Chebyshev) to derive a conservative deterministic bound.
+
+Cantelli quantile factor:
+  kappa_eps = sqrt( (1 - eps) / eps )
+
+  eps = 0.05  ->  kappa = 4.36   (95% confidence)
+  eps = 0.10  ->  kappa = 3.00   (90% confidence)
+
+For each node n, resource r, time slot t, the constraint is:
+
+  MEAN_LOAD_{n,r,t}  +  kappa_eps_nt * || chol_r * xi_vec_{n,r,t} ||_2
+    <=  C_nr * z_nt
+
+where:
+
+  MEAN_LOAD_{n,r,t}  =  SUM{i,j,k} eta_kr * mu_ijr * xi_ijnkt
+
+  xi_vec_{n,r,t}  is the vector of xi_ijnkt values indexed by workload position
+
+  chol_r  =  Cholesky decomposition of Sigma_r (Sigma_r = chol_r * chol_r^T)
+
+  kappa_eps_nt  =  kappa( eps_eff_nt )  where eps_eff_nt is driven down to
+                   the strictest tenant on that node (lowest eps_i among
+                   tenants with y_int = 1).
+
+The L2 norm term || chol_r * xi_vec ||_2 is implemented in Gurobi as a
+second-order cone constraint (SOCP). This makes the overall model a
+Mixed-Integer Second-Order Cone Program (MISOCP).
+
+NOTE on kappa approximation: in the current implementation kappa is computed
+globally using kap_global = kappa( min(eps_i) ), which conservatively applies
+the strictest tenant's requirement to all nodes. A more accurate (less
+conservative) approach would use per-node eps_eff_nt, requiring a piecewise
+approximation since kappa is nonlinear in eps_eff_nt. The global approximation
+is safe (never over-admits) but may under-utilise capacity.
+
+
+================================================================================
+§5  MCCORMICK LINEARIZATIONS
+================================================================================
+
+Two bilinear products of binary variables appear in the model. Both are
+linearized via standard McCormick envelopes, converting the bilinear terms
+into auxiliary binary variables with three linear constraints each.
+
+§5.1  xi_ijnkt = x_ijnt * w_ijkt   (placement AND primitive selection)
+      Used in: capacity constraint mean load, latency primitive overhead.
+
+      xi_ijnkt <= x_ijnt
+      xi_ijnkt <= w_ijkt
+      xi_ijnkt >= x_ijnt + w_ijkt - 1
+
+§5.2  zeta_ijijpjpnt = x_ijnt * x_ipjpnt   (co-location indicator)
+      Defined only for ordered pairs (i,j) < (i',j') to avoid redundancy.
+      Used in: latency interference term, isolation compatibility check.
+
+      zeta <= x_ijnt
+      zeta <= x_ipjpnt
+      zeta >= x_ijnt + x_ipjpnt - 1
+
+
+================================================================================
+§6  CONSTRAINTS
+================================================================================
+
+C1 — Placement integrity:
+
+  SUM{n in N} x_ijnt  <=  a_i      forall i in T, j in Wi_i, t in H
+
+  A workload is placed on at most one node, and only if tenant i is admitted.
+  Link from placement to admission decision.
+
+C1b — Tenant-on-node indicator link:
+
+  y_int  >=  x_ijnt      forall i in T, j in Wi_i, n in N, t in H
+
+  y_int = 1 whenever any workload of tenant i is on node n at t.
+  Used to drive eps_eff_nt down to the strictest tenant on each node.
+
+C1c — Compliance / data residency:
+
+  x_ijnt = 0      forall n not in N_allowed_{ij}, forall t in H
+
+  N_allowed_{ij} is the set of nodes where workload (i,j) may legally run
+  (e.g., data residency, regulatory compliance). Implemented by fixing
+  variables to 0 at model-build time.
+
+C2 — Probabilistic capacity (SOCP):
+
+  MEAN_LOAD_{n,r,t}  +  kap_global * || chol_r * xi_vec_{n,r,t} ||_2
+    <=  C_nr * z_nt
+      forall n in N, r in R, t in H
+
+  (See §4 for full derivation.)
+
+  Also: eps_eff_nt <= eps_i + (1 - y_int)  forall i in T
+        Drives eps_eff_nt down to min(eps_i) of tenants on node n.
+
+C3 — Isolation primitive selection:
+
+C3a — Exactly one primitive per admitted workload per time slot:
+  SUM{k in K_prim} w_ijkt  =  a_i      forall i, j, t
+
+C3b — Compliance floor (minimum primitive level):
+  w_ijkt = 0      forall k < k_min_i, forall j, t
+
+C3c — Co-location compatibility (interference threshold):
+  zeta_ijijpjpnt + w_ijkt + w_ipjpkpt  <=  2
+    forall (i,j,i',j') in wl_pairs, n, t, k, k'
+    where rho_kkp > tau_iip
+  Forces co-located workload pairs from interfering tenants to use
+  sufficiently isolating primitives.
+
+C4 — Control-plane budgets:
+
+C4a — etcd write budget:
+  SUM{i,j,k} omega_etcd_ik * w_ijkt  <=  B_etcd      forall t in H
+
+C4b — API-server QPS:
+  SUM{i,j,k} omega_qps_ik * w_ijkt  <=  B_qps        forall t in H
+
+C4c — Service count:
+  SUM{i,j,k} omega_svc_ik * w_ijkt  <=  B_svc        forall t in H
+
+C4d — Migration-induced QPS churn:
+  SUM{i,j,n} delta_qps * m_mig_ijnt  <=  B_qps_churn  forall t in H
+
+C5 — SLA satisfaction (latency model):
+
+  l0_ij
+  + SUM{(i',j') != (i,j)} alpha_lat_ijijp * SUM{n} zeta_ijijpjpnt
+  + SUM{k} beta_lat_ijk * w_ijkt
+  - e_ijt
+  <=  L_{i, q(i,j)}  +  BIG_M * (1 - a_i)
+      forall i in T, j in Wi_i, t in H
+
+  The BIG_M term deactivates the constraint for rejected tenants (a_i = 0).
+  e_ijt >= 0 absorbs any excess latency; it is penalised in the objective.
+
+C6 — Migration linking and disruption budget:
+
+C6a — At t=0, no migrations possible (no previous state):
+  m_mig_ijnt = 0      forall i, j, n   (when t = 0)
+
+C6b — Migration triggered by relocation (for t >= 1):
+  m_mig_ijnt  >=  x_ijnt - x_ijn,t-1 - (1 - SUM{n' != n} x_ijn'_t-1)
+    forall i, j, n, t >= 1
+
+C6c — Per-tenant disruption budget:
+  SUM{j,n} m_mig_ijnt  <=  Delta_i      forall i in T, t in H
+
+C7 — Fairness (DRF max-min):
+
+  sigma_fair  <=  s_i + (1 - a_i)      forall i in T, t in H
+
+  where s_i = SUM{j,n} d_{i,j,r*_i} * x_ijnt / Q_{i,r*_i}
+  and r*_i = argmax_r { SUM_j d_ijr / Q_quota_ir }   (dominant resource)
+
+  Inactive tenants (a_i = 0) do not drag sigma_fair down via the (1-a_i) term.
+  sigma_fair is maximised in the objective (DRF fairness).
+
+
+================================================================================
+§7  OPTIMIZATION OBJECTIVE
+================================================================================
+
+The model minimizes the following multi-term weighted objective:
+
+  min   lam_1 * INFRA_COST
+      + lam_1 * SLA_PENALTY
+      - lam_2 * ADMISSION_REVENUE
+      - lam_3 * FAIRNESS
+      + lam_4 * ISOLATION_COST
+      + lam_5 * MIGRATION_COST
+
+Where:
+
+INFRA_COST         =  SUM{n,t} pi_n * z_nt
+                      Active node-slots consumed across the planning horizon.
+
+SLA_PENALTY        =  SUM{i,j,t} p_ij * e_ijt
+                      Sum of excess latency weighted by SLA penalty values.
+
+ADMISSION_REVENUE  =  SUM{i} (pi_bar_i - v_op_i) * a_i
+                      Net revenue from admitted tenants.
+
+FAIRNESS           =  sigma_fair
+                      Max-min DRF satisfaction: higher is fairer.
+                      Maximising -(-sigma_fair) = maximising sigma_fair.
+
+ISOLATION_COST     =  SUM{i,j,k,t} c_k * w_ijkt
+                      Overhead from using isolation primitives.
+
+MIGRATION_COST     =  SUM{i,j,n,t} gamma_ij * m_mig_ijnt
+                      Disruption from migrating workloads across slots.
+
+The weights lam_s encode the operator's priority ordering. Typical defaults:
+  lam_1 = 1.0   (infra cost — always active)
+  lam_1 = 10.0  (SLA penalty — high: SLA violations are expensive)
+  lam_2 = 1.0   (admission revenue)
+  lam_3 = 5.0   (fairness — significant weight)
+  lam_4 = 0.5   (isolation cost — minor)
+  lam_5 = 2.0   (migration cost — moderate)
+
+
+================================================================================
+§8  MODEL OUTPUT AND INTERFACE TO REAL-TIME MODEL
+================================================================================
+
+The plan-ahead model's primary output consumed by the real-time model is the
+per-tenant, per-time-slot authorised node set:
+
+  A_t_i  =  { n in N  :  SUM_j x_ijnt >= 1 }
+             for each tenant i in T, for each time slot t in H
+
+This is derived post-solve: for each (i, t) pair, collect the node IDs where
+any workload of tenant i is placed. This gives the set of nodes the real-time
+scheduler should allow tenant i to submit jobs to during time slot t.
+
+Output data structure (Python):
+  TenantAccessSchedule = dict[  tenant_id: int,
+                                 time_slot:  int,
+                              -> node_ids:   list[int]  ]
+
+  e.g. { (0, 0): [2, 3, 4],
+          (0, 1): [2, 3],
+          (1, 0): [0, 1],
+          (1, 1): [0, 1, 4] }
+
+At real-time scheduling epoch t:
+  active_access = { tenant_id: node_ids
+                    for (tenant_id, slot), node_ids in schedule.items()
+                    if slot == current_slot(t) }
+
+  solve(jobs, nodes, W_t, tenant_node_access=active_access)
+
+The real-time model enforces this as constraint C5 (see real-time source of
+truth). Jobs from tenants not in active_access (or with an empty node list)
+are held in the queue — they do not accumulate wait-time penalty because the
+plan-ahead has intentionally not allocated cluster capacity to them at this
+time.
+
+
+================================================================================
+§9  CONNECTION TO GOOGLE CLUSTER-USAGE TRACES v3
+================================================================================
+
+Parameters that can be derived directly from the Google traces:
+
+  mu_ijr          Mean predicted usage -> InstanceUsage.average_usage (CPU, MEM)
+  Sigma_r         Covariance matrix    -> built from InstanceUsage.random_sampled_usage
+                                          (stochastic CPU model) and memory samples
+  d_ijr           Declared demand      -> InstanceEvents.resource_request (CPU, MEM)
+  C_nr            Node capacity        -> MachineEvents.capacity (CPU, MEM)
+  scheduling_class -> maps to QoS class Q (class 3 -> guaranteed, class 0 -> burstable)
+  priority        -> maps to SLA penalty weight p_ij (higher priority -> higher penalty)
+  l0_ij           Base latency         -> synthesised from scheduling_class and priority
+  k_min_i         Isolation floor      -> synthesised from scheduling_class / compliance tier
+
+Parameters that must be synthesised (not directly in traces):
+  pi_n, pi_bar_i, v_op_i   Pricing — operator-defined
+  L_iq                     Latency SLA target — operator SLA contract
+  tau_iip, rho_kkp          Interference model — experimental benchmarks
+  eta_kr                   Primitive overhead — measured from gVisor/Kata benchmarks
+  gamma_ij, Delta_i        Migration policy — operator policy
+  lam_s                    Objective weights — operator priority
+  alpha_oc_r               Overcommit policy — operator config
+
+Temporal patterns:
+  Google traces use 5-minute measurement windows with microsecond timestamps.
+  The plan-ahead model's time slots H correspond to coarser planning windows
+  (e.g., 4-hour blocks). mu_ijr and Sigma_r for each slot are estimated by
+  aggregating trace measurements within that window. The prediction model
+  (teammates' component) performs this aggregation.
+
+
+================================================================================
+§10  COMPLETE MODEL SUMMARY
+================================================================================
+
+Decision variables:
+  x_ijnt, y_int, z_nt, w_ijkt, m_mig_ijnt, a_i     binary
+  e_ijt, eps_eff_nt                                  continuous >= 0
+  xi_ijnkt, zeta_ijijpjpnt                           binary (McCormick auxiliaries)
+  sigma_fair                                         continuous in [0,1]
+
+Objective:
+  min  lam_1 * SUM{n,t} pi_n * z_nt
+     + lam_1 * SUM{i,j,t} p_ij * e_ijt
+     - lam_2 * SUM{i} (pi_bar_i - v_op_i) * a_i
+     - lam_3 * sigma_fair
+     + lam_4 * SUM{i,j,k,t} c_k * w_ijkt
+     + lam_5 * SUM{i,j,n,t} gamma_ij * m_mig_ijnt
+
+Constraints:
+  C1   Placement integrity + admission link
+  C1b  Tenant-on-node indicator
+  C1c  Compliance / data residency
+  C2   Probabilistic capacity (SOCP / Cantelli)
+  C3   Isolation primitive selection (one per workload; floor; compatibility)
+  C4   Control-plane budgets (etcd, QPS, service count, migration churn)
+  C5   SLA satisfaction (linearised latency model with BIG_M)
+  C6   Migration linking and disruption budget
+  C7   DRF fairness (max-min satisfaction)
+  McCormick linearizations for xi and zeta (auxiliary constraints, not numbered)
+
+Solver: Gurobi (MISOCP — Mixed-Integer Second-Order Cone Program)
+  TimeLimit = 300 s,  MIPGap = 1%
+
+Output: TenantAccessSchedule -> passed to real-time model's tenant_node_access parameter
+
+
+================================================================================
+END OF SOURCE OF TRUTH
+================================================================================
