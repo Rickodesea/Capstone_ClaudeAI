@@ -99,7 +99,7 @@ constraint~\ref{c5}.
 
 \paragraph{System pipeline.}
 \[
-  \underbrace{\text{Prediction}}_{\mu_{i,j,r},\,\Sigma_r,\,d_{i,j,r}}
+  \underbrace{\text{Prediction}}_{\mu_{i,j,r},\,\Sigma_r,\,d_{i,j,r},\,N_{i,t}}
   \;\longrightarrow\;
   \underbrace{\text{Plan-Ahead (MISOCP)}}_{\text{Gurobi, once per }\cH}
   \;\longrightarrow\;
@@ -191,12 +191,17 @@ The model simultaneously decides:
   $d_{i,j,r}$   & Declared resource demand of workload $(i,j)$ for resource $r$.
                    Used as the numerator in DRF satisfaction (\S\ref{sec:c7}). \\[4pt]
   $\mu_{i,j,r}$ & Mean predicted resource \emph{usage} of workload $(i,j)$ for
-                   resource $r$.  Estimated from historical traces
-                   (\texttt{InstanceUsage.average\_usage}).
+                   resource $r$ --- expected actual usage per job, averaged over
+                   the planning slot window (e.g.\ a 4-hour block).
+                   \textit{Source: prediction model output --- Workload Profiler}
+                   (from \texttt{InstanceUsage.average\_usage} aggregated to
+                   4-hour windows per workload class per tenant).
                    Used in the probabilistic capacity mean-load term (\S\ref{sec:socp}). \\[4pt]
   $\Sigma_r$    & Empirical covariance matrix of resource $r$ across all workloads,
                    shape $|\cW_{\text{total}}|\times|\cW_{\text{total}}|$, positive
-                   semi-definite.  Estimated from stochastic usage samples.
+                   semi-definite.
+                   \textit{Source: prediction model output} (estimated from
+                   \texttt{InstanceUsage.random\_sampled\_usage}).
                    Used in the SOCP safety-buffer term. \\[4pt]
   $C_{n,r}$     & Capacity of node $n$ for resource $r$
                    (\texttt{MachineEvents.capacity}). \\[4pt]
@@ -210,9 +215,12 @@ The model simultaneously decides:
                    during planning slot $t$.  Used to size $|\cW_i|$ before the
                    model is built: $|\cW_i| = N_{i,t}$ (or the maximum across
                    $t\in\cH$ if a single set is used for all slots).
-                   Derived from trace by counting \texttt{SUBMIT} events per
-                   tenant per 4-hour bucket.  Autopilot-managed workloads are
-                   excluded (their task count is cluster-controlled). \\
+                   \textit{Source: prediction layer --- Job Count Predictor.}
+                   Model type: descriptive statistics or simple regression on
+                   historical \texttt{InstanceEvents} \texttt{SUBMIT} records
+                   per tenant per slot (day-of-week $\times$ time-of-day bucket).
+                   For Autopilot/HPA-managed workloads, estimated from
+                   auto-scaled task counts in the historical trace. \\
   \bottomrule
 \end{longtable}
 
@@ -697,7 +705,7 @@ the tenant is not authorised at the current slot.
   $C_{n,r}$     & \texttt{MachineEvents}   & \texttt{capacity} \\
   $q(i,j)$      & \texttt{InstanceEvents}  & \texttt{scheduling\_class} ($3\to$ guaranteed, $0\to$ burstable) \\
   $p_{i,j}$     & \texttt{InstanceEvents}  & \texttt{priority} (higher $\to$ higher penalty) \\
-  $N_{i,t}$     & \texttt{CollectionEvents}& \texttt{SUBMIT} event count per \texttt{user} per 4-hour bucket \\
+  $N_{i,t}$     & \texttt{InstanceEvents}  & \texttt{SUBMIT} event count per tenant per 4-hour time-of-day bucket (prediction layer input) \\
   \bottomrule
 \end{tabular}
 \end{center}

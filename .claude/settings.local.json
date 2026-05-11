@@ -37,7 +37,8 @@
       "Bash(python generate_op_model_overview.py)",
       "Bash(Remove-Item *)",
       "Bash(python test_plan_ahead.py)",
-      "Bash(Get-ChildItem C:\\\\Users\\\\alric\\\\Documents\\\\Spring2026\\\\Capstone_ClaudeAI *)"
+      "Bash(Get-ChildItem C:\\\\Users\\\\alric\\\\Documents\\\\Spring2026\\\\Capstone_ClaudeAI *)",
+      "Bash(dir \"C:\\\\Users\\\\alric\\\\Documents\\\\Spring2026\\\\Capstone_ClaudeAI\" /b)"
     ],
     "deny": [],
     "ask": []
