@@ -41,6 +41,13 @@ ASCII shorthand        LaTeX                                  Description
   C_nr                 C_{n,r}                               Capacity of node n for resource r
   Q_quota_ir           Q_{i,r}                               Resource quota for tenant i, resource r
   alpha_oc_r           \alpha_r^{\text{oc}}                  Overcommit ratio for resource r
+  N_it                 N_{i,t}                               Expected number of active jobs (tasks) for tenant i
+                                                             during planning slot t.
+                                                             Source: prediction layer (job-count predictor).
+                                                             Used to size Wi_i before solving: the set Wi_i for
+                                                             slot t is populated with N_it representative workloads
+                                                             for tenant i, each carrying historical mean d_ijr and
+                                                             mu_ijr for that tenant's workload class and time slot.
 
   Parameters — Pricing and Risk
   p_ij                 p_{i,j}                               SLA penalty weight for workload (i,j)
@@ -172,16 +179,44 @@ Tradeoffs encoded in the objective:
 ────────────────────────────────────────
 
   d_ijr    Declared resource demand of workload (i,j) for resource r.
+           This is the per-job (per-task) resource request declared by the
+           tenant at submission time. All jobs within the same workload
+           (collection) typically carry the same d_ijr.
+           Source: instance_events.resource_request in Google traces.
            Used for DRF satisfaction computation (§7.4 fairness term).
 
   mu_ijr   Mean predicted resource usage of workload (i,j) for resource r.
-           Source: prediction model output (or synthesised from traces).
+           This is the expected ACTUAL usage per job, averaged over the
+           planning slot's time window (e.g., a 4-hour block). Predicted
+           from historical instance_usage aggregated to 4-hour windows per
+           workload class per tenant.
+           Source: prediction model output — Workload Profiler.
            Used in the probabilistic capacity constraint mean load term.
 
   Sigma_r  Empirical covariance matrix of resource r across all workloads,
            shape (|Wi_total| x |Wi_total|). Positive semi-definite.
            Source: prediction model output (estimated from historical data).
            Used in the SOCP safety buffer term (§6 C2).
+
+  N_it     Expected number of active jobs (tasks) for tenant i during
+           planning slot t. Used in the pre-solve step to populate Wi_i:
+           the set of workloads Wi_i for time slot t is constructed from
+           N_it representative jobs, each assigned d_ijr and mu_ijr derived
+           from the historical mean for that tenant's workload class.
+
+           The tenant specifies task count at workload submission time;
+           N_it is the prediction of that count before submission, based on
+           historical submission patterns (e.g., average tasks submitted per
+           tenant per day-of-week and time-of-day bucket).
+
+           Source: prediction layer — Job Count Predictor.
+           Model type: descriptive statistics or simple regression on
+           historical instance_events SUBMIT records per tenant per slot.
+
+           Note: For tenants using Borg Autopilot or Kubernetes HPA/VPA,
+           the cluster may auto-scale task count — N_it should then be
+           estimated from the auto-scaled counts in the historical trace
+           (look for vertical_scaling field in collection_events).
 
   C_nr     Capacity of node n for resource r.
            Source: MachineEvents table (Google traces) or operator config.
@@ -557,9 +592,15 @@ time.
 Parameters that can be derived directly from the Google traces:
 
   mu_ijr          Mean predicted usage -> InstanceUsage.average_usage (CPU, MEM)
+                                          aggregated to 4-hour planning windows per
+                                          workload class per tenant
   Sigma_r         Covariance matrix    -> built from InstanceUsage.random_sampled_usage
                                           (stochastic CPU model) and memory samples
   d_ijr           Declared demand      -> InstanceEvents.resource_request (CPU, MEM)
+                                          NOTE: per job (per task), not per collection total
+  N_it            Job count forecast   -> count of InstanceEvents.SUBMIT records per tenant
+                                          per 4-hour time-of-day bucket, from historical trace.
+                                          Used to size Wi_i before each plan-ahead solve.
   C_nr            Node capacity        -> MachineEvents.capacity (CPU, MEM)
   scheduling_class -> maps to QoS class Q (class 3 -> guaranteed, class 0 -> burstable)
   priority        -> maps to SLA penalty weight p_ij (higher priority -> higher penalty)

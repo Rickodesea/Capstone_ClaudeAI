@@ -24,3 +24,5 @@ Thumbs.db
 
 # Local output / generated exports
 dump/
+
+*/.env

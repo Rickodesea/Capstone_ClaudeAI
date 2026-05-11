@@ -71,13 +71,14 @@ def wl_index(all_wl: list[tuple[int, int]], i: int, j: int) -> int:
 # ── Synthetic data generation ────────────────────────────────────────────────
 
 def build_synthetic_data(
-    seed:                   int   = 42,
-    n_tenants:              int   = 3,
-    n_workloads_per_tenant: int   = 2,
-    n_nodes:                int   = 4,
-    n_time_slots:           int   = 2,
-    node_capacity:          float = 10.0,
-    sla_eps:                float = 0.05,
+    seed:                    int   = 42,
+    n_tenants:               int   = 3,
+    n_workloads_per_tenant:  int   = 2,
+    n_nodes:                 int   = 4,
+    n_time_slots:            int   = 2,
+    node_capacity:           float = 10.0,
+    sla_eps:                 float = 0.05,
+    n_collections_per_tenant: int  = 5,
 ) -> dict:
     """Return a parameter dict for a synthetic instance of given size.
 
@@ -98,6 +99,14 @@ def build_synthetic_data(
     T  = list(range(n_tenants))
     Wi = {i: list(range(n_workloads_per_tenant)) for i in T}
     N  = list(range(n_nodes))
+
+    # Collection metadata: each workload belongs to one of n_collections_per_tenant
+    # distinct collection types.  Multiple workloads may share the same collection_id
+    # (same binary, different running copies).  The prediction layer uses coll_id to
+    # select the collection-specific model for P_mem_j.
+    C_i    = {i: n_collections_per_tenant for i in T}
+    coll_id = {(i, j): int(rng.integers(0, n_collections_per_tenant))
+               for i in T for j in Wi[i]}
     R  = list(range(2))                          # resources: 0=CPU, 1=MEM
     H  = list(range(n_time_slots))               # time periods
     Q  = list(range(2))                          # QoS: 0=guaranteed, 1=burstable
@@ -195,8 +204,16 @@ def build_synthetic_data(
     # lam[5] = migration cost weight
     lam = {0: 1.0, 1: 10.0, 2: 1.0, 3: 5.0, 4: 0.5, 5: 2.0}
 
+    # --- Job-count forecast per tenant per time slot -------------------------
+    # N_it[(i, t)] = expected number of active jobs for tenant i at slot t.
+    # In production this is derived from CollectionEvents SUBMIT counts per
+    # tenant per 4-hour bucket.  Synthetic value equals n_workloads_per_tenant
+    # for all (i, t) (constant profile across the horizon).
+    N_it = {(i, t): n_workloads_per_tenant for i in T for t in H}
+
     return dict(
         T=T, Wi=Wi, N=N, R=R, H=H, Q=Q, K=K,
+        C_i=C_i, coll_id=coll_id,
         all_wl=all_wl, n_wl=n_wl,
         d=d, mu=mu, Sigma=Sigma,
         C=C, Q_quota=Q_quota, alpha_oc=alpha_oc,
@@ -209,4 +226,5 @@ def build_synthetic_data(
         N_allowed=N_allowed,
         l0=l0, alpha_lat=alpha_lat, beta_lat=beta_lat,
         lam=lam,
+        N_it=N_it,
     )

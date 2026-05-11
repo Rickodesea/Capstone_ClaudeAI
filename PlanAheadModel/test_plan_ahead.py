@@ -275,6 +275,58 @@ def test_admitted_tenant_in_schedule():
                     f"{[schedule[(i,t)] for t in H]})")
 
 
+# ── Test 14: N_it present with correct keys ───────────────────────────────
+
+def test_N_it_shape():
+    """N_it must be in the data dict with keys {(i, t) for i in T for t in H}."""
+    T, H = _P['T'], _P['H']
+    expected_keys = {(i, t) for i in T for t in H}
+
+    has_key = 'N_it' in _P
+    _assert(has_key, "N_it key present in data dict")
+    if not has_key:
+        return
+
+    actual_keys = set(_P['N_it'].keys())
+    keys_match = actual_keys == expected_keys
+    _assert(keys_match,
+            f"N_it has correct (tenant, slot) keys "
+            f"(expected {len(expected_keys)}, got {len(actual_keys)})")
+
+    all_positive = all(v > 0 for v in _P['N_it'].values())
+    _assert(all_positive, "all N_it values are positive integers")
+
+
+# ── Test 15: coll_id shape and range ──────────────────────────────────────
+
+def test_coll_id_shape():
+    """coll_id must cover all (tenant, workload) pairs with values in [0, C_i[i])."""
+    T, Wi = _P['T'], _P['Wi']
+    expected_keys = {(i, j) for i in T for j in Wi[i]}
+
+    has_key = 'coll_id' in _P
+    _assert(has_key, "coll_id key present in data dict")
+    if not has_key:
+        return
+
+    actual_keys = set(_P['coll_id'].keys())
+    _assert(actual_keys == expected_keys,
+            f"coll_id has correct (tenant, workload) keys "
+            f"(expected {len(expected_keys)}, got {len(actual_keys)})")
+
+    in_range = all(
+        0 <= v < _P['C_i'][i]
+        for (i, _j), v in _P['coll_id'].items()
+    )
+    _assert(in_range, "all coll_id values in [0, C_i[i])")
+
+    has_c_i = 'C_i' in _P
+    _assert(has_c_i, "C_i key present in data dict")
+    if has_c_i:
+        all_pos = all(v > 0 for v in _P['C_i'].values())
+        _assert(all_pos, "all C_i values are positive")
+
+
 # ── Entry point ─────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -294,6 +346,8 @@ if __name__ == "__main__":
     test_rejected_tenant_has_no_placement()
     test_tenant_access_schedule_format()
     test_admitted_tenant_in_schedule()
+    test_N_it_shape()
+    test_coll_id_shape()
 
     print("=" * 50)
     print(f"Results: {_passed} passed, {_failed} failed")

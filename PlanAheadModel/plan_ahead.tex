@@ -205,7 +205,14 @@ The model simultaneously decides:
                    Set to $C_{\cdot,r}/2$ in the current implementation. \\[4pt]
   $\alpha_r^{\text{oc}}$ & Overcommit ratio for resource $r$.  Available for
                    soft-overcommit extensions; currently only $C_{n,r}$ is used
-                   as the RHS capacity. \\
+                   as the RHS capacity. \\[4pt]
+  $N_{i,t}$      & Expected number of active jobs (workloads) for tenant $i$
+                   during planning slot $t$.  Used to size $|\cW_i|$ before the
+                   model is built: $|\cW_i| = N_{i,t}$ (or the maximum across
+                   $t\in\cH$ if a single set is used for all slots).
+                   Derived from trace by counting \texttt{SUBMIT} events per
+                   tenant per 4-hour bucket.  Autopilot-managed workloads are
+                   excluded (their task count is cluster-controlled). \\
   \bottomrule
 \end{longtable}
 
@@ -686,10 +693,11 @@ the tenant is not authorised at the current slot.
   \midrule
   $\mu_{i,j,r}$  & \texttt{InstanceUsage}   & \texttt{average\_usage} \\
   $\Sigma_r$     & \texttt{InstanceUsage}   & \texttt{random\_sampled\_usage} \\
-  $d_{i,j,r}$   & \texttt{InstanceEvents}  & \texttt{resource\_request} \\
+  $d_{i,j,r}$   & \texttt{InstanceEvents}  & \texttt{resource\_request} (per task, not per collection) \\
   $C_{n,r}$     & \texttt{MachineEvents}   & \texttt{capacity} \\
   $q(i,j)$      & \texttt{InstanceEvents}  & \texttt{scheduling\_class} ($3\to$ guaranteed, $0\to$ burstable) \\
   $p_{i,j}$     & \texttt{InstanceEvents}  & \texttt{priority} (higher $\to$ higher penalty) \\
+  $N_{i,t}$     & \texttt{CollectionEvents}& \texttt{SUBMIT} event count per \texttt{user} per 4-hour bucket \\
   \bottomrule
 \end{tabular}
 \end{center}

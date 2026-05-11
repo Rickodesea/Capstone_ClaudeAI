@@ -1,0 +1,374 @@
+================================================================================
+PREDICTION TEAM SLIDES — TEXT EXTRACTION
+Source: LSTM_baseline_May11.pptx
+Extracted: 2026-05-11
+================================================================================
+
+=== SLIDE 1: TITLE ===
+CAPSTONE PRESENTATION — Predictive Layer
+LSTM Master Table · Google Cluster Trace v3
+Multi-Tenant Kubernetes Scheduler | May 2026
+
+=== SLIDE 2: AGENDA ===
+Predictive Layer — LSTM Master Table
+1. Dataset Schema
+2. Dataset Extraction
+3. EDA
+4. Baseline LSTM model
+
+=== SLIDE 3: SECTION HEADER ===
+Final Master Table — 24 Columns
+★ = Primary LSTM prediction targets
+
+=== SLIDE 4: DATASET OVERVIEW ===
+What is it?
+One row per 5-minute telemetry window per container instance.
+It combines resource usage measurements with scheduling context, tenant identity,
+and declared resource limits — all required by the LSTM prediction layer and the
+multi-objective optimiser.
+
+What is it for?
+- Predict: future avg_cpu and avg_mem sequences per instance (lookback 12 steps, horizon 6 steps)
+- Classify: instance risk profile — stable vs. at-risk — via a Random Forest classifier
+- Optimise: pod placement across three objectives: memory utilisation · fairness · SLA compliance
+
+Extraction Pipeline:
+  Raw tables: instance_usage · instance_events · collection_events
+  CTEs 1–6 (filters & enrichment):
+    CTE 1: Eligibility (stable instances)
+    CTE 2: LOST exclusion
+    CTE 3: Terminal type
+    CTE 4: Requests (declared resources)
+    CTE 5: Tenant mapping
+    CTE 6: Usage quality gate
+  Quality gate: First-pass sequence floor ≥ 12 windows · zero-CPU filter
+  Final SELECT: 24 columns — Full instance-level telemetry + all enrichments
+  Mode A: Full GCS | Mode B: Sample CSV
+
+=== SLIDE 5: WHY INSTANCE-LEVEL GRAIN? ===
+The problem with job-level aggregation:
+  Inst 0: avg_mem = 0.010  (safe)
+  Inst 1: avg_mem = 0.011  (safe)
+  Inst 2: avg_mem = 0.028  ⚠ near limit 0.029
+  Job-level average: avg_mem = 0.0163 ✓ appears safe
+  → Instance 2 is 96% of its memory limit — at risk of OOM kill — but invisible in the job average.
+
+The instance-level solution:
+  1. LSTM predicts per-instance sequences
+  2. Inst 2 peak memory predicted → OOM risk flagged
+  3. Predictions aggregated by collection_id
+  4. Job footprint = SUM(cpu) · MAX(memory) across instances
+  5. Optimiser schedules with full risk visibility
+
+Justification quote from slides:
+"A job in the Google trace can contain hundreds of individual container instances, each running on
+a different machine with its own distinct CPU and memory consumption pattern — two instances
+within the same job can behave completely differently depending on their assigned workload, their
+position in a distributed pipeline, or the machine they land on. Aggregating to the job level would
+average out these differences and produce a single smoothed signal that misrepresents what any
+individual container actually consumes, making the predictions useless for the scheduler, which
+must make placement decisions at the container level. Taking the job-level maximum instead of
+the mean is not a solution either, because it would force the scheduler to treat every instance as
+if it were the most resource-hungry instance in the job, systematically over-provisioning memory
+across all nodes and directly undermining the memory utilisation objective the optimiser is designed
+to maximise — replacing one distortion with an even more conservative one that defeats the
+purpose of forecasting altogether. The optimiser needs to know how much memory each individual
+pod will demand on a specific node, not what the job consumes on average or at its peak across
+all nodes, so forecasting at the instance level is the only grain that directly feeds actionable
+scheduling decisions."
+
+=== SLIDE 6: ERD ===
+[Entity-Relationship Diagram — visual only, not extracted]
+
+=== SLIDE 7–8: CTE 1 — stable_instances (instance_events) ===
+Source: instance_events
+Join type: INNER JOIN
+
+What this step does:
+- Requires a SCHEDULE event (type=3) — instance must have been assigned to a node and started running
+- Zero termination events (types EVICT, FAIL, FINISH, KILL) within the full week window
+  → any termination removes ALL usage rows for that instance; no partial sequences survive
+- Exclusion: "LOST" (unreliable telemetry)
+- Instances that fail this check are excluded at the identifier level before usage rows are retrieved
+
+Why: Guarantees every sequence in the master table is temporally continuous.
+The LSTM cannot learn from broken sequences — a container that was evicted mid-window produces
+an artificial drop that is a scheduling event, not a consumption pattern.
+
+Approach 1 vs Approach 2 note:
+- Approach 2 rule: instance must both start AND terminate within the observation window
+  → Structural consequence: long-running production services (never terminate in a week) are 100% excluded
+  → EDA shows 58.7% of Approach 2's instances are unusable with a 12-step lookback
+- Approach 1 rule (chosen): require SCHEDULE event but ZERO termination events during the window
+  → Keeps long-running services in the dataset (these are the most important for the scheduler)
+  → Trade-off: lose observed lifecycle conclusion, gain representative training population
+  → terminal_type column partially compensates (records how instance eventually ended)
+
+=== SLIDE 9: CTE 2 — lost_instances (instance_events) ===
+Source: instance_events
+Join type: ANTI-JOIN
+
+What this step does:
+- Targets only LOST events (type=8) — instances whose termination record is missing
+- Applied as explicit anti-join: any instance appearing in this list is excluded from final output
+- Makes the exclusion auditable in query logic
+
+Why: LOST instances have unreliable telemetry. Training on broken sequences corrupts the LSTM.
+
+Example output row:
+  collection_id: 88200912 | instance_index: 14
+
+=== SLIDE 10: CTE 3 — terminal_info (instance_events) ===
+Source: instance_events
+Join type: LEFT JOIN
+
+What this step does:
+- Captures terminal event type for each instance: EVICT (4), FAIL/OOM (5), FINISH (6), KILL (7)
+- Instances still running past week end have terminal_type = NULL (valid — long-running stable services)
+- New column not in prior approaches
+
+Why: terminal_type is the label used by the Random Forest classifier to distinguish:
+  - Stable instances (FINISH)
+  - At-risk instances (EVICT, FAIL, KILL)
+  Without requiring failure-mode sequences in the LSTM training data.
+
+Example output row:
+  collection_id: 160102691 | inst_idx: 431 | terminal_time: 589.2B µs | terminal_type: 4 (EVICT)
+
+=== SLIDE 11: CTE 4 — inst_requests (instance_events) ===
+Source: instance_events
+Join type: LEFT JOIN
+
+What this step does:
+- Reads SUBMIT events (type=0) — the moment a user declares CPU and memory the container needs
+- req_cpu (EDA correlation 0.50 with max_cpu) and req_memory define the overcommitment headroom
+- scheduling_class and priority captured here
+
+Scheduling classes:
+  - Class 3 (latency-sensitive): requires tighter LSTM prediction intervals
+  - Class 0–2 (batch): more tolerance
+
+Why: These declarations are the upper bounds — the instance may be throttled (CPU) or killed (memory)
+if it exceeds them.
+
+=== SLIDE 12: UNDERSTANDING scheduling_class ===
+"The Google cluster runs two fundamentally different populations:
+1. Short transactional (batch) jobs: arrive, burst for a few minutes, disappear from the trace
+2. Long-running services (e.g., API servers): run continuously for days or months,
+   appearing across thousands of 5-minute windows"
+This explains why some jobs appear 'alive' during long periods.
+
+=== SLIDE 13: CTE 5 — tenant_map (collection_events) ===
+Source: collection_events
+Join type: INNER JOIN
+
+What this step does:
+- Reads collection-level SUBMIT events — only place where hashed tenant identifier (user field) is reliably populated
+- Excludes alloc sets (alloc_collection_id IS NULL) — infrastructure reservations, not real tenant workloads
+- user field required for: fairness objective AND stratified train/val/test split
+
+EDA finding: Top tenant accounts for ~61% of all jobs.
+Without per-tenant stratified splitting, the LSTM overfits to the dominant tenant's consumption pattern
+and performs poorly on minority tenants — the ones most at risk of unfair scheduling.
+
+=== SLIDE 14–15: CTE 6 — usage_quality (instance_usage) ===
+Source: instance_usage
+Join type: INNER JOIN
+
+What this step does:
+- First-pass sequence floor: COUNT(*) ≥ 12 windows (minimum 1 hour of observed behavior)
+- Zero-CPU filter: AVG(average_usage.cpus) > 0.000001 NCU — removes ghost containers
+
+Note: This is Pass 1 of a two-pass floor.
+Pass 2 runs in Python after gap detection — each piece of a split sequence independently re-checked.
+A piece below 12 windows after a gap split is discarded, even if original had hundreds of windows.
+
+Why 12 windows (not higher)?
+- At 24 windows: only 36.9% of instances survive
+- At 48 windows: roughly 30% survive
+- At 100 windows: only 27.1% survive
+- At 12 windows: 42.1% survive
+12 windows chosen as lowest defensible floor — retains diversity, preserves short burst jobs AND
+long-running services.
+
+=== SLIDES 16–23: EDA FINDINGS ===
+General:
+- Dataset is nearly perfect quality: 0 duplicates, 0 negative durations, only 0.12% missing values
+
+Most Important Findings:
+1. 100% sequence usability — All 794 instances meet the 12-window minimum; ~1.009M training pairs available
+2. No FINISH events — 97.1% KILL, 0% FINISH (instances were killed, not gracefully finished)
+3. Extreme CPU overprovisioning — Median instance uses only 7% of declared CPU; massive optimization opportunity
+
+=== SLIDE 24: FINAL MASTER TABLE — 24 COLUMNS ===
+[Visual table — two categories noted: OPTIMISER OUTPUTS and DIAGNOSTIC ONLY]
+
+=== SLIDE 25: READING ONE ROW — EXAMPLE ===
+collection_id=201428 · instance_index=30 · start_time=600,000,000 µs · sub_seq_id=0
+avg_cpu=0.0412 · avg_mem=0.0219 · max_cpu=0.0645 · req_memory=0.0293
+scheduling_class=3 · priority=120 · terminal_type=6 · user=mNk3pQrZ...
+
+Field meanings:
+  collection_id = 201428   → unique job identifier; all instances of this job share this ID
+  instance_index = 30      → 31st container within that job (0-based)
+  start_time = 600,000,000 µs → first measurement in the trace
+  sub_seq_id = 0           → no monitoring gap detected; first continuous piece
+  avg_cpu = 0.0412 NCU     → 4.1% of max machine CPU during this 5-minute window
+  avg_mem = 0.0219         → 2.2% of max machine memory; well within declared limit of 2.9%
+  max_cpu = 0.0645         → peak CPU 6.5% — burst ratio ~1.6x the average
+  scheduling_class = 3     → latency-sensitive workload; tightest LSTM prediction intervals
+  priority = 120           → Production tier — will not be preempted
+  terminal_type = 6        → eventually FINISH (stable) — labelled stable by RF classifier
+
+=== SLIDE 26: NEXT STEPS IN THE PIPELINE ===
+01 Preprocessing:
+  - Forward-fill p90_cpu · p95_cpu · page_cache_memory
+  - Engineer true_app_memory = avg_mem − page_cache_memory
+  - Min-max normalise per sequence · construct lookback/horizon tensors
+  - Stratify train / val / test split by user (tenant) 70 / 15 / 15
+
+02 LSTM Baseline Training:
+  - Train on Week 1 (days 1–7, Cell A)
+  - Predict avg_cpu and avg_mem sequences (horizon = 6 steps)
+  - Derive peaks · P90 · P95 · variance from predicted sequences
+  - Evaluate per-tenant and per-scheduling-class prediction error
+
+03 Optimisation + Evaluation:
+  - Feed LSTM predictions into multi-objective optimiser
+  - Test on Week 2 (days 8–14 — held-out, never seen during training)
+  - Report: memory utilisation · scheduling fairness · SLA violations
+  - Academic comparison: instance-level vs. job-level forecasting baseline
+
+Dataset location: gs://capstone-cluster-lstm/winner_dataset/week1_final/
+
+=== SLIDE 27: LSTM PIPELINE OVERVIEW ===
+Step 1: Load Data
+  Source: winner_sample_v1.csv (~1M rows, 5-min intervals)
+Step 2: Feature Engineering
+  - true_app_memory = avg_mem − page_cache_memory
+  - sin/cos time encoding
+Step 3: Build Sequences
+  - Lookback: 144 steps (12h)
+  - Horizon: 6 steps (30 min)
+Step 4: Train LSTM
+  - 2 LSTM layers + dropout
+  - Tenant-aware split
+Step 5: Evaluate
+  - MAE, RMSE, SMAPE, R²
+  - Per-target metrics
+Step 6: Output
+  - optimizer_lstm_predictions.csv
+  - Job-level aggregation
+
+=== SLIDE 28: FEATURE ENGINEERING & DESIGN CHOICES ===
+Selected LSTM Inputs:
+  avg_cpu / avg_mem         → Primary targets & input history
+  p90_cpu                   → Burst/spike intensity signal
+  assigned_memory           → Memory headroom signal
+  page_cache_memory         → Reclaimable cache estimation
+  true_app_memory           → avg_mem − page_cache_memory (novel feature)
+  scheduling_class          → Workload priority/sensitivity
+  sin_time / cos_time       → Cyclical time encoding
+
+Key Design Decisions:
+  true_app_memory: Page cache is reclaimable by the OS. Subtracting it gives more accurate
+    view of real application memory pressure for overcommitment.
+  Cyclical Time (sin/cos): 23:00 and 00:00 are numerically distant but temporally adjacent.
+    sin/cos encoding preserves cyclical continuity for LSTM.
+  Leakage Prevention: Excluded terminal_type, terminal_time, max_mem, p95_cpu
+    (contain future information — would give model unfair advantage)
+  Tenant-Aware Split: Training and testing never share tenants.
+
+=== SLIDE 29: MODEL ARCHITECTURE & TRAINING ===
+Architecture:
+  Input → (12h × features) → LSTM Layer 1 → LSTM Layer 2 → Dropout → Dense Output (CPU+Mem × 6)
+
+Sequence Design:
+  Lookback: 144 steps = 12 hours of history
+  Horizon:  6 steps  = 30 minutes ahead
+  "Given 12h of CPU/memory behavior, predict the next 30 min"
+
+Why 12-hour lookback?
+  ✓ Captures trends, spikes & usage cycles
+  ✓ Computationally efficient vs 24–48h windows
+  ✓ Avoids outdated data noise from longer histories
+
+Outputs per instance: avg_cpu · avg_mem · predicted_peak · predicted_p90/p95 · predicted_cpu_variance · predicted_mem_variance
+→ Then: Job-level aggregation
+
+=== SLIDE 30: OPTIMIZER-READY OUTPUTS & JOB-LEVEL AGGREGATION ===
+Flow:
+  Instance A → CPU/Mem forecast
+  Instance B → CPU/Mem forecast
+  Instance C → CPU/Mem forecast
+  Instance D → CPU/Mem forecast
+  → aggregate by job →
+  Job-Level Footprint:
+    predicted_avg_cpu
+    predicted_avg_mem
+    predicted_peak_cpu
+    predicted_peak_mem
+    predicted_p90_cpu
+    predicted_p95_mem
+  → Optimization Scheduler (smart resource allocation, safe memory overcommitment, SLA-aware scheduling)
+
+Output file: optimizer_lstm_predictions.csv
+Grouped by: collection_id + target_start_time
+References: Borg (2015), Dominant Resource Fairness, Heracles
+
+=== SLIDE 31: OPTIMIZER-READY OUTPUT FORMULAS ===
+1. Instance-Level Summary from 6-Step Forecast:
+  For each instance, LSTM predicts: t+5, t+10, t+15, t+20, t+25, t+30
+
+  predicted_avg_cpu      = mean(predicted_cpu_6_steps)
+  predicted_peak_cpu     = max(predicted_cpu_6_steps)
+  predicted_p90_cpu      = 90th percentile(predicted_cpu_6_steps)
+  predicted_cpu_variance = variance(predicted_cpu_6_steps)
+
+  predicted_avg_mem      = mean(predicted_mem_6_steps)
+  predicted_peak_mem     = max(predicted_mem_6_steps)
+  predicted_p95_mem      = 95th percentile(predicted_mem_6_steps)
+  predicted_mem_variance = variance(predicted_mem_6_steps)
+
+2. Job-Level Resource Footprints (aggregate across instances of same collection_id):
+  cpu_footprint      = SUM(predicted_avg_cpu   across instances)
+  mem_footprint      = MAX(predicted_avg_mem   across instances)  ← NOTE: uses avg_mem, not peak_mem
+  p90_cpu_footprint  = SUM(predicted_p90_cpu   across instances)
+  p95_mem_footprint  = MAX(predicted_p95_mem   across instances)
+
+=== SLIDE 32: MODEL EVALUATION RESULTS ===
+Memory Prediction (avg_mem) — STRONG PERFORMANCE:
+  R²:     0.727 (strong fit)
+  MAE:    0.000765 (very low error)
+  SMAPE:  37.2% (moderate %)
+  Summary: High R² (0.73) confirms model captures memory variability and temporal patterns.
+           Low MAE and Median AE (0.000279) indicate stable, consistent predictions.
+           Suitable for safe overcommitment and SLA-aware scheduling.
+
+CPU Prediction (avg_cpu) — CHALLENGING:
+  R²:     0.088 (weak fit)
+  MAE:    0.003189 (moderate error)
+  SMAPE:  100.9% (very high %)
+  Summary: Low R² (0.09) indicates model struggles with CPU variability.
+           CPU workloads are bursty, irregular, and low-magnitude — fundamentally harder.
+           SMAPE of 100%+ is expected for near-zero CPU time series.
+
+=== SLIDE 33: FORECAST EXAMPLES ===
+Memory — Collection 380B: Good prediction
+CPU — Collection 414B: Poor prediction
+CPU — Collection 374B: Moderate prediction
+Memory — Collection 893B: Diverging prediction
+
+=== SLIDE 34–35: COMPARISON WITH RELATED WORK ===
+Compared against Alshboul et al.
+
+Our Differentiators:
+  ✓ EDA-driven feature engineering: Used correlation analysis to remove redundant features
+    (e.g. max_mem ≈ avg_mem, r=0.98)
+  ✓ Leakage prevention: Strict exclusion of terminal_type, terminal_time, and future-derived columns
+  ✓ true_app_memory: Novel feature capturing real memory pressure after page cache subtraction
+  ✓ Tenant-aware split + optimizer outputs: Prevents tenant leakage; exports P90/P95/variance for scheduling
+
+================================================================================
+END OF SLIDE EXTRACTION
+================================================================================

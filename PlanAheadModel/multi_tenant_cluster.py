@@ -21,7 +21,7 @@ model = gp.Model(env = env)
 # 1.  SYNTHETIC DATA  (replace with real inputs)
 # ---------------------------------------------------------------------------
 
-def build_synthetic_data():
+def build_synthetic_data(n_collections_per_tenant: int = 5):
     params = {
         "WLSACCESSID": "fc17fa3a-ef7f-41d2-b95c-20c3b221a483",
         "WLSSECRET": "6bee54d1-5c9f-4f12-9d64-0c7b16e0dd52",
@@ -38,6 +38,12 @@ def build_synthetic_data():
     T  = list(range(3))          # tenants
     Wi = {i: list(range(2)) for i in T}   # 2 workloads per tenant
     N  = list(range(4))          # nodes
+
+    # Collection metadata: each workload is randomly assigned to one of
+    # n_collections_per_tenant distinct collection types.
+    C_i     = {i: n_collections_per_tenant for i in T}
+    coll_id = {(i, j): int(rng.integers(0, n_collections_per_tenant))
+               for i in T for j in Wi[i]}
     R  = list(range(2))          # resources: 0=CPU, 1=MEM
     H  = list(range(2))          # time periods
     Q  = list(range(2))          # QoS classes: 0=guaranteed, 1=burstable
@@ -121,6 +127,7 @@ def build_synthetic_data():
 
     return dict(
         T=T, Wi=Wi, N=N, R=R, H=H, Q=Q, K=K,
+        C_i=C_i, coll_id=coll_id,
         all_wl=all_wl, n_wl=n_wl,
         d=d, mu=mu, Sigma=Sigma,
         C=C, Q_quota=Q_quota, alpha_oc=alpha_oc,
