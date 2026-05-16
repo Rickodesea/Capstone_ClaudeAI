@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-slate-950 text-slate-100 font-mono;
+  overflow: hidden;
+}
+
+/* Smooth memory bar transitions */
+.mem-bar-fill {
+  transition: width 0.4s ease-out;
+}
+
+/* Thin scrollbar for job queue */
+.queue-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+.queue-scroll::-webkit-scrollbar-track {
+  @apply bg-slate-900;
+}
+.queue-scroll::-webkit-scrollbar-thumb {
+  @apply bg-slate-600 rounded;
+}
+
+/* Tenant color borders */
+.tenant-0 { border-color: #22c55e; }
+.tenant-1 { border-color: #3b82f6; }
+.tenant-2 { border-color: #f59e0b; }
+.tenant-3 { border-color: #a855f7; }
+.tenant-4 { border-color: #ec4899; }
+
+.tenant-bg-0 { background-color: #22c55e22; }
+.tenant-bg-1 { background-color: #3b82f622; }
+.tenant-bg-2 { background-color: #f59e0b22; }

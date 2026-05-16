@@ -1,0 +1,14 @@
+To run right now:
+  # Terminal 1 — backend
+  cd demo/api
+  pip install -r requirements.txt
+  uvicorn main:app --reload --port 8000
+
+  # Terminal 2 — frontend
+  cd demo/frontend
+  npm install
+  npm run dev
+  # open http://localhost:5173
+
+=======================================================
+
