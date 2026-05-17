@@ -7,6 +7,7 @@ Endpoints:
     GET  /api/state   → current simulation state (JSON)
     POST /api/step    → advance one scheduling epoch, return new state
     POST /api/reset   → restart simulation from scratch
+    POST /api/config  → stage config changes (applied on next reset)
 
 Run with:
     cd demo/api
@@ -37,8 +38,9 @@ from simulation_data import (
 from plan_ahead_mock import generate_plan_ahead
 
 # ── Config ─────────────────────────────────────────────────────────────────────
-PLAN_AHEAD_INTERVAL: int = 50    # steps between plan-ahead runs (real value = 10_080)
-MEM_HISTORY_SIZE:    int = 80    # rolling window for memory wave graph
+PLAN_AHEAD_INTERVAL:     int = 50   # steps between plan-ahead runs (horizon length)
+PLAN_AHEAD_ACCESS_PERIOD: int = 4   # intervals per time slot
+MEM_HISTORY_SIZE:        int = 80   # rolling window for memory wave graph
 
 # ── Application ────────────────────────────────────────────────────────────────
 app = FastAPI(title="Cluster Scheduler Demo API")
@@ -55,16 +57,30 @@ app.add_middleware(
 
 class _SimState:
     def __init__(self) -> None:
-        self.manager            = ClusterManager(seed=42, verbose=False, log_file=None)
-        self.interval:    int   = 0
-        self.mem_history: list  = []
+        self.manager              = ClusterManager(seed=42, verbose=False, log_file=None)
+        self.interval:      int   = 0
+        self.mem_history:   list  = []
+        self.eff_history:   list  = []
         self.placed_history: list = []
         self.recent_placements: list = []
-        self.last_plan_ahead:   dict | None = generate_plan_ahead(NUM_TENANTS, NUM_NODES, 0)
-        self.plan_ahead_interval: int = PLAN_AHEAD_INTERVAL
+        self.plan_ahead_interval:     int = PLAN_AHEAD_INTERVAL
+        self.plan_ahead_access_period: int = PLAN_AHEAD_ACCESS_PERIOD
+        self.last_plan_ahead: dict | None = generate_plan_ahead(
+            NUM_TENANTS, NUM_NODES, 0,
+            plan_ahead_horizon=PLAN_AHEAD_INTERVAL,
+            access_period=PLAN_AHEAD_ACCESS_PERIOD,
+        )
 
 
 _state = _SimState()
+
+_pending_config: dict = {}
+
+@app.post("/api/config")
+def update_config(body: dict) -> dict:
+    """Stage config changes; applied on next POST /api/reset."""
+    _pending_config.update(body)
+    return {"ok": True, "pending": dict(_pending_config)}
 
 
 # ── Prediction stub ─────────────────────────────────────────────────────────────
@@ -121,7 +137,7 @@ def _serialize(state: _SimState) -> dict:
     nodes = []
     for n in cm.nodes:
         m_cap = compute_available_capacity(n)
-        vrate = compute_violation_rate(n.violation_history, cm._k_window)
+        vrate = compute_violation_rate(n.overflow_history, cm._k_window)
         nodes.append({
             "node_id":       n.node_id,
             "capacity_mb":   n.capacity_mb,
@@ -132,6 +148,8 @@ def _serialize(state: _SimState) -> dict:
             "eff_pct":       round((n.used_mb / max(1.0, m_cap)) * 100, 1),
             "cpu_cores":      n.cpu_cores,
             "violation_rate": round(vrate, 3),
+            "viols_count":   sum(n.overflow_history[-cm._k_window:]),   # used_mb > m_cap (soft)
+            "pme_count":     sum(n.violation_history[-cm._k_window:]),  # used_mb > capacity_mb (hard)
             "running_jobs":  node_jobs[n.node_id],
         })
 
@@ -147,6 +165,27 @@ def _serialize(state: _SimState) -> dict:
         if state.interval % state.plan_ahead_interval != 0 or state.interval == 0
         else 0
     )
+
+    # Per-tenant: currently running job node IDs and authorized nodes from plan-ahead
+    tenant_running: dict[int, list[int]] = {}
+    for rj in cm._running_jobs:
+        t = rj.job.tenant_id
+        if t not in tenant_running:
+            tenant_running[t] = []
+        if rj.node_id not in tenant_running[t]:
+            tenant_running[t].append(rj.node_id)
+
+    tenants_info = []
+    for t in range(NUM_TENANTS):
+        slot = str(state.last_plan_ahead.get("current_slot", 0)) if state.last_plan_ahead else "0"
+        ts   = state.last_plan_ahead.get("tenant_schedule", {}) if state.last_plan_ahead else {}
+        auth = ts.get(str(t), {}).get(slot, [])
+        tenants_info.append({
+            "tenant_id":        t,
+            "avg_wait_sec":     round(cm.W_t.get(t, 0.0), 2),
+            "active_node_ids":  sorted(tenant_running.get(t, [])),
+            "authorized_nodes": auth,
+        })
 
     return {
         "interval":             state.interval,
@@ -164,8 +203,10 @@ def _serialize(state: _SimState) -> dict:
             "longest_wait_intervals":   longest_wait,
             "intervals_to_plan_ahead":  intervals_to_plan_ahead,
         },
-        "mem_history":    state.mem_history[-MEM_HISTORY_SIZE:],
+        "mem_history":  state.mem_history[-MEM_HISTORY_SIZE:],
+        "eff_history":  state.eff_history[-MEM_HISTORY_SIZE:],
         "placed_history": state.placed_history[-MEM_HISTORY_SIZE:],
+        "tenants":      tenants_info,
     }
 
 
@@ -199,14 +240,19 @@ def step() -> dict:
         for k in (after_keys - before_keys)
     ]
 
-    # Rolling history for wave and placed-jobs charts
+    # Rolling history for wave charts
     _state.mem_history.append(round(result.avg_phys_mem_pct, 2))
+    _state.eff_history.append(round(result.avg_eff_mem_pct, 2))
     _state.placed_history.append(result.jobs_placed)
 
     # Plan-ahead trigger — only fire at the interval boundary
     new_plan_ahead = None
     if _state.interval > 0 and _state.interval % _state.plan_ahead_interval == 0:
-        new_plan_ahead = generate_plan_ahead(NUM_TENANTS, NUM_NODES, _state.interval)
+        new_plan_ahead = generate_plan_ahead(
+            NUM_TENANTS, NUM_NODES, _state.interval,
+            plan_ahead_horizon=_state.plan_ahead_interval,
+            access_period=_state.plan_ahead_access_period,
+        )
         _state.last_plan_ahead = new_plan_ahead
 
     # Override plan_ahead in response: only non-null when newly triggered this step
@@ -217,10 +263,32 @@ def step() -> dict:
 
 @app.post("/api/reset")
 def reset() -> dict:
-    _state.manager              = ClusterManager(seed=42, verbose=False, log_file=None)
-    _state.interval             = 0
-    _state.mem_history          = []
-    _state.placed_history       = []
-    _state.recent_placements    = []
-    _state.last_plan_ahead      = generate_plan_ahead(NUM_TENANTS, NUM_NODES, 0)
+    global PLAN_AHEAD_INTERVAL, PLAN_AHEAD_ACCESS_PERIOD
+
+    # Apply staged config changes
+    jobs_per_round = _pending_config.get("jobs_per_round", None)
+    k_window       = _pending_config.get("k_window", None)
+
+    if "plan_ahead_interval" in _pending_config:
+        PLAN_AHEAD_INTERVAL = int(_pending_config["plan_ahead_interval"])
+    if "access_period" in _pending_config:
+        PLAN_AHEAD_ACCESS_PERIOD = int(_pending_config["access_period"])
+
+    _state.manager = ClusterManager(
+        seed=42, verbose=False, log_file=None,
+        jobs_per_round=jobs_per_round,
+        k_window=k_window,
+    )
+    _state.interval              = 0
+    _state.mem_history           = []
+    _state.eff_history           = []
+    _state.placed_history        = []
+    _state.recent_placements     = []
+    _state.plan_ahead_interval   = PLAN_AHEAD_INTERVAL
+    _state.plan_ahead_access_period = PLAN_AHEAD_ACCESS_PERIOD
+    _state.last_plan_ahead       = generate_plan_ahead(
+        NUM_TENANTS, NUM_NODES, 0,
+        plan_ahead_horizon=PLAN_AHEAD_INTERVAL,
+        access_period=PLAN_AHEAD_ACCESS_PERIOD,
+    )
     return _serialize(_state)

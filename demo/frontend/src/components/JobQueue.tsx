@@ -17,15 +17,6 @@ export function JobQueue({ queue, recentPlacements }: Props) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800 shrink-0">
-        <span className="text-[11px] font-bold text-slate-300 uppercase tracking-widest">
-          Queue
-        </span>
-        <span className="text-[11px] text-slate-500 tabular-nums">
-          {queue.length} pending
-        </span>
-      </div>
-
       <div className="flex-1 overflow-y-auto queue-scroll px-2 py-1 space-y-1 min-h-0">
         <AnimatePresence initial={false}>
           {displayQueue.map((job) => {
@@ -67,9 +58,6 @@ export function JobQueue({ queue, recentPlacements }: Props) {
                   <span className="flex items-center gap-0.5">
                     <HardDrive size={9} className="text-slate-600" />
                     {job.pred_mem_mb.toFixed(0)} MB
-                  </span>
-                  <span className="text-slate-700 text-[9px]">
-                    req {job.req_mem_mb.toFixed(0)}
                   </span>
                 </div>
 

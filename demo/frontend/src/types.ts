@@ -25,6 +25,8 @@ export interface NodeInfo {
   mem_pct: number
   eff_pct: number
   violation_rate: number
+  viols_count: number   // used_mb > m_cap (soft / schedulable ceiling)
+  pme_count: number     // used_mb > capacity_mb (physical memory exceeded)
   running_jobs: RunningJobInfo[]
 }
 
@@ -35,22 +37,26 @@ export interface PlacedJob {
   pred_mem_mb: number
 }
 
-export interface HeatmapCell {
-  tenant_id: number
-  node_id: number
-  intensity: number
-  authorized: boolean
-}
-
 export interface PlanAheadResult {
   interval: number
-  tenant_node_access: Record<string, number[]>
-  heatmap: HeatmapCell[]
+  num_slots: number
+  access_period: number
+  planning_horizon: number
+  slot_labels: string[]
+  tenant_schedule: Record<string, Record<string, number[]>>
+  current_slot: number
   summary: {
     avg_nodes_per_tenant: number
     isolation_score: number
     week_number: number
   }
+}
+
+export interface TenantInfo {
+  tenant_id: number
+  avg_wait_sec: number
+  active_node_ids: number[]
+  authorized_nodes: number[]
 }
 
 export interface HUDData {
@@ -72,7 +78,9 @@ export interface SimState {
   plan_ahead: PlanAheadResult | null
   hud: HUDData
   mem_history: number[]
+  eff_history: number[]
   placed_history: number[]
+  tenants: TenantInfo[]
 }
 
 export const TENANT_COLORS: Record<number, string> = {
@@ -84,9 +92,9 @@ export const TENANT_COLORS: Record<number, string> = {
 }
 
 export const TENANT_NAMES: Record<number, string> = {
-  0: 'T-Alpha',
-  1: 'T-Beta',
-  2: 'T-Gamma',
-  3: 'T-Delta',
-  4: 'T-Epsilon',
+  0: 'T-1A',
+  1: 'T-1B',
+  2: 'T-1C',
+  3: 'T-1D',
+  4: 'T-1E',
 }

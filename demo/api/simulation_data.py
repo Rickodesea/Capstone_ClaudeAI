@@ -127,6 +127,7 @@ class NodeState:
     cpu_cores:         float = 0.0
     used_mb:           float = 0.0
     threshold_frac:    float = 0.10
+    overflow_history:  list  = field(default_factory=list)
     violation_history: list  = field(default_factory=list)
 
 

@@ -291,6 +291,7 @@ class ClusterManager:
         jobs = generate_jobs(batch_id, num_jobs=self._jobs_per_round, rng=self.rng)
         for j in jobs:
             j.arrival_timestamp = self.sim_time
+            j.arrival_round = batch_id + 1  # staged this step, arrive at interval batch_id+1
         return jobs
 
     def _expire_jobs(self) -> int:
@@ -311,14 +312,16 @@ class ClusterManager:
         violations = 0
 
         for n in self.nodes:
-            n.used_mb = used[n.node_id]
-            m_cap     = compute_available_capacity(n)
-            in_violation = n.used_mb > m_cap
+            n.used_mb    = used[n.node_id]
+            m_cap        = compute_available_capacity(n)
+            in_overflow  = n.used_mb > m_cap          # soft: exceeds schedulable capacity
+            in_violation = n.used_mb > n.capacity_mb  # hard: exceeds physical RAM
 
             if record_history:
+                n.overflow_history.append(in_overflow)
                 n.violation_history.append(in_violation)
 
-            if in_violation:
+            if in_overflow:
                 violations += 1
 
         return violations
