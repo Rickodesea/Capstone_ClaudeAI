@@ -3,16 +3,18 @@ pipeline/interface.py
 ──────────────────────
 End-to-end pipeline connecting the three model layers:
 
-  1. Synthesis / prediction  — build_synthetic_data() generates resource
-     demand, mean usage, and covariance matching Google cluster-usage traces v3.
+  1. Synthesis / prediction  — build_synthetic_data() generates tenant usage
+     profiles u[i,h] as placeholders for the prediction layer output.
 
-  2. Plan-ahead MISOCP (Gurobi) — solves the periodic scheduling problem over
-     the planning horizon H.  Decides which tenants are admitted and which nodes
-     each tenant is authorised to use per time slot.
-     Output: TenantAccessSchedule = dict[(tenant_id, t) -> list[node_id]]
+  2. Plan-ahead MILP (Gurobi) — solves the periodic scheduling problem over
+     the planning horizon H.  Decides which tenants are admitted and which
+     nodes each tenant is prioritised on per planning period.
+     Output: TenantAccessSchedule = dict[(tenant_id, h) -> list[node_id]]
+     This is a priority hint, not a hard access constraint.
 
   3. Real-time MILP / heuristic (OR-Tools) — one call per scheduling round.
-     Receives tenant_node_access from the plan-ahead and enforces constraint C5.
+     Receives tenant_node_access from the plan-ahead and applies PRIORITY_BOOST
+     to objective coefficients.  All nodes remain accessible.
 
 Usage
 ─────
@@ -40,6 +42,7 @@ from gurobipy import GRB
 
 import optimizer_google_or as rt_module
 from simulation_data import Job, NodeState
+from tenant_priority import sort_by_plan_priority
 
 from pipeline_configs import SAMPLES, PipelineConfig
 
@@ -50,10 +53,10 @@ from pipeline_configs import SAMPLES, PipelineConfig
 
 @dataclass
 class TenantLease:
-    """A single reservation grant from the plan-ahead model.
+    """A single priority grant from the plan-ahead model.
 
-    Represents: "tenant_id may use authorised_nodes during [start_slot, end_slot)."
-    Contiguous slots with the same node set are merged into one lease.
+    Represents: "tenant_id is prioritised on authorised_nodes during [start, end)."
+    Contiguous periods with the same node set are merged into one lease.
     """
     tenant_id:        int
     authorised_nodes: list[int]
@@ -67,11 +70,11 @@ class TenantLease:
 @dataclass
 class TenantSchedule:
     """Full plan-ahead output: raw schedule + derived lease list."""
-    schedule:   dict[tuple[int, int], list[int]]   # (tenant_id, slot) -> [node_id]
-    leases:     list[TenantLease]
-    tenant_ids: list[int]
-    time_slots: list[int]
-    node_ids:   list[int]
+    schedule:    dict[tuple[int, int], list[int]]   # (tenant_id, period) -> [node_id]
+    leases:      list[TenantLease]
+    tenant_ids:  list[int]
+    time_slots:  list[int]
+    node_ids:    list[int]
 
 
 # ============================================================================
@@ -85,7 +88,7 @@ def schedule_to_leases(
 ) -> list[TenantLease]:
     """Convert TenantAccessSchedule to a compact list of TenantLease tuples.
 
-    Contiguous slots with the same node set are merged into one lease.
+    Contiguous periods with the same node set are merged into one lease.
     """
     leases: list[TenantLease] = []
     for i in tenant_ids:
@@ -107,11 +110,11 @@ def filter_active_access(
     schedule: dict[tuple[int, int], list[int]],
     time_t:   int,
 ) -> dict[int, list[int]]:
-    """Slice TenantAccessSchedule to a single time slot.
+    """Slice TenantAccessSchedule to a single planning period.
 
     Returns dict[tenant_id -> list[node_id]] for tenants with at least
-    one authorised node at time_t.  Passed directly as tenant_node_access
-    to the real-time solve() call.
+    one priority node at time_t.  Passed as tenant_node_access to the
+    real-time solve() call for priority boosting.
     """
     return {tenant: nodes
             for (tenant, t), nodes in schedule.items()
@@ -137,12 +140,12 @@ def _make_realtime_nodes(node_ids: list[int]) -> list[NodeState]:
 
 
 def _make_realtime_jobs(
-    slot:       int,
-    admitted:   list[int],
-    n_jobs:     int,
-    rng:        np.random.Generator,
+    slot:     int,
+    admitted: list[int],
+    n_jobs:   int,
+    rng:      np.random.Generator,
 ) -> list[Job]:
-    """Generate real-time jobs for admitted tenants in the given slot."""
+    """Generate real-time jobs for admitted tenants in the given period."""
     jobs = []
     for k in range(n_jobs):
         tenant   = admitted[k % len(admitted)]
@@ -174,43 +177,39 @@ def run_pipeline(cfg: PipelineConfig) -> None:
     # ── Layer 1: Synthesis / prediction ───────────────────────────────────
     _banner(f"LAYER 1  Synthesis / prediction  [{cfg.name}]")
     P = build_synthetic_data(
-        seed                   = cfg.seed,
-        n_tenants              = cfg.n_tenants,
-        n_workloads_per_tenant = cfg.n_workloads_per_tenant,
-        n_nodes                = cfg.n_nodes,
-        n_time_slots           = cfg.n_time_slots,
-        node_capacity          = cfg.node_capacity,
-        sla_eps                = cfg.sla_eps,
+        seed             = cfg.seed,
+        n_tenants        = cfg.n_tenants,
+        n_nodes          = cfg.n_nodes,
+        n_time_slots     = cfg.n_time_slots,
+        node_capacity    = cfg.node_capacity,
+        tenant_usage_min = cfg.tenant_usage_min,
+        tenant_usage_max = cfg.tenant_usage_max,
     )
-    last_t = P['T'][-1]
-    last_j = P['Wi'][last_t][-1]
-    print(f"  Tenants:    {len(P['T'])}  ({P['T'][0]}..{P['T'][-1]})")
-    print(f"  Nodes:      {len(P['N'])}  ({P['N'][0]}..{P['N'][-1]})")
-    print(f"  Time slots: {len(P['H'])}")
-    print(f"  Workloads:  {len(P['all_wl'])} total  "
-          f"({cfg.n_workloads_per_tenant} per tenant)")
-    print(f"  Compliance: wl({last_t},{last_j}) restricted to "
-          f"nodes {P['N_allowed'][(last_t, last_j)]}")
-    print(f"  Node capacity:    {cfg.node_capacity}  |  "
-          f"SLA eps: {cfg.sla_eps}  (kappa ~ "
-          f"{(((1-cfg.sla_eps)/cfg.sla_eps)**0.5):.2f})")
+    print(f"  Tenants:         {len(P['T'])}  ({P['T'][0]}..{P['T'][-1]})")
+    print(f"  Nodes:           {len(P['N'])}  ({P['N'][0]}..{P['N'][-1]})")
+    print(f"  Planning periods:{len(P['H'])}")
+    print(f"  Node capacity:   {cfg.node_capacity}")
+    print(f"  Usage range:     [{cfg.tenant_usage_min}, {cfg.tenant_usage_max}] (capacity units)")
     print(f"  Real-time solver: {cfg.realtime_solver}  "
-          f"({cfg.n_jobs_per_slot} jobs/slot)")
+          f"({cfg.n_jobs_per_slot} jobs/period)")
+    print()
+    print("  Tenant usage profiles u[i,h]:")
+    for i in P['T']:
+        row = "  ".join(f"h{h}:{P['u'][i,h]:.2f}" for h in P['H'])
+        print(f"    tenant {i}: {row}")
 
-    # ── Layer 2: Plan-ahead MISOCP ────────────────────────────────────────
-    _banner("LAYER 2  Plan-ahead MISOCP  (Gurobi)")
+    # ── Layer 2: Plan-ahead MILP ──────────────────────────────────────────
+    _banner("LAYER 2  Plan-ahead MILP  (Gurobi)")
     env   = make_gurobi_env()
     model, vars_ = build_model(P, env)
     model.Params.TimeLimit    = cfg.plan_time_limit
     model.Params.MIPGap       = cfg.plan_mip_gap
-    # Show Gurobi log for medium/high so progress is visible during long solves.
-    # Sample 1 is fast enough that the log is noise; suppress it there.
     model.Params.LogToConsole = 0 if cfg.plan_time_limit <= 60 else 1
 
-    print(f"  Solving MISOCP  (time limit: {cfg.plan_time_limit}s, "
+    print(f"  Solving MILP  (time limit: {cfg.plan_time_limit}s, "
           f"gap target: {cfg.plan_mip_gap*100:.0f}%)  ...")
-    print(f"  Workloads: {len(P['all_wl'])}  |  "
-          f"Nodes: {len(P['N'])}  |  Slots: {len(P['H'])}", flush=True)
+    print(f"  Tenants: {len(P['T'])}  |  Nodes: {len(P['N'])}  |  "
+          f"Periods: {len(P['H'])}", flush=True)
     model.optimize()
 
     status_str = {2: "OPTIMAL", 9: "TIME_LIMIT", 13: "SUBOPTIMAL"}.get(
@@ -220,10 +219,10 @@ def run_pipeline(cfg: PipelineConfig) -> None:
         print(f"  Plan-ahead infeasible ({status_str}). Aborting.")
         return
 
-    print(f"  Status:       {status_str}")
-    print(f"  Objective:    {model.ObjVal:.4f}")
-    print(f"  Fairness sigma: {vars_['sigma'].X:.4f}")
-    print(f"  MIP gap:      {model.MIPGap * 100:.2f}%")
+    print(f"  Status:           {status_str}")
+    print(f"  Objective:        {model.ObjVal:.4f}")
+    print(f"  Fairness sigma:   {vars_['sigma'].X:.4f}")
+    print(f"  MIP gap:          {model.MIPGap * 100:.2f}%")
     print()
 
     a = vars_['a']
@@ -233,7 +232,7 @@ def run_pipeline(cfg: PipelineConfig) -> None:
     print(f"  Rejected ({len(rejected)}): {rejected}")
 
     # ── Layer 3: TenantAccessSchedule ─────────────────────────────────────
-    _banner("LAYER 3  TenantAccessSchedule  (plan-ahead output)")
+    _banner("LAYER 3  TenantAccessSchedule  (priority hints from plan-ahead)")
     raw_schedule = extract_tenant_access_schedule(vars_, P)
     leases       = schedule_to_leases(raw_schedule, P['T'], P['H'])
     ts = TenantSchedule(
@@ -241,31 +240,30 @@ def run_pipeline(cfg: PipelineConfig) -> None:
         tenant_ids=P['T'], time_slots=P['H'], node_ids=P['N'],
     )
 
-    print("  Raw schedule  (tenant, slot) -> authorised nodes:")
-    for (tenant, slot), nodes in sorted(ts.schedule.items()):
-        if nodes:
-            print(f"    tenant={tenant:>3}  t={slot}  nodes={nodes}")
+    print("  Raw schedule  (tenant, period) -> priority nodes:")
+    for (tenant, period), nodes in sorted(ts.schedule.items()):
+        print(f"    tenant={tenant:>3}  h={period}  priority_nodes={nodes}")
 
     print()
-    print("  Lease view  (tenant, node_set, start_slot, end_slot):")
+    print("  Lease view  (tenant, node_set, start_period, end_period):")
     for lease in ts.leases:
         if lease.authorised_nodes:
             print(f"    tenant={lease.tenant_id:>3}  "
                   f"nodes={lease.authorised_nodes}  "
-                  f"slots=[{lease.start_slot}, {lease.end_slot})")
+                  f"periods=[{lease.start_slot}, {lease.end_slot})")
 
-    # ── Layer 4+5: Real-time scheduling per slot ──────────────────────────
+    # ── Layer 4+5: Real-time scheduling per period ────────────────────────
     rt_module.SOLVER_ID = cfg.realtime_solver
     realtime_nodes = _make_realtime_nodes(P['N'])
 
     for t in P['H']:
-        _banner(f"LAYER 4+5  Real-time scheduling  (slot t={t}  "
+        _banner(f"LAYER 4+5  Real-time scheduling  (period h={t}  "
                 f"solver={cfg.realtime_solver})")
 
         tenant_node_access = filter_active_access(ts.schedule, t)
-        print(f"  Access constraints (t={t}):")
+        print(f"  Priority hints (h={t})  [boost={rt_module.PRIORITY_BOOST}x]:")
         for tenant, nodes in sorted(tenant_node_access.items()):
-            print(f"    tenant {tenant:>3} -> nodes {nodes}")
+            print(f"    tenant {tenant:>3} -> priority nodes {nodes}")
         print()
 
         if not admitted:
@@ -273,8 +271,12 @@ def run_pipeline(cfg: PipelineConfig) -> None:
             continue
 
         jobs = _make_realtime_jobs(t, admitted, cfg.n_jobs_per_slot, rng)
+
+        # Sort queue: plan-ahead prioritised tenants first
+        sorted_jobs = sort_by_plan_priority(jobs, tenant_node_access)
+
         placements = rt_module.solve(
-            jobs               = jobs,
+            jobs               = sorted_jobs,
             nodes              = realtime_nodes,
             W_t                = {},
             tenant_node_access = tenant_node_access,

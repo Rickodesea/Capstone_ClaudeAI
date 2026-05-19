@@ -79,6 +79,7 @@ from simulation_data import (
     REQUEST_MEM_MIN_MB, REQUEST_MEM_MAX_MB,
 )
 from optimizer_google_or import solve
+from tenant_priority import sort_by_plan_priority
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -305,9 +306,20 @@ class ClusterManager:
     # Public API
     # ─────────────────────────────────────────────────────────────────────────
 
-    def run(self, num_batches: int) -> SimulationResult:
+    def run(
+        self,
+        num_batches:        int,
+        tenant_node_access: dict[int, list[int]] | None = None,
+    ) -> SimulationResult:
         """
         Run the simulation for num_batches scheduling epochs.
+
+        Parameters
+        ----------
+        num_batches        : number of scheduling epochs
+        tenant_node_access : plan-ahead priority map — tenant_id -> [node_ids].
+                             Used to sort the queue and boost objective weights.
+                             Pass None to run without plan-ahead (default).
 
         Each batch:
           1. Advance the simulated clock by BATCH_DURATION_SEC.
@@ -335,7 +347,7 @@ class ClusterManager:
 
         try:
             for batch_id in range(num_batches):
-                result = self._run_batch(batch_id)
+                result = self._run_batch(batch_id, tenant_node_access)
                 batch_results.append(result)
                 if self.verbose:
                     self._print_batch(result)
@@ -389,7 +401,11 @@ class ClusterManager:
     # Internal: batch execution
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _run_batch(self, batch_id: int) -> BatchResult:
+    def _run_batch(
+        self,
+        batch_id:           int,
+        tenant_node_access: dict[int, list[int]] | None = None,
+    ) -> BatchResult:
         """Execute one scheduling epoch and return its statistics."""
 
         # ── Step 1: Advance simulated clock ───────────────────────────────
@@ -457,15 +473,19 @@ class ClusterManager:
             #   W_t         : W̄_t         — per-tenant average wait (→ ω_t weights)
             #
             # The solver returns: job_id → node_id | None
-            queue_slice = sorted(
-                self.job_queue, key=lambda j: j.arrival_round
-            )[:MAX_JOBS_PER_SOLVE]
+            # Sort by arrival (FIFO), then promote plan-ahead-prioritised tenants
+            # to the front of the slice so they are more likely to be included
+            # when MAX_JOBS_PER_SOLVE caps the window.
+            fifo_queue  = sorted(self.job_queue, key=lambda j: j.arrival_round)
+            priority_queue = sort_by_plan_priority(fifo_queue, tenant_node_access)
+            queue_slice = priority_queue[:MAX_JOBS_PER_SOLVE]
 
             placements = solve(
-                jobs  = queue_slice,
-                nodes = self.nodes,
-                W_t   = self.W_t,
-                K     = self._k_window,
+                jobs               = queue_slice,
+                nodes              = self.nodes,
+                W_t                = self.W_t,
+                K                  = self._k_window,
+                tenant_node_access = tenant_node_access,
             )
             solver_calls += 1
             self._log_solve_result(solver_calls, queue_slice, placements)

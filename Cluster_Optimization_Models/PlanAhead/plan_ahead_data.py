@@ -2,18 +2,28 @@
 plan_ahead_data.py
 ──────────────────
 Configuration, Gurobi environment initialisation, and synthetic data
-generation for the plan-ahead MISOCP.
+generation for the plan-ahead MILP.
 
-Mathematical model reference: plan_ahead_source_of_truth.txt
+The model forecasts which nodes each tenant should be prioritised on for
+each planning period h ∈ H.  Individual workloads are not modelled: each
+tenant i has a usage profile u[i,h] that estimates total resource consumption
+in period h.  This is a placeholder for a prediction layer; in production
+u[i,h] comes from historical cluster-usage traces.
+
+Assignment output is a priority hint (not a hard constraint).  The real-time
+model receives y[i,n,h] and uses it to boost objective coefficients — not to
+block node access.
 """
 
 from __future__ import annotations
 
+import math
 import os
 from pathlib import Path
 
 import numpy as np
 import gurobipy as gp
+
 
 # ── Load Gurobi credentials from .env ──────────────────────────────────────
 #
@@ -50,181 +60,82 @@ def make_gurobi_env() -> gp.Env:
     return gp.Env(params=params)
 
 
-# ── Cantelli quantile ────────────────────────────────────────────────────────
-
-def kappa(eps: float) -> float:
-    """One-sided Cantelli quantile factor: sqrt((1 - eps) / eps).
-
-    kappa(0.05) ~= 4.36  (95% confidence)
-    kappa(0.10) ~= 3.00  (90% confidence)
-    """
-    return float(np.sqrt((1.0 - eps) / eps))
-
-
-# ── Index helper ─────────────────────────────────────────────────────────────
-
-def wl_index(all_wl: list[tuple[int, int]], i: int, j: int) -> int:
-    """Row index of workload (i, j) in the flattened covariance matrix."""
-    return all_wl.index((i, j))
-
-
 # ── Synthetic data generation ────────────────────────────────────────────────
 
 def build_synthetic_data(
-    seed:                    int   = 42,
-    n_tenants:               int   = 3,
-    n_workloads_per_tenant:  int   = 2,
-    n_nodes:                 int   = 4,
-    n_time_slots:            int   = 2,
-    node_capacity:           float = 10.0,
-    sla_eps:                 float = 0.05,
-    n_collections_per_tenant: int  = 5,
+    seed:             int   = 42,
+    n_tenants:        int   = 3,
+    n_nodes:          int   = 4,
+    n_time_slots:     int   = 2,
+    node_capacity:    float = 10.0,
+    tenant_usage_min: float = 0.8,
+    tenant_usage_max: float = 6.0,
+    sigma_frac:       float = 0.20,
+    epsilon:          float = 0.10,
+    **_ignored,          # absorb deprecated kwargs (e.g. n_workloads_per_tenant)
 ) -> dict:
-    """Return a parameter dict for a synthetic instance of given size.
+    """Return a parameter dict for a synthetic instance of the plan-ahead MISOCP.
 
     Parameters
     ----------
-    seed                   : random seed for reproducibility
-    n_tenants              : number of tenants  (|T|)
-    n_workloads_per_tenant : workloads per tenant  (|W_i|)
-    n_nodes                : number of cluster nodes  (|N|)
-    n_time_slots           : planning horizon length  (|H|)
+    seed             : random seed for reproducibility
+    n_tenants        : number of tenants  (|T|)
+    n_nodes          : number of cluster nodes  (|N|)
+    n_time_slots     : planning horizon in periods  (|H|)
+    node_capacity    : C[n] — resource capacity per node (uniform)
+    tenant_usage_min : lower bound for u[i,h] (capacity units)
+    tenant_usage_max : upper bound for u[i,h] (capacity units)
+    sigma_frac       : demand uncertainty fraction — std dev = sigma_frac * u[i,h]
+    epsilon          : Cantelli tail probability — κ = sqrt((1-ε)/ε)
 
-    All values are synthetic — replace with real inputs from Google
-    cluster-usage traces v3 (see plan_ahead_source_of_truth.txt §9).
+    u[i,h] is a placeholder for the prediction team's output.  In production,
+    derive from historical CollectionEvents SUBMIT counts per tenant per period.
+
+    Uncertainty model
+    -----------------
+    σ²[i,h] = (sigma_frac × u[i,h])²  — per-tenant, per-period demand variance.
+    κ = sqrt((1-ε)/ε)                  — Cantelli safety factor for tail prob ε.
+    With ε=0.10 → κ=3.0 (capacity holds with at least 90% probability).
     """
     rng = np.random.default_rng(seed)
 
     # --- Sets ----------------------------------------------------------------
-    T  = list(range(n_tenants))
-    Wi = {i: list(range(n_workloads_per_tenant)) for i in T}
-    N  = list(range(n_nodes))
+    T = list(range(n_tenants))
+    N = list(range(n_nodes))
+    H = list(range(n_time_slots))
 
-    # Collection metadata: each workload belongs to one of n_collections_per_tenant
-    # distinct collection types.  Multiple workloads may share the same collection_id
-    # (same binary, different running copies).  The prediction layer uses coll_id to
-    # select the collection-specific model for P_mem_j.
-    C_i    = {i: n_collections_per_tenant for i in T}
-    coll_id = {(i, j): int(rng.integers(0, n_collections_per_tenant))
-               for i in T for j in Wi[i]}
-    R  = list(range(2))                          # resources: 0=CPU, 1=MEM
-    H  = list(range(n_time_slots))               # time periods
-    Q  = list(range(2))                          # QoS: 0=guaranteed, 1=burstable
-    K  = list(range(3))                          # primitives: 0=none,1=gVisor,2=Kata
+    # --- Node parameters -----------------------------------------------------
+    C    = {n: node_capacity for n in N}          # resource capacity per node
+    pi_n = {n: 1.0           for n in N}          # infrastructure cost per node-period
 
-    all_wl = [(i, j) for i in T for j in Wi[i]]
-    n_wl   = len(all_wl)
+    # --- Tenant contract parameters ------------------------------------------
+    # pi_bar and v_op scale with n_time_slots so contract value grows with horizon.
+    pi_bar = {i: 3.0 * n_time_slots for i in T}   # contract revenue
+    v_op   = {i: 0.5 * n_time_slots for i in T}   # operational cost
 
-    # --- Resource demand and mean usage --------------------------------------
-    d  = {(i, j, r): rng.uniform(0.5, 2.0)
-          for i in T for j in Wi[i] for r in R}
-    mu = {(i, j, r): d[i, j, r] * rng.uniform(0.9, 1.1)
-          for i in T for j in Wi[i] for r in R}
-
-    # Empirical covariance matrix (PSD), one per resource
-    Sigma: dict[int, np.ndarray] = {}
-    for r in R:
-        A = rng.standard_normal((n_wl, n_wl))
-        Sigma[r] = (A @ A.T) / n_wl
-
-    # Node capacities and tenant quotas
-    # Q_quota = node_capacity / 2 preserves the original ratio (10/2=5) and
-    # scales proportionally when node_capacity changes for larger instances.
-    C        = {(n, r): node_capacity          for n in N for r in R}
-    Q_quota  = {(i, r): node_capacity / 2.0   for i in T for r in R}
-    alpha_oc = {r: 1.5 for r in R}
-
-    # --- Pricing and risk ----------------------------------------------------
-    # pi_bar and v_op scale with n_time_slots: total contract value over the
-    # planning horizon grows with horizon length, keeping admission attractive
-    # relative to per-slot infrastructure cost.
-    p      = {(i, j): float(i + j + 1)       for i in T for j in Wi[i]}
-    pi_n   = {n: 1.0                          for n in N}
-    pi_bar = {i: 3.0 * n_time_slots           for i in T}
-    v_op   = {i: 0.5 * n_time_slots           for i in T}
-    eps_i  = {i: sla_eps                      for i in T}   # SLA risk tolerance
-
-    # --- Isolation primitive parameters -------------------------------------
-    eta = {(0, r): 1.00 for r in R}
-    eta.update({(1, r): 1.20 for r in R})   # gVisor +20%
-    eta.update({(2, r): 1.05 for r in R})   # Kata   +5%
-
-    c_k = {0: 0.0, 1: 0.3, 2: 0.2}
-
-    rho = {
-        (0, 0): 0.80, (0, 1): 0.40, (0, 2): 0.30,
-        (1, 0): 0.40, (1, 1): 0.15, (1, 2): 0.10,
-        (2, 0): 0.30, (2, 1): 0.10, (2, 2): 0.10,
+    # --- Tenant usage profiles u[i,h] ----------------------------------------
+    # Placeholder — replace with prediction layer output in production.
+    u = {
+        (i, h): float(rng.uniform(tenant_usage_min, tenant_usage_max))
+        for i in T for h in H
     }
-    tau = {(i, ip): 0.35 for i in T for ip in T}
 
-    k_min = {i: 0 for i in T}
-    k_min[T[-1]] = 1   # last tenant requires at least gVisor (compliance example)
-
-    # --- Control-plane budgets -----------------------------------------------
-    omega_etcd  = {(i, k): float(10 * (k + 1)) for i in T for k in K}
-    omega_qps   = {(i, k): float(5  * (k + 1)) for i in T for k in K}
-    omega_svc   = {(i, k): float(2  * (k + 1)) for i in T for k in K}
-    B_etcd      = 200.0
-    B_qps       = 100.0
-    B_svc       = 50.0
-    delta_qps   = 2.0
-    B_qps_churn = 20.0
-
-    # --- SLA and migration ---------------------------------------------------
-    q_assign = {(i, j): 0     for i in T for j in Wi[i]}  # all guaranteed
-    L        = {(i, q_): 50.0 for i in T for q_ in Q}     # 50 ms latency target
-    gamma_ij = {(i, j): 1.0   for i in T for j in Wi[i]}
-    Delta_i  = {i: 2          for i in T}
-
-    # Compliance / data-residency feasible node sets
-    # Last tenant's last workload is restricted to the last two nodes (example rule
-    # that scales automatically with n_tenants and n_nodes).
-    N_allowed = {(i, j): list(N) for i in T for j in Wi[i]}
-    if n_nodes >= 2:
-        last_t = T[-1]
-        last_j = Wi[last_t][-1]
-        N_allowed[(last_t, last_j)] = N[-2:]   # restricted to last 2 nodes
-
-    # --- Latency model -------------------------------------------------------
-    l0        = {(i, j): 10.0 for i in T for j in Wi[i]}
-    alpha_lat = {(i, j, ip, jp): 2.0
-                 for i in T for j in Wi[i]
-                 for ip in T for jp in Wi[ip]
-                 if (i, j) != (ip, jp)}
-    beta_lat  = {(i, j, k): [0.0, 5.0, 2.0][k]
-                 for i in T for j in Wi[i] for k in K}
+    # --- Cantelli uncertainty model ------------------------------------------
+    # σ²[i,h] = (sigma_frac × u[i,h])²  — proportional-to-demand variance.
+    # κ = sqrt((1-ε)/ε)                  — one-sided Cantelli safety factor.
+    kappa  = math.sqrt((1.0 - epsilon) / epsilon)
+    sigma2 = {
+        (i, h): (sigma_frac * u[i, h]) ** 2
+        for i in T for h in H
+    }
 
     # --- Objective weights ---------------------------------------------------
-    # lam[0] = infrastructure cost weight
-    # lam[1] = SLA penalty weight
-    # lam[2] = admission revenue weight
-    # lam[3] = fairness (sigma) weight
-    # lam[4] = isolation cost weight
-    # lam[5] = migration cost weight
-    lam = {0: 1.0, 1: 10.0, 2: 1.0, 3: 5.0, 4: 0.5, 5: 2.0}
-
-    # --- Job-count forecast per tenant per time slot -------------------------
-    # N_it[(i, t)] = expected number of active jobs for tenant i at slot t.
-    # In production this is derived from CollectionEvents SUBMIT counts per
-    # tenant per 4-hour bucket.  Synthetic value equals n_workloads_per_tenant
-    # for all (i, t) (constant profile across the horizon).
-    N_it = {(i, t): n_workloads_per_tenant for i in T for t in H}
+    # lam[0] = infrastructure cost weight  (minimize active nodes)
+    # lam[1] = admission revenue weight    (maximize admitted tenants)
+    # lam[2] = fairness weight             (maximize min demand satisfaction)
+    lam = {0: 1.0, 1: 1.0, 2: 5.0}
 
     return dict(
-        T=T, Wi=Wi, N=N, R=R, H=H, Q=Q, K=K,
-        C_i=C_i, coll_id=coll_id,
-        all_wl=all_wl, n_wl=n_wl,
-        d=d, mu=mu, Sigma=Sigma,
-        C=C, Q_quota=Q_quota, alpha_oc=alpha_oc,
-        p=p, pi_n=pi_n, pi_bar=pi_bar, v_op=v_op, eps_i=eps_i,
-        eta=eta, c_k=c_k, rho=rho, tau=tau, k_min=k_min,
-        omega_etcd=omega_etcd, omega_qps=omega_qps, omega_svc=omega_svc,
-        B_etcd=B_etcd, B_qps=B_qps, B_svc=B_svc,
-        delta_qps=delta_qps, B_qps_churn=B_qps_churn,
-        q_assign=q_assign, L=L, gamma_ij=gamma_ij, Delta_i=Delta_i,
-        N_allowed=N_allowed,
-        l0=l0, alpha_lat=alpha_lat, beta_lat=beta_lat,
-        lam=lam,
-        N_it=N_it,
+        T=T, N=N, H=H, C=C, pi_n=pi_n, pi_bar=pi_bar, v_op=v_op, u=u, lam=lam,
+        sigma2=sigma2, kappa=kappa,
     )

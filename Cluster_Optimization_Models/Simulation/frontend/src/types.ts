@@ -25,8 +25,9 @@ export interface NodeInfo {
   mem_pct: number
   eff_pct: number
   violation_rate: number
-  viols_count: number   // used_mb > m_cap (soft / schedulable ceiling)
-  pme_count: number     // used_mb > capacity_mb (physical memory exceeded)
+  viols_count: number    // rolling K-window SLA breach count (used for isHot)
+  viols_total: number    // cumulative all-time SLA breach count (displayed)
+  ovrflw_count: number   // used_mb > capacity_mb (physical RAM exceeded)
   running_jobs: RunningJobInfo[]
 }
 
@@ -57,6 +58,8 @@ export interface TenantInfo {
   avg_wait_sec: number
   active_node_ids: number[]
   authorized_nodes: number[]
+  running_jobs_count: number
+  queued_jobs_count: number
 }
 
 export interface HUDData {
@@ -65,8 +68,47 @@ export interface HUDData {
   total_nodes: number
   mem_utilization_pct: number
   eff_utilization_pct: number
+  eff_active_utilization_pct: number
   longest_wait_intervals: number
   intervals_to_plan_ahead: number
+}
+
+export interface BatchStats {
+  batch_id: number
+  jobs_generated: number
+  jobs_placed: number
+  queue_size_after: number
+  solver_calls: number
+  consecutive_failures: number
+  node_violations: number
+  spike_count: number
+  physical_overflow_count: number
+  jobs_expired: number
+  nodes_assigned: number
+  total_nodes_used: number
+  avg_eff_mem_pct: number
+  avg_phys_mem_pct: number
+  avg_eff_active_pct: number
+}
+
+export interface SimTotals {
+  num_batches: number
+  k_window: number
+  total_generated: number
+  total_placed: number
+  placement_rate: number
+  final_queue_size: number
+  total_viols: number
+  total_spikes: number
+  total_ovrflw: number
+  total_expired: number
+  avg_placed_per_batch: number
+  avg_queue_per_batch: number
+  avg_eff_pct: number
+  avg_phys_pct: number
+  avg_act_pct: number
+  avg_solver_calls: number
+  final_w_t: Record<string, number>
 }
 
 export interface SimState {
@@ -80,9 +122,12 @@ export interface SimState {
   hud: HUDData
   mem_history: number[]
   eff_history: number[]
+  eff_active_history: number[]
   placed_history: number[]
   tenants: TenantInfo[]
   sim_config: Record<string, number>
+  batch_stats: BatchStats | null
+  sim_totals: SimTotals
 }
 
 export const TENANT_COLORS: Record<number, string> = {

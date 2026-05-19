@@ -88,12 +88,12 @@ export function NodeGrid({
                 <span className="text-slate-600">Eff. RAM</span>
                 <span className="text-slate-500 tabular-nums text-right">{fmtMB(node.m_cap)}</span>
                 <span className="text-slate-600">Viols</span>
-                <span className={`tabular-nums text-right ${node.viols_count > 0 ? 'text-amber-500' : 'text-slate-700'}`}>
-                  {node.viols_count}
+                <span className={`tabular-nums text-right ${node.viols_total > 0 ? 'text-amber-500' : 'text-slate-700'}`}>
+                  {node.viols_total}
                 </span>
-                <span className="text-slate-600">PME</span>
-                <span className={`tabular-nums text-right ${node.pme_count > 0 ? 'text-red-500' : 'text-slate-700'}`}>
-                  {node.pme_count}
+                <span className="text-slate-600">Ovrflw</span>
+                <span className={`tabular-nums text-right ${node.ovrflw_count > 0 ? 'text-red-500' : 'text-slate-700'}`}>
+                  {node.ovrflw_count}
                 </span>
               </div>
 

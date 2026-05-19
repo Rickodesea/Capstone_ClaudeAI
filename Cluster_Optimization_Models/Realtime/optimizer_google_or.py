@@ -34,6 +34,13 @@ Key parameters before each solve call  (§3)
     ω_delay,t    = 1 + max(0, (W̄_t - W̄) / max(1, W̄)) (tenant delay weight, K-window)
     A_t          = set of node IDs authorised for tenant t this round (from plan-ahead)
 
+C5 — Priority boost (formerly hard access control)
+    Instead of blocking nodes outside the plan-ahead set, the real-time model
+    applies a PRIORITY_BOOST multiplier to objective coefficients for nodes
+    inside the plan-ahead priority set.  All nodes remain accessible — the
+    boost only makes plan-ahead-endorsed placements more attractive.
+    Tenants without a plan-ahead assignment can still be placed anywhere.
+
 Solver choice
 ─────────────
 Uses pywraplp (OR-Tools linear/integer programming API).
@@ -62,6 +69,12 @@ from simulation_data import (
 # ── Solver selection ───────────────────────────────────────────────────────────
 SOLVER_ID: str = "CBC"   # "CBC" | "GLOP" | "SCIP"
 
+# ── Plan-ahead priority boost ───────────────────────────────────────────────────
+# Objective coefficient multiplier for (job, node) pairs where the node appears
+# in the plan-ahead priority set for the job's tenant.  Makes the optimizer
+# prefer plan-ahead-endorsed placements without blocking other nodes.
+PRIORITY_BOOST: float = 2.0
+
 
 # ── Public API ─────────────────────────────────────────────────────────────────
 
@@ -71,6 +84,7 @@ def solve(
     W_t:                dict[int, float],
     K:                  int = K_WINDOW,
     tenant_node_access: dict[int, list[int]] | None = None,
+    priority_boost:     float = PRIORITY_BOOST,
 ) -> dict[str, int | None]:
     """
     Solve one scheduling round and return the placement assignment.
@@ -83,12 +97,12 @@ def solve(
                          Maintained as a rolling K-window by ClusterManager.
                          Pass an empty dict for the very first round (no history yet).
     K                  : rolling window length for v̄_n^SLA and ω_delay,t (§3)
-    tenant_node_access : plan-ahead access map — tenant_id -> [allowed node_ids]  (§6 C5).
-                         When provided, a job from tenant t can only be placed on
-                         nodes in tenant_node_access[t].  Tenants absent from the
-                         map are treated as having no access to any node (all blocked).
-                         Pass None (default) to disable access control — all tenants
-                         may use all nodes, preserving backward-compatible behaviour.
+    tenant_node_access : plan-ahead priority map — tenant_id -> [priority_node_ids].
+                         When provided, placements on nodes in this set receive a
+                         PRIORITY_BOOST multiplier in the objective coefficient.
+                         All nodes remain accessible regardless of this map — it
+                         is a soft hint, not a hard access control.
+                         Pass None (default) to disable priority boosting.
 
     Returns
     -------
@@ -145,7 +159,7 @@ def solve(
     # ClusterManager via a K-size deque per tenant).
     # When W_t is empty (first round), all tenants get ω = 1.0 (equal weight).
 
-    all_tenants = list(range(NUM_TENANTS))
+    all_tenants = sorted({j.tenant_id for j in jobs}) if jobs else list(range(NUM_TENANTS))
     omega_raw   = compute_omega({t: W_t.get(t, 0.0) for t in all_tenants})
     omega: dict[int, float] = {t: omega_raw.get(t, 1.0) for t in all_tenants}
 
@@ -175,32 +189,20 @@ def solve(
         for n in nodes
     }
 
-    # ── §1 + §6 C3: Decision variables x_{jn} ∈ {0,1} ────────────────────
+    # ── §1: Decision variables x_{jn} ∈ {0,1} ────────────────────────────
 
     lp_relax = (SOLVER_ID == "GLOP")
 
     # ── §6 C4: Per-pair CPU fitment ───────────────────────────────────────
-    #
     # x_{jn} = 0 when P̂_j^CPU > C_n.
     # Blocks placing a job whose P95 CPU peak exceeds the node's total cores.
-
-    # ── §6 C5: Plan-ahead access control ─────────────────────────────────
-    #
-    # x_{jn} = 0 when n ∉ A_{t(j)}.
-    # A_{t(j)} is provided by the plan-ahead model for the current time slot.
-    # When tenant_node_access is None, access control is disabled (all pairs
-    # are unrestricted) so the model remains backward compatible.
 
     x: dict[tuple[str, int], pywraplp.Variable] = {}
     for j in jobs:
         for n in nodes:
             var_name = f"x_{j.job_id}_{n.node_id}"
             cpu_fits = j.pred_cpu_p95 <= n.cpu_cores        # C4
-            has_access = (
-                tenant_node_access is None                   # C5: disabled
-                or n.node_id in tenant_node_access.get(j.tenant_id, [])
-            )
-            ub = 1 if (cpu_fits and has_access) else 0
+            ub = 1 if cpu_fits else 0
             x[j.job_id, n.node_id] = (
                 solver.NumVar(0.0, float(ub), var_name)
                 if lp_relax
@@ -209,15 +211,25 @@ def solve(
 
     # ── §5: Objective — maximise weighted memory placement ─────────────────
     #
-    # max Z = Σ_{j∈J} Σ_{n∈N}  ω_{delay,t(j)} · P̂_j^mem · u_n^mem · σ_n^consolid · x_{jn}
+    # max Z = Σ_{j∈J} Σ_{n∈N}  ω_{delay,t(j)} · P̂_j^mem · u_n^mem · σ_n^consolid
+    #                           · boost_{t(j),n} · x_{jn}
+    #
+    # boost = PRIORITY_BOOST when node n is in the plan-ahead priority set for
+    # tenant t(j); 1.0 otherwise.  This makes plan-ahead-endorsed placements
+    # more attractive without blocking any node (soft priority, not hard access).
 
     obj = solver.Objective()
     for j in jobs:
         w = omega.get(j.tenant_id, 1.0)          # ω_{delay,t(j)}
+        priority_nodes = (
+            set(tenant_node_access.get(j.tenant_id, []))
+            if tenant_node_access is not None else set()
+        )
         for n in nodes:
+            boost = priority_boost if n.node_id in priority_nodes else 1.0
             obj.SetCoefficient(
                 x[j.job_id, n.node_id],
-                w * j.pred_mem_mb * u_mem[n.node_id] * w_node[n.node_id]
+                w * j.pred_mem_mb * u_mem[n.node_id] * w_node[n.node_id] * boost
             )
     obj.SetMaximization()
 

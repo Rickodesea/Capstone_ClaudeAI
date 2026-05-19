@@ -1,20 +1,23 @@
 import { AreaChart, Area, ResponsiveContainer, YAxis, Tooltip, ReferenceLine, XAxis } from 'recharts'
 
 interface Props {
-  history:    number[]   // cap (physical) utilization %
-  effHistory: number[]   // effective utilization %
+  history:       number[]   // cap (physical) utilization %
+  effHistory:    number[]   // effective utilization % (all nodes)
+  actHistory:    number[]   // effective utilization % (active nodes only)
 }
 
-export function MemoryWave({ history, effHistory }: Props) {
-  const len  = Math.max(history.length, effHistory.length)
+export function MemoryWave({ history, effHistory, actHistory }: Props) {
+  const len  = Math.max(history.length, effHistory.length, actHistory.length)
   const data = Array.from({ length: len }, (_, i) => ({
     i,
-    cap: history[i]    ?? null,
-    eff: effHistory[i] ?? null,
+    cap: history[i]       ?? null,
+    eff: effHistory[i]    ?? null,
+    act: actHistory[i]    ?? null,
   }))
 
-  const lastCap = history.length    > 0 ? history[history.length - 1]    : null
+  const lastCap = history.length    > 0 ? history[history.length - 1]       : null
   const lastEff = effHistory.length > 0 ? effHistory[effHistory.length - 1] : null
+  const lastAct = actHistory.length > 0 ? actHistory[actHistory.length - 1] : null
 
   return (
     <div className="relative w-full h-full bg-slate-950 min-h-0">
@@ -25,6 +28,10 @@ export function MemoryWave({ history, effHistory }: Props) {
 
       {/* Legend */}
       <div className="absolute top-1 right-2 flex items-center gap-3 z-10 pointer-events-none">
+        <span className="flex items-center gap-1 text-[10px] text-slate-500">
+          <span className="inline-block w-3 h-0.5 bg-amber-400" />
+          Act {lastAct !== null ? `${lastAct.toFixed(1)}%` : '—'}
+        </span>
         <span className="flex items-center gap-1 text-[10px] text-slate-500">
           <span className="inline-block w-3 h-0.5 bg-sky-400" />
           Eff {lastEff !== null ? `${lastEff.toFixed(1)}%` : '—'}
@@ -46,6 +53,10 @@ export function MemoryWave({ history, effHistory }: Props) {
               <stop offset="0%"  stopColor="#0ea5e9" stopOpacity={0.35} />
               <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0.03} />
             </linearGradient>
+            <linearGradient id="actGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%"  stopColor="#f59e0b" stopOpacity={0.30} />
+              <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.03} />
+            </linearGradient>
           </defs>
 
           <YAxis
@@ -66,7 +77,7 @@ export function MemoryWave({ history, effHistory }: Props) {
                 <div className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 space-y-0.5">
                   {payload.map((p) => (
                     <div key={p.dataKey} style={{ color: p.color }}>
-                      {p.dataKey === 'cap' ? 'Cap' : 'Eff'}: {(p.value as number)?.toFixed(1)}%
+                      {p.dataKey === 'cap' ? 'Cap' : p.dataKey === 'eff' ? 'Eff' : 'Act'}: {(p.value as number)?.toFixed(1)}%
                     </div>
                   ))}
                 </div>
@@ -86,13 +97,25 @@ export function MemoryWave({ history, effHistory }: Props) {
             connectNulls
           />
 
-          {/* Eff utilization — sky blue, drawn on top */}
+          {/* Eff utilization — sky blue */}
           <Area
             type="monotone"
             dataKey="eff"
             stroke="#0ea5e9"
             strokeWidth={2}
             fill="url(#effGrad)"
+            isAnimationActive={false}
+            dot={false}
+            connectNulls
+          />
+
+          {/* Act utilization — amber, drawn on top */}
+          <Area
+            type="monotone"
+            dataKey="act"
+            stroke="#f59e0b"
+            strokeWidth={2}
+            fill="url(#actGrad)"
             isAnimationActive={false}
             dot={false}
             connectNulls

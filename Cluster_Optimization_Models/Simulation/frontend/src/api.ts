@@ -1,4 +1,4 @@
-import type { SimState } from './types'
+import type { SimState, PlanAheadResult } from './types'
 
 const BASE = '/api'
 
@@ -12,7 +12,8 @@ async function request<T>(path: string, method = 'GET'): Promise<T> {
 }
 
 export const api = {
-  getState: () => request<SimState>('/state'),
-  step:     () => request<SimState>('/step', 'POST'),
-  reset:    () => request<SimState>('/reset', 'POST'),
+  getState:          () => request<SimState>('/state'),
+  step:              () => request<SimState>('/step', 'POST'),
+  reset:             () => request<SimState>('/reset', 'POST'),
+  triggerPlanAhead:  () => request<PlanAheadResult>('/plan_ahead', 'POST'),
 }

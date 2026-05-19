@@ -53,7 +53,7 @@ export function PlanAheadOverlay({ result, numNodes, onClose }: Props) {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <CalendarCheck size={17} className="text-amber-400" />
-            <span className="text-sm font-bold text-white">Node Access Schedule</span>
+            <span className="text-sm font-bold text-white">Node Access Priority Schedule</span>
             <span className="text-xs text-slate-500">
               Week #{result.summary.week_number} · Interval {result.interval}
             </span>
@@ -76,9 +76,6 @@ export function PlanAheadOverlay({ result, numNodes, onClose }: Props) {
           </span>
           <span>
             Avg nodes/tenant: <span className="text-white font-bold">{result.summary.avg_nodes_per_tenant.toFixed(1)}</span>
-          </span>
-          <span>
-            Exclusivity: <span className="text-white font-bold">{(result.summary.isolation_score * 100).toFixed(0)}%</span>
           </span>
         </div>
 

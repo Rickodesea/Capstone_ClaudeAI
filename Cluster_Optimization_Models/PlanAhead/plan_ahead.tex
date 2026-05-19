@@ -1,8 +1,7 @@
 % ============================================================
 % plan_ahead.tex
-% Plan-Ahead Cluster Optimization Model — LaTeX Reference
+% Plan-Ahead Cluster Optimization Model — MISOCP Formulation
 %
-% Generated from plan_ahead_source_of_truth.txt
 % Compile with: pdflatex plan_ahead.tex  (run twice for TOC)
 % ============================================================
 
@@ -14,770 +13,307 @@
 \usepackage{lmodern}
 \usepackage[margin=2.5cm]{geometry}
 \usepackage{amsmath,amssymb,amsthm}
-\usepackage{mathtools}        % \coloneqq, dcases
-\usepackage{booktabs}         % \toprule, \midrule, \bottomrule
-\usepackage{array}            % column types in tabular
-\usepackage{longtable}        % tables spanning multiple pages
+\usepackage{mathtools}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
 \usepackage{xcolor}
 \usepackage{hyperref}
 \usepackage{enumitem}
 \usepackage{microtype}
-\usepackage{parskip}          % space between paragraphs, no indent
+\usepackage{parskip}
 \usepackage{titlesec}
 
-% ── Hyperref setup ────────────────────────────────────────────
 \hypersetup{
   colorlinks = true,
   linkcolor  = blue!60!black,
   urlcolor   = blue!60!black,
   citecolor  = green!50!black,
-  pdftitle   = {Plan-Ahead Cluster Optimization Model},
+  pdftitle   = {Plan-Ahead Cluster Optimization Model (MISOCP)},
   pdfauthor  = {Alrick Grandison},
 }
 
-% ── Custom colours ────────────────────────────────────────────
 \definecolor{constblue}{RGB}{30,80,160}
 \definecolor{notegrey}{RGB}{90,90,90}
-\definecolor{fixred}{RGB}{180,30,30}
 
-% ── Custom commands ───────────────────────────────────────────
-\newcommand{\cT}{\mathcal{T}}           % tenants
-\newcommand{\cW}{\mathcal{W}}           % workloads
-\newcommand{\cN}{\mathcal{N}}           % nodes
-\newcommand{\cR}{\mathcal{R}}           % resources
-\newcommand{\cH}{\mathcal{H}}           % time slots
-\newcommand{\cQ}{\mathcal{Q}}           % QoS classes
-\newcommand{\cK}{\mathcal{K}}           % isolation primitives
+\newcommand{\cT}{\mathcal{T}}
+\newcommand{\cN}{\mathcal{N}}
+\newcommand{\cH}{\mathcal{H}}
 
-\newcommand{\kap}{\kappa}               % kappa (Cantelli)
-\newcommand{\sig}{\sigma}               % sigma (fairness)
-\newcommand{\eps}{\varepsilon}          % epsilon (risk)
-\newcommand{\BigM}{\mathsf{M}}          % big-M constant
-
-% Constraint label box
-\newcommand{\clabel}[1]{%
-  \textcolor{constblue}{\textbf{(#1)}}}
-
-% Note environment
-\newenvironment{note}{\smallskip\noindent\textcolor{notegrey}{\textit{Note:\ }}}{\smallskip}
-
-% Implementation note
-\newenvironment{impl}{\smallskip\noindent\textcolor{fixred}{\textit{Implementation note:\ }}}{\smallskip}
-
-% ── Section style ─────────────────────────────────────────────
-\titleformat{\section}{\large\bfseries}{\thesection.}{0.5em}{}[\vspace{-0.3em}\rule{\linewidth}{0.4pt}]
-\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection.}{0.5em}{}
-
-% ─────────────────────────────────────────────────────────────
-\title{\textbf{Plan-Ahead Cluster Optimization Model}\\[0.4em]
-  \large Mixed-Integer Second-Order Cone Program (MISOCP)}
-\author{DAMO 699 Capstone $\cdot$ Group 3\\
-        Multi-Tenant Cluster Memory Scheduling}
-\date{\today}
-% ─────────────────────────────────────────────────────────────
+\titleformat{\section}{\large\bfseries}{}{0em}{}[\titlerule]
+\titleformat{\subsection}{\normalsize\bfseries}{}{0em}{}
 
 \begin{document}
 
-\maketitle
+% ── Title ─────────────────────────────────────────────────────
+\begin{center}
+  {\LARGE\bfseries Plan-Ahead Cluster Optimization Model}\\[4pt]
+  {\large Mixed-Integer Second-Order Cone Program (MISOCP)}\\[8pt]
+  {\normalsize Alrick Grandison \quad Capstone Project, Spring 2026}
+\end{center}
+
 \tableofcontents
 \newpage
 
-% ============================================================
-\section{Introduction}
-% ============================================================
+% ─────────────────────────────────────────────────────────────
+\section{Overview}
+% ─────────────────────────────────────────────────────────────
 
-The plan-ahead model solves a periodic resource reservation problem for a
-multi-tenant compute cluster.  It is invoked once per planning horizon
-$\cH$ (e.g.\ once per day, once per week, or once every three days --- the
-horizon length is configurable) and produces a schedule that assigns each
-admitted tenant a set of authorised cluster nodes for each time slot.
+The plan-ahead model is a MISOCP solved periodically (every
+\texttt{plan\_ahead\_interval} simulation steps).  Its purpose is to
+determine which nodes each tenant should be \emph{prioritised} on for
+each planning period, given estimated resource demand, while providing
+a probabilistic guarantee that node capacity is not exceeded.
 
-The real-time optimizer is invoked every scheduling epoch (e.g.\ every
-60~seconds) to place individual arriving jobs.  It receives the authorised
-node sets $A_t^{(i)}$ from the plan-ahead output and enforces them via
-constraint~\ref{c5}.
+The output is a \textbf{priority hint} --- a
+\texttt{TenantAccessSchedule} mapping $(\text{tenant}, \text{period})
+\to [\text{node\_ids}]$.  The real-time scheduler uses this hint to
+boost objective coefficients; no node is blocked.
 
-\paragraph{System pipeline.}
-\[
-  \underbrace{\text{Prediction}}_{\mu_{i,j,r},\,\Sigma_r,\,d_{i,j,r},\,N_{i,t}}
-  \;\longrightarrow\;
-  \underbrace{\text{Plan-Ahead (MISOCP)}}_{\text{Gurobi, once per }\cH}
-  \;\longrightarrow\;
-  A_t^{(i)}
-  \;\longrightarrow\;
-  \underbrace{\text{Real-Time (MILP)}}_{\text{OR-Tools, every epoch}}
-\]
+The second-order cone component (C1b) implements a
+\textbf{variance-extended Cantelli capacity constraint}: it ensures
+that node capacity is respected with at least probability $1-\varepsilon$
+even under demand uncertainty, using only the per-tenant usage profile
+variance --- not per-workload covariance as in the original formulation.
 
-The model simultaneously decides:
-\begin{itemize}[nosep]
-  \item which tenants to admit ($a_i$);
-  \item where to place each admitted workload ($x_{i,j,n,t}$);
-  \item which isolation primitive each workload uses ($w_{i,j,k,t}$);
-  \item how many nodes to activate ($z_{n,t}$);
-  \item when workloads migrate between time slots ($m_{i,j,n,t}^{\text{mig}}$).
-\end{itemize}
-
-% ============================================================
+% ─────────────────────────────────────────────────────────────
 \section{Sets}
-% ============================================================
+% ─────────────────────────────────────────────────────────────
 
-\begin{longtable}{@{}lll@{}}
+\begin{longtable}{@{}lp{10cm}@{}}
   \toprule
-  \textbf{Symbol} & \textbf{Definition} & \textbf{Description} \\
+  \textbf{Symbol} & \textbf{Description} \\
   \midrule
-  \endhead
-  $\cT$ & $\{0,1,\ldots,|\cT|-1\}$ & Tenants sharing the cluster \\
-  $\cW_i$ & $\{0,1,\ldots,|\cW_i|-1\}$ & Workloads of tenant $i$ \\
-  $\cN$ & $\{0,1,\ldots,|\cN|-1\}$ & Cluster nodes \\
-  $\cR$ & $\{0\text{=CPU},\;1\text{=MEM}\}$ & Resource types \\
-  $\cH$ & $\{0,1,\ldots,|\cH|-1\}$ & Planning time slots \\
-  $\cQ$ & $\{0\text{=guaranteed},\;1\text{=burstable}\}$ & QoS classes \\
-  $\cK$ & $\{0\text{=none},\;1\text{=gVisor},\;2\text{=Kata}\}$ & Isolation primitives \\[4pt]
-  $\mathcal{P}$ & $\{(i,j,i',j') : (i,j)<(i',j')\}$ & Ordered pairs of distinct workloads \\
-  & & (avoids duplicate co-location variables) \\
-  $N_{\text{allowed}}^{(i,j)}$ & $\subseteq \cN$ & Nodes where workload $(i,j)$ may legally run \\
-  & & (data-residency / compliance constraint) \\
+  $\cT$ & Tenants, $i \in \{0,\ldots,|\cT|-1\}$ \\
+  $\cN$ & Cluster nodes, $n \in \{0,\ldots,|\cN|-1\}$ \\
+  $\cH$ & Planning periods, $h \in \{0,\ldots,|\cH|-1\}$ \\
   \bottomrule
 \end{longtable}
 
-% ============================================================
-\section{Decision Variables}
-% ============================================================
+The number of planning periods is:
+\[
+  |\cH| = \left\lfloor \frac{\texttt{plan\_ahead\_interval}}{\texttt{access\_period}} \right\rfloor
+\]
 
-\begin{longtable}{@{}p{4.2cm}p{2.1cm}p{8.0cm}@{}}
+% ─────────────────────────────────────────────────────────────
+\section{Parameters}
+% ─────────────────────────────────────────────────────────────
+
+\begin{longtable}{@{}lp{10cm}@{}}
+  \toprule
+  \textbf{Symbol} & \textbf{Description} \\
+  \midrule
+  $u_{i,h}$ & Estimated total resource demand of tenant $i$ in period $h$ (capacity units). Placeholder for prediction layer output. \\[2pt]
+  $C_n$     & Resource capacity of node $n$ (uniform in synthetic data). \\[2pt]
+  $\pi_n$   & Infrastructure cost of activating node $n$ per period. \\[2pt]
+  $\bar\pi_i$ & Contract revenue for admitting tenant $i$. \\[2pt]
+  $v_i$     & Operational cost for tenant $i$. \\[2pt]
+  $\lambda_0, \lambda_1, \lambda_2$ & Objective weights (infrastructure cost, admission revenue, fairness). \\[4pt]
+  \midrule
+  \multicolumn{2}{@{}l}{\textit{Cantelli uncertainty parameters}} \\[2pt]
+  \texttt{sigma\_frac} & Demand uncertainty fraction: $\mathrm{std}(D_{i,h}) = \texttt{sigma\_frac} \times u_{i,h}$. \\[2pt]
+  $\sigma^2_{i,h}$ & Per-tenant per-period demand variance: $(\texttt{sigma\_frac} \times u_{i,h})^2$. \\[2pt]
+  $\varepsilon$ & Cantelli tail probability (\texttt{cantelli\_epsilon}); default 0.10. \\[2pt]
+  $\kappa$ & Cantelli safety factor: $\kappa = \sqrt{(1-\varepsilon)/\varepsilon}$. With $\varepsilon=0.10$, $\kappa = 3.0$. \\
+  \bottomrule
+\end{longtable}
+
+\subsection*{Tenant Usage Profiles}
+
+$u_{i,h}$ is drawn from \texttt{Uniform(tenant\_usage\_min, tenant\_usage\_max)}
+as a placeholder.  In production, derive from historical
+CollectionEvents SUBMIT counts per tenant per access period.
+
+\subsection*{Uncertainty Model}
+
+The demand of tenant $i$ on node $n$ in period $h$ is modelled as a random
+variable $D_{i,n,h}$ with mean $f_{i,n,h}$ and variance
+$\sigma^2_{i,h} \cdot y_{i,n,h}$.  The variance is active only when the
+tenant is assigned to that node ($y_{i,n,h}=1$).  By the \emph{one-sided
+Cantelli inequality}:
+
+\[
+  P\!\left[\sum_{i \in \cT} D_{i,n,h} \leq C_n \cdot z_{n,h}\right] \;\geq\; 1 - \varepsilon
+\]
+
+is guaranteed by C1a and C1b together (see Section~\ref{sec:constraints}).
+
+% ─────────────────────────────────────────────────────────────
+\section{Decision Variables}
+% ─────────────────────────────────────────────────────────────
+
+\begin{longtable}{@{}llp{9cm}@{}}
   \toprule
   \textbf{Variable} & \textbf{Domain} & \textbf{Description} \\
   \midrule
-  \endhead
-  $x_{i,j,n,t}$ & $\{0,1\}$
-    & 1 if workload $j$ of tenant $i$ is placed on node $n$ at slot $t$ \\[3pt]
-  $y_{i,n,t}$ & $\{0,1\}$
-    & 1 if tenant $i$ has at least one workload on node $n$ at slot $t$ \\[3pt]
-  $z_{n,t}$ & $\{0,1\}$
-    & 1 if node $n$ is active (hosting any workload) at slot $t$ \\[3pt]
-  $w_{i,j,k,t}$ & $\{0,1\}$
-    & 1 if isolation primitive $k$ is used for workload $(i,j)$ at slot $t$ \\[3pt]
-  $m_{i,j,n,t}^{\text{mig}}$ & $\{0,1\}$
-    & 1 if workload $(i,j)$ migrates \emph{onto} node $n$ at slot $t$
-      ($t\ge 1$ only; forced~$0$ at $t=0$) \\[3pt]
-  $a_i$ & $\{0,1\}$
-    & 1 if tenant $i$ is admitted for the planning horizon \\[3pt]
-  $e_{i,j,t}$ & $\mathbb{R}_{\ge 0}$
-    & Excess latency beyond SLA target $L_{i,q(i,j)}$ for workload $(i,j)$ at $t$ \\[3pt]
-  $\eps_{n,t}^{\text{eff}}$ & $[0,1]$
-    & Effective SLA risk level on node $n$ at $t$
-      (driven to $\min_i \eps_i$ among tenants present) \\[3pt]
-  $\xi_{i,j,n,k,t}$ & $\{0,1\}$
-    & McCormick auxiliary: $\xi_{i,j,n,k,t} = x_{i,j,n,t}\cdot w_{i,j,k,t}$ \\[3pt]
-  $\zeta_{i,j,i',j',n,t}$ & $\{0,1\}$
-    & McCormick auxiliary: $\zeta = x_{i,j,n,t}\cdot x_{i',j',n,t}$
-      (co-location on same node); defined for $(i,j)<(i',j')$ \\[3pt]
-  $\sigma$ & $[0,1]$
-    & Fairness variable: min DRF satisfaction across admitted tenants \\
+  $f_{i,n,h}$ & $\geq 0$ & Allocation of node $n$'s capacity to tenant $i$ in period $h$. \\[2pt]
+  $y_{i,n,h}$ & $\{0,1\}$ & 1 iff tenant $i$ has a priority assignment on node $n$ in period $h$. \\[2pt]
+  $z_{n,h}$   & $\{0,1\}$ & 1 iff node $n$ is active in period $h$. \\[2pt]
+  $t_{n,h}$   & $\geq 0$  & Cantelli slack --- upper bound on weighted demand standard deviation on node $n$ in period $h$. \\[2pt]
+  $a_i$       & $\{0,1\}$ & 1 iff tenant $i$ is admitted for this planning horizon. \\[2pt]
+  $\sigma$    & $[0,1]$   & Minimum demand-satisfaction ratio across admitted tenants (fairness proxy). \\
   \bottomrule
 \end{longtable}
 
-% ============================================================
-\section{Parameters}
-% ============================================================
-
-\subsection{Resource Demand}
-
-\begin{longtable}{@{}p{2.2cm}p{11.5cm}@{}}
-  \toprule
-  \textbf{Symbol} & \textbf{Description} \\
-  \midrule
-  \endhead
-  $d_{i,j,r}$   & Declared resource demand of workload $(i,j)$ for resource $r$.
-                   Used as the numerator in DRF satisfaction (\S\ref{sec:c7}). \\[4pt]
-  $\mu_{i,j,r}$ & Mean predicted resource \emph{usage} of workload $(i,j)$ for
-                   resource $r$ --- expected actual usage per job, averaged over
-                   the planning slot window (e.g.\ a 4-hour block).
-                   \textit{Source: prediction model output --- Workload Profiler}
-                   (from \texttt{InstanceUsage.average\_usage} aggregated to
-                   4-hour windows per workload class per tenant).
-                   Used in the probabilistic capacity mean-load term (\S\ref{sec:socp}). \\[4pt]
-  $\Sigma_r$    & Empirical covariance matrix of resource $r$ across all workloads,
-                   shape $|\cW_{\text{total}}|\times|\cW_{\text{total}}|$, positive
-                   semi-definite.
-                   \textit{Source: prediction model output} (estimated from
-                   \texttt{InstanceUsage.random\_sampled\_usage}).
-                   Used in the SOCP safety-buffer term. \\[4pt]
-  $C_{n,r}$     & Capacity of node $n$ for resource $r$
-                   (\texttt{MachineEvents.capacity}). \\[4pt]
-  $Q_{i,r}$     & Resource quota for tenant $i$, resource $r$
-                   (denominator in DRF satisfaction).
-                   Set to $C_{\cdot,r}/2$ in the current implementation. \\[4pt]
-  $\alpha_r^{\text{oc}}$ & Overcommit ratio for resource $r$.  Available for
-                   soft-overcommit extensions; currently only $C_{n,r}$ is used
-                   as the RHS capacity. \\[4pt]
-  $N_{i,t}$      & Expected number of active jobs (workloads) for tenant $i$
-                   during planning slot $t$.  Used to size $|\cW_i|$ before the
-                   model is built: $|\cW_i| = N_{i,t}$ (or the maximum across
-                   $t\in\cH$ if a single set is used for all slots).
-                   \textit{Source: prediction layer --- Job Count Predictor.}
-                   Model type: descriptive statistics or simple regression on
-                   historical \texttt{InstanceEvents} \texttt{SUBMIT} records
-                   per tenant per slot (day-of-week $\times$ time-of-day bucket).
-                   For Autopilot/HPA-managed workloads, estimated from
-                   auto-scaled task counts in the historical trace. \\
-  \bottomrule
-\end{longtable}
-
-\subsection{Pricing and Risk}
-
-\begin{longtable}{@{}p{2.2cm}p{11.5cm}@{}}
-  \toprule
-  \textbf{Symbol} & \textbf{Description} \\
-  \midrule
-  \endhead
-  $p_{i,j}$           & SLA penalty weight for workload $(i,j)$.  Coefficient on
-                         $e_{i,j,t}$ in the objective. \\[4pt]
-  $\pi_n$             & Infrastructure cost per active node-slot.  Coefficient on
-                         $z_{n,t}$ in the objective. \\[4pt]
-  $\bar{\pi}_i$       & Gross revenue from admitting tenant $i$ (billing contract value).
-                         Scales with planning horizon: $\bar{\pi}_i = 3|\cH|$
-                         in the current implementation. \\[4pt]
-  $v_i^{\text{op}}$   & Operational cost of serving tenant $i$ (support overhead).
-                         Net revenue per tenant: $\bar{\pi}_i - v_i^{\text{op}}$.
-                         Scales with horizon: $v_i^{\text{op}} = 0.5|\cH|$. \\[4pt]
-  $\eps_i$            & SLA risk tolerance for tenant $i$ --- maximum allowable
-                         probability of capacity overrun used in the Cantelli bound.
-                         Smaller $\eps_i$ is stricter (larger safety margin). \\
-  \bottomrule
-\end{longtable}
-
-\subsection{Isolation Primitives}
-
-Isolation primitives model Kubernetes security isolation mechanisms:
-$k=0$~(none: Linux namespaces), $k=1$~(gVisor: user-space kernel),
-$k=2$~(Kata: VM-based containers).
-
-\begin{longtable}{@{}p{2.2cm}p{11.5cm}@{}}
-  \toprule
-  \textbf{Symbol} & \textbf{Description} \\
-  \midrule
-  \endhead
-  $\eta_{k,r}$        & Resource overhead multiplier of primitive $k$ for resource
-                         $r$.  Effective usage $= \eta_{k,r}\,\mu_{i,j,r}\,\xi_{i,j,n,k,t}$.
-                         Values: $\eta_{0,r}=1.0$, $\eta_{1,r}=1.20$ (gVisor $+20\%$),
-                         $\eta_{2,r}=1.05$ (Kata $+5\%$). \\[4pt]
-  $c_k$               & Operational cost premium for running primitive $k$. \\[4pt]
-  $\rho_{k,k'}$       & Residual interference between workloads using primitives $k$
-                         and $k'$ on the same node, $\rho\in[0,1]$.
-                         $\rho=0$: fully isolated; $\rho=1$: no isolation. \\[4pt]
-  $\tau_{i,i'}$       & Maximum acceptable residual interference between tenants
-                         $i$ and $i'$.  Constraint C3c enforces
-                         $\rho_{k,k'}\le\tau_{i,i'}$ for co-located workloads. \\[4pt]
-  $k_{\min,i}$        & Minimum isolation primitive level required for tenant $i$
-                         (compliance floor, e.g.\ regulatory mandate for gVisor). \\
-  \bottomrule
-\end{longtable}
-
-\subsection{Control-Plane Budgets}
-
-Control-plane resources (etcd writes, API-server QPS, service objects) are
-shared cluster-wide and capped per time slot.
-
-\begin{longtable}{@{}p{3.2cm}p{10.5cm}@{}}
-  \toprule
-  \textbf{Symbol} & \textbf{Description} \\
-  \midrule
-  \endhead
-  $\omega_{i,k}^{\text{etcd}}$ & etcd write operations consumed per workload of
-                                   tenant $i$ with primitive $k$. \\[4pt]
-  $\omega_{i,k}^{\text{qps}}$  & API-server QPS consumed per workload of tenant $i$
-                                   with primitive $k$. \\[4pt]
-  $\omega_{i,k}^{\text{svc}}$  & Kubernetes service objects consumed per workload of
-                                   tenant $i$ with primitive $k$. \\[4pt]
-  $B^{\text{etcd}}$            & Cluster-wide etcd write budget per time slot. \\[4pt]
-  $B^{\text{qps}}$             & Cluster-wide API-server QPS budget per time slot. \\[4pt]
-  $B^{\text{svc}}$             & Cluster-wide service object budget per time slot. \\[4pt]
-  $\delta^{\text{qps}}$        & QPS churn cost per migration event (endpoint updates). \\[4pt]
-  $B^{\text{qps,churn}}$       & Maximum allowed migration-induced QPS churn per slot. \\
-  \bottomrule
-\end{longtable}
-
-\subsection{SLA and Migration}
-
-\begin{longtable}{@{}p{2.2cm}p{11.5cm}@{}}
-  \toprule
-  \textbf{Symbol} & \textbf{Description} \\
-  \midrule
-  \endhead
-  $q(i,j)$      & QoS class assigned to workload $(i,j)$.
-                   Determines the latency target $L_{i,q}$. \\[4pt]
-  $L_{i,q}$     & Latency SLA target for tenant $i$, QoS class $q$ (milliseconds).
-                   C5 enforces modelled latency $\le L_{i,q}+e_{i,j,t}$. \\[4pt]
-  $\gamma_{i,j}$& Migration cost weight for workload $(i,j)$.  Multiplied by
-                   $m_{i,j,n,t}^{\text{mig}}$ in the objective. \\[4pt]
-  $\Delta_i$    & Per-tenant disruption budget --- maximum workload migrations
-                   allowed per time slot. \\
-  \bottomrule
-\end{longtable}
-
-\subsection{Latency Model}
-
-\begin{longtable}{@{}p{3.0cm}p{10.7cm}@{}}
-  \toprule
-  \textbf{Symbol} & \textbf{Description} \\
-  \midrule
-  \endhead
-  $l^0_{i,j}$                        & Base latency of workload $(i,j)$ running
-                                        in isolation (ms). \\[4pt]
-  $\alpha_{i,j,i',j'}^{\text{lat}}$  & Latency increase on $(i,j)$ due to
-                                        co-location with workload $(i',j')$ on the
-                                        same node.  Modelled linearly via $\zeta$. \\[4pt]
-  $\beta_{i,j,k}^{\text{lat}}$       & Latency overhead added by isolation primitive
-                                        $k$ for workload $(i,j)$ (e.g.\ gVisor syscall
-                                        overhead). \\
-  \bottomrule
-\end{longtable}
-
-\subsection{Objective Weights and SOCP Auxiliaries}
-
-\begin{longtable}{@{}p{2.6cm}p{11.1cm}@{}}
-  \toprule
-  \textbf{Symbol} & \textbf{Description} \\
-  \midrule
-  \endhead
-  $\lambda_s,\;s\in\{0,\ldots,5\}$
-    & Objective weights.  Defaults: $\lambda_0=1.0$ (infra), $\lambda_1=10.0$
-      (SLA), $\lambda_2=1.0$ (revenue), $\lambda_3=5.0$ (fairness),
-      $\lambda_4=0.5$ (isolation), $\lambda_5=2.0$ (migration). \\[4pt]
-  $\kap(\eps)$
-    & Cantelli one-sided quantile factor:
-      $\kap(\eps)=\sqrt{(1-\eps)/\eps}$.
-      $\kap(0.05)\approx 4.36$ (95\% confidence),
-      $\kap(0.10)\approx 3.00$ (90\% confidence). \\[4pt]
-  $\kap_n$
-    & Per-node kappa (implementation):
-      $\kap_n = \kap\!\left(\min\{\eps_i : n\in N_{\text{allowed}}^{(i,j)}
-      \text{ for some }j\}\right)$.
-      Less conservative than the global minimum. \\[4pt]
-  $L_r$
-    & Lower-triangular Cholesky factor of $\Sigma_r$:
-      $\Sigma_r = L_r L_r^\top$. \\[4pt]
-  $r^*_i$
-    & Dominant resource for tenant $i$ (DRF):
-      $r^*_i = \arg\max_r \sum_j d_{i,j,r}/Q_{i,r}$. \\[4pt]
-  $s_i$
-    & DRF satisfaction fraction for tenant $i$:
-      $s_i = \frac{\sum_{j,n} d_{i,j,r^*_i}\,x_{i,j,n,t}}{Q_{i,r^*_i}}$. \\[4pt]
-  $A_t^{(i)}$
-    & Authorised node set for tenant $i$ at time $t$ (model output):
-      $A_t^{(i)} = \{n\in\cN : \sum_j x_{i,j,n,t} \ge 1\}$. \\
-  \bottomrule
-\end{longtable}
-
-% ============================================================
-\section{Probabilistic Capacity Constraint (SOCP)}
-\label{sec:socp}
-% ============================================================
-
-Because workload resource usage is stochastic, a deterministic safety buffer
-is derived via the \textbf{Cantelli inequality} (one-sided Chebyshev).  For
-any random variable $X$ with mean $\mu$ and variance $\sigma^2$:
-\[
-  \Pr\!\bigl[X > \mu + \kap(\eps)\,\sigma\bigr] \;\le\; \eps,
-  \qquad
-  \kap(\eps) = \sqrt{\frac{1-\eps}{\eps}}.
-\]
-
-For workloads placed on node $n$, the joint resource usage is a sum of
-correlated random variables.  The multivariate version uses the covariance
-matrix $\Sigma_r$.  After Cholesky decomposition $\Sigma_r = L_r L_r^\top$,
-the safety-buffer term becomes an $\ell_2$ norm --- a \textbf{second-order
-cone} constraint, making the full model a MISOCP.
-
-\paragraph{Constraint C2.}\label{c2}
-For each node $n\in\cN$, resource $r\in\cR$, time slot $t\in\cH$:
-\begin{align}
-  \underbrace{\sum_{i,j,k} \eta_{k,r}\,\mu_{i,j,r}\,\xi_{i,j,n,k,t}}_{\text{mean load}}
-  \;+\;
-  \kap_n \underbrace{\bigl\|L_r\,\boldsymbol{\xi}_{n,t}\bigr\|_2}_{\text{safety buffer}}
-  &\;\le\; C_{n,r}\,z_{n,t},
-  \label{eq:c2}
-\end{align}
-where $\boldsymbol{\xi}_{n,t}\in\{0,1\}^{|\cW_{\text{total}}|}$ has entry
-$q$ equal to $\sum_k \xi_{\text{wl}(q),n,k,t}$ (total activation of
-workload $q$ on node $n$ at $t$).
-
-The $\ell_2$ cone is introduced via auxiliary variables:
-\begin{align*}
-  v_s &= \sum_{q} [L_r]_{sq}\,(\boldsymbol{\xi}_{n,t})_q,
-  \quad s=1,\ldots,|\cW_{\text{total}}|, \\
-  v_s^2 &\le \phi^2 \quad(\text{i.e.,}\;\|\mathbf{v}\|_2 \le \phi),
-\end{align*}
-then replace the $\ell_2$ term with $\kap_n\,\phi$. Gurobi encodes this
-directly as a quadratic constraint (SOCP).
-
-\paragraph{Per-node effective risk.}
-The auxiliary $\eps_{n,t}^{\text{eff}}$ tracks the strictest tenant on each node:
-\[
-  \eps_{n,t}^{\text{eff}} \;\le\; \eps_i + (1 - y_{i,n,t})
-  \quad \forall\,i\in\cT.
-\]
-This drives $\eps_{n,t}^{\text{eff}}$ to $\min_i\{\eps_i : y_{i,n,t}=1\}$.
-In the current implementation $\kap_n$ is precomputed (no binary dependency)
-using the set $N_{\text{allowed}}^{(i,j)}$ as a conservative proxy.
-
-% ============================================================
-\section{McCormick Linearizations}
-% ============================================================
-
-Two bilinear products of binary variables appear; both are linearized via
-standard McCormick envelopes.
-
-\subsection{$\xi_{i,j,n,k,t} = x_{i,j,n,t}\cdot w_{i,j,k,t}$}
-Used in: mean load (C2), latency primitive overhead (C5).
-\begin{align*}
-  \xi_{i,j,n,k,t} &\le x_{i,j,n,t}, \\
-  \xi_{i,j,n,k,t} &\le w_{i,j,k,t}, \\
-  \xi_{i,j,n,k,t} &\ge x_{i,j,n,t} + w_{i,j,k,t} - 1.
-\end{align*}
-
-\subsection{$\zeta_{i,j,i',j',n,t} = x_{i,j,n,t}\cdot x_{i',j',n,t}$}
-Defined for ordered pairs $(i,j)<(i',j')$ to avoid duplication.
-Used in: latency interference (C5), isolation compatibility (C3c).
-\begin{align*}
-  \zeta_{i,j,i',j',n,t} &\le x_{i,j,n,t}, \\
-  \zeta_{i,j,i',j',n,t} &\le x_{i',j',n,t}, \\
-  \zeta_{i,j,i',j',n,t} &\ge x_{i,j,n,t} + x_{i',j',n,t} - 1.
-\end{align*}
-
-% ============================================================
+% ─────────────────────────────────────────────────────────────
 \section{Constraints}
-% ============================================================
+\label{sec:constraints}
+% ─────────────────────────────────────────────────────────────
 
-\subsection{C1 --- Placement Integrity}
-\label{c1}
+\subsection*{C1a --- Capacity with Cantelli Margin (linear)}
 
-\begin{align}
-  \sum_{n\in\cN} x_{i,j,n,t} &= a_i
-  \quad \forall\,i\in\cT,\;j\in\cW_i,\;t\in\cH.
-  \tag{C1}
-\end{align}
+\begin{equation}
+  \sum_{i \in \cT} f_{i,n,h} + \kappa \cdot t_{n,h} \;\leq\; C_n \cdot z_{n,h}
+  \qquad \forall\, n \in \cN,\; h \in \cH
+  \tag{C1a}
+\end{equation}
 
-Each workload is placed on \emph{exactly} one node if and only if tenant
-$i$ is admitted.  The equality ($=$) is critical: it forces placement upon
-admission, preventing the degenerate solution in which a tenant earns
-revenue with zero infrastructure use.
+Mean allocations plus a $\kappa$-weighted uncertainty margin must not exceed
+node capacity when active.  When $\kappa = 0$ (no uncertainty), this reduces
+to the deterministic capacity constraint.
 
-\begin{impl}
-  The original code used $\le$ instead of $=$, allowing the solver to
-  admit all tenants without placing any workloads.  With $\le$, $\sigma$
-  was unconstrained at $1.0$ and the objective appeared optimal at a
-  trivially low value.  Changed to $=$ in the current implementation.
-\end{impl}
+\subsection*{C1b --- Second-Order Cone Constraint (SOCP)}
 
-\subsubsection*{C1b --- Tenant-on-Node Indicator}
-\begin{align}
-  y_{i,n,t} &\ge x_{i,j,n,t}
-  \quad \forall\,i,\,j\in\cW_i,\,n,\,t.
+\begin{equation}
+  \sum_{i \in \cT} \sigma^2_{i,h} \cdot y_{i,n,h} \;\leq\; t_{n,h}^2
+  \qquad \forall\, n \in \cN,\; h \in \cH
   \tag{C1b}
-\end{align}
+\end{equation}
 
-\subsubsection*{C1c --- Compliance / Data Residency}
-\begin{align}
-  x_{i,j,n,t} &= 0
-  \quad \forall\,n\notin N_{\text{allowed}}^{(i,j)},\;\forall\,t.
-  \tag{C1c}
-\end{align}
-Implemented by fixing variables to zero at model-build time.
+Forces $t_{n,h}$ to be at least the weighted demand standard deviation on
+node $n$ in period $h$.  This is a second-order cone constraint and is what
+makes the model an MISOCP.  In Gurobi it is expressed as a
+\texttt{QConstr}: \mbox{$t_{n,h}^2 \geq \sum_i \sigma^2_{i,h} \cdot y_{i,n,h}$}.
 
-\subsection{C2 --- Probabilistic Capacity (SOCP)}
+\medskip
+\noindent\textit{Combined probabilistic guarantee:} C1a and C1b together
+ensure $P[\sum_i D_{i,n,h} \leq C_n z_{n,h}] \geq 1-\varepsilon$
+with $\varepsilon = 0.10$, $\kappa = 3.0$ by default.
 
-See \eqref{eq:c2} and \S\ref{sec:socp}.
+\subsection*{C2 --- Priority Link}
 
-\subsection{C3 --- Isolation Primitive Selection}
+\begin{equation}
+  f_{i,n,h} \;\leq\; C_n \cdot y_{i,n,h}
+  \qquad \forall\, i \in \cT,\; n \in \cN,\; h \in \cH
+  \tag{C2}
+\end{equation}
 
-\subsubsection*{C3a --- One Primitive per Admitted Workload}
-\begin{align}
-  \sum_{k\in\cK} w_{i,j,k,t} &= a_i
-  \quad \forall\,i,\,j\in\cW_i,\,t.
-  \tag{C3a}
-\end{align}
+If $y_{i,n,h}=0$, no capacity can be allocated to tenant $i$ on node $n$
+in period $h$.  This links the continuous allocation to the binary priority
+indicator.
 
-\subsubsection*{C3b --- Compliance Floor}
-\begin{align}
-  w_{i,j,k,t} &= 0
-  \quad \forall\,k < k_{\min,i},\;\forall\,j,\,t.
-  \tag{C3b}
-\end{align}
+\subsection*{C3 --- Demand Satisfaction}
 
-\subsubsection*{C3c --- Co-location Compatibility}
-\begin{align}
-  \zeta_{i,j,i',j',n,t} + w_{i,j,k,t} + w_{i',j',k',t} &\le 2
-  \tag{C3c}
-\end{align}
-for all $(i,j,i',j')\in\mathcal{P}$, $n$, $t$, $k$, $k'$ such that
-$\rho_{k,k'} > \tau_{i,i'}$.  Forces co-located workloads from
-incompatible tenants to use sufficiently isolating primitives.
+\begin{equation}
+  \sum_{n \in \cN} f_{i,n,h} \;\geq\; u_{i,h} \cdot a_i
+  \qquad \forall\, i \in \cT,\; h \in \cH
+  \tag{C3}
+\end{equation}
 
-\subsection{C4 --- Control-Plane Budgets}
+Admitted tenants must receive at least their estimated demand in each period.
+Rejected tenants ($a_i=0$) have this constraint deactivated.
 
-\subsubsection*{C4a --- etcd Write Budget}
-\begin{align}
-  \sum_{i,j,k} \omega_{i,k}^{\text{etcd}}\,w_{i,j,k,t}
-  &\le B^{\text{etcd}}
-  \quad \forall\,t.
-  \tag{C4a}
-\end{align}
+\subsection*{C4 --- Fairness}
 
-\subsubsection*{C4b --- API-Server QPS}
-\begin{align}
-  \sum_{i,j,k} \omega_{i,k}^{\text{qps}}\,w_{i,j,k,t}
-  &\le B^{\text{qps}}
-  \quad \forall\,t.
-  \tag{C4b}
-\end{align}
+\begin{equation}
+  \sigma \;\leq\;
+  \frac{\displaystyle\sum_{n \in \cN,\, h \in \cH} f_{i,n,h}}
+       {\displaystyle\sum_{h \in \cH} u_{i,h}}
+  + (1 - a_i)
+  \qquad \forall\, i \in \cT
+  \tag{C4}
+\end{equation}
 
-\subsubsection*{C4c --- Service Count}
-\begin{align}
-  \sum_{i,j,k} \omega_{i,k}^{\text{svc}}\,w_{i,j,k,t}
-  &\le B^{\text{svc}}
-  \quad \forall\,t.
-  \tag{C4c}
-\end{align}
+$\sigma$ is the minimum demand-satisfaction ratio across all admitted tenants
+(DRF-style fairness).  The $(1-a_i)$ term deactivates this constraint for
+rejected tenants.  Since $u_{i,h}$ is a parameter, this constraint is
+\textbf{linear}.
 
-\subsubsection*{C4d --- Migration-Induced QPS Churn}
-\begin{align}
-  \sum_{i,j,n} \delta^{\text{qps}}\,m_{i,j,n,t}^{\text{mig}}
-  &\le B^{\text{qps,churn}}
-  \quad \forall\,t.
-  \tag{C4d}
-\end{align}
+\subsection*{C5 --- Node Activation}
 
-\subsection{C5 --- SLA Latency Satisfaction}
-\label{c5}
-
-\begin{align}
-  l^0_{i,j}
-  + \sum_{\substack{(i',j')\ne(i,j)}} \alpha_{i,j,i',j'}^{\text{lat}}
-    \sum_n \zeta_{i,j,i',j',n,t}
-  + \sum_k \beta_{i,j,k}^{\text{lat}}\,w_{i,j,k,t}
-  - e_{i,j,t}
-  &\le L_{i,q(i,j)} + \BigM(1-a_i)
+\begin{equation}
+  z_{n,h} \;\geq\; y_{i,n,h}
+  \qquad \forall\, i \in \cT,\; n \in \cN,\; h \in \cH
   \tag{C5}
-\end{align}
-for all $i\in\cT$, $j\in\cW_i$, $t\in\cH$.  The Big-$\BigM$ term
-deactivates the constraint for rejected tenants ($a_i=0$).  $e_{i,j,t}\ge 0$
-absorbs excess latency and is penalised in the objective.
+\end{equation}
 
-\begin{note}
-  $\BigM = 10^4$~ms in the current implementation (maximum feasible latency
-  value).  The \emph{real-time} model also uses the label ``C5'' for the
-  tenant-node access constraint; these are distinct constraints in separate
-  models.
-\end{note}
+A node must be marked active if any tenant has a priority assignment on it.
 
-\subsection{C6 --- Migration Linking and Disruption Budget}
+% ─────────────────────────────────────────────────────────────
+\section{Objective Function}
+% ─────────────────────────────────────────────────────────────
 
-\subsubsection*{C6a --- No Migrations at $t=0$}
-\begin{align}
-  m_{i,j,n,0}^{\text{mig}} &= 0
-  \quad \forall\,i,\,j,\,n.
-  \tag{C6a}
-\end{align}
+\begin{equation}
+  \min\quad
+  \underbrace{\lambda_0 \sum_{n \in \cN,\, h \in \cH} \pi_n \cdot z_{n,h}}_{\text{infrastructure cost}}
+  - \underbrace{\lambda_1 \sum_{i \in \cT} (\bar\pi_i - v_i) \cdot a_i}_{\text{admission revenue}}
+  - \underbrace{\lambda_2 \cdot \sigma}_{\text{fairness}}
+  \tag{OBJ}
+\end{equation}
 
-\subsubsection*{C6b --- Migration Triggered by Relocation}
-For $t\ge 1$:
-\begin{align}
-  m_{i,j,n,t}^{\text{mig}}
-  &\ge x_{i,j,n,t} - x_{i,j,n,t-1}
-    - \Bigl(1 - \sum_{n'\ne n} x_{i,j,n',t-1}\Bigr)
-  \quad \forall\,i,\,j,\,n.
-  \tag{C6b}
-\end{align}
+The three components balance:
+\begin{enumerate}[leftmargin=2cm]
+  \item \textbf{Infrastructure cost} --- prefer fewer active nodes.
+  \item \textbf{Admission revenue} --- prefer admitting more tenants.
+  \item \textbf{Fairness} --- maximise the minimum demand-satisfaction ratio.
+\end{enumerate}
 
-\subsubsection*{C6c --- Per-Tenant Disruption Budget}
-\begin{align}
-  \sum_{j,n} m_{i,j,n,t}^{\text{mig}}
-  &\le \Delta_i
-  \quad \forall\,i\in\cT,\;t\in\cH.
-  \tag{C6c}
-\end{align}
+% ─────────────────────────────────────────────────────────────
+\section{Output Interface}
+% ─────────────────────────────────────────────────────────────
 
-\subsection{C7 --- DRF Fairness (Max-Min)}
-\label{sec:c7}
-
-\begin{align}
-  \sigma &\le s_i + (1 - a_i)
-  \quad \forall\,i\in\cT,\;t\in\cH,
-  \tag{C7}
-\end{align}
-where the DRF satisfaction fraction is
+\texttt{extract\_tenant\_access\_schedule(vars\_, P)} returns:
 \[
-  s_i \;=\;
-  \frac{\displaystyle\sum_{j\in\cW_i}\sum_{n\in\cN}
-        d_{i,j,r^*_i}\,x_{i,j,n,t}}{Q_{i,r^*_i}},
-  \qquad
-  r^*_i = \arg\max_{r\in\cR}\frac{\sum_j d_{i,j,r}}{Q_{i,r}}.
-\]
-The term $(1-a_i)$ releases rejected tenants from dragging $\sigma$ down.
-$\sigma$ is maximised in the objective (DRF max-min fairness).
-
-% ============================================================
-\section{Optimization Objective}
-% ============================================================
-
-The model minimizes the following multi-term weighted objective:
-
-\begin{align}
-  \min \quad
-  &\lambda_0 \underbrace{\sum_{n,t} \pi_n\,z_{n,t}}_{\text{infra cost}}
-  +\lambda_1 \underbrace{\sum_{i,j,t} p_{i,j}\,e_{i,j,t}}_{\text{SLA penalty}}
-  -\lambda_2 \underbrace{\sum_i (\bar{\pi}_i - v_i^{\text{op}})\,a_i}_{\text{admission revenue}}
-  \notag\\[6pt]
-  &-\lambda_3 \underbrace{\sigma}_{\text{fairness}}
-  +\lambda_4 \underbrace{\sum_{i,j,k,t} c_k\,w_{i,j,k,t}}_{\text{isolation cost}}
-  +\lambda_5 \underbrace{\sum_{i,j,n,t} \gamma_{i,j}\,m_{i,j,n,t}^{\text{mig}}}_{\text{migration cost}}
-  \label{eq:obj}
-\end{align}
-
-\paragraph{Default weights.}
-\begin{center}
-\begin{tabular}{@{}llll@{}}
-  \toprule
-  Weight & Value & Term & Rationale \\
-  \midrule
-  $\lambda_0$ & 1.0  & Infrastructure cost  & Always active \\
-  $\lambda_1$ & 10.0 & SLA penalty          & SLA violations are expensive \\
-  $\lambda_2$ & 1.0  & Admission revenue    & Revenue incentive \\
-  $\lambda_3$ & 5.0  & Fairness             & Significant equity weight \\
-  $\lambda_4$ & 0.5  & Isolation cost       & Minor operational overhead \\
-  $\lambda_5$ & 2.0  & Migration cost       & Moderate disruption penalty \\
-  \bottomrule
-\end{tabular}
-\end{center}
-
-\begin{note}
-  Revenue and operational cost scale with the horizon length in the
-  implementation: $\bar{\pi}_i = 3|\cH|$ and $v_i^{\text{op}} = 0.5|\cH|$.
-  This ensures the objective remains balanced regardless of how many time
-  slots are configured.
-\end{note}
-
-% ============================================================
-\section{Model Output and Interface to Real-Time Model}
-% ============================================================
-
-The plan-ahead model's primary output consumed by the real-time model is
-the per-tenant, per-slot authorised node set:
-\[
-  A_t^{(i)} \;=\; \bigl\{n\in\cN : \textstyle\sum_j x_{i,j,n,t} \ge 1\bigr\},
-  \quad \forall\,i\in\cT,\;t\in\cH.
+  \texttt{TenantAccessSchedule} = \bigl\{(i,\,h) \;\mapsto\; \{n : y_{i,n,h}=1\}\bigr\}
 \]
 
-In Python:
-\begin{verbatim}
-  TenantAccessSchedule: dict[(tenant_id, time_slot) -> list[node_id]]
+These are \textbf{priority hints}.  The real-time scheduler applies a
+\texttt{PRIORITY\_BOOST} $= 2.0$ multiplier to the objective coefficient
+for $(j,\,n)$ pairs where $n \in \texttt{TenantAccessSchedule}[t(j),\,h]$,
+and uses \texttt{sort\_by\_plan\_priority} to front-load prioritised jobs
+in the solver window.  \emph{All nodes remain accessible regardless.}
 
-  e.g.  { (0, 0): [2, 3],   # tenant 0 authorised on nodes 2,3 at t=0
-          (0, 1): [3],       # tenant 0 restricted to node 3 at t=1
-          (1, 0): [0, 1] }
-\end{verbatim}
+% ─────────────────────────────────────────────────────────────
+\section{Real-Time Integration}
+% ─────────────────────────────────────────────────────────────
 
-At each real-time scheduling epoch for slot $t$:
-\begin{verbatim}
-  active_access = filter_active_access(schedule, t)
-  solve(jobs, nodes, tenant_node_access=active_access)
-\end{verbatim}
+The real-time MILP maximises:
+\[
+  \max \sum_{j \in J} \sum_{n \in \cN}
+  \omega_{\delta,t(j)} \cdot \hat{m}_j \cdot u_n^{\mathrm{mem}} \cdot \sigma_n^{\mathrm{consolid}}
+  \cdot b_{t(j),n} \cdot x_{jn}
+\]
+where
+\[
+  b_{t(j),n} =
+  \begin{cases}
+    \text{PRIORITY\_BOOST} & n \in \text{TenantAccessSchedule}[t(j), h] \\
+    1.0                    & \text{otherwise}
+  \end{cases}
+\]
 
-The real-time model enforces access via its own constraint C5 (distinct from
-the plan-ahead C5): variable upper-bound $= 0$ for any job--node pair where
-the tenant is not authorised at the current slot.
+This replaces the former hard-block constraint
+$x_{jn} = 0 \text{ if } n \notin A_{t(j)}$ with a soft objective preference.
 
-% ============================================================
-\section{Connection to Google Cluster-Usage Traces v3}
-% ============================================================
+% ─────────────────────────────────────────────────────────────
+\section{Complexity Comparison}
+% ─────────────────────────────────────────────────────────────
 
-\paragraph{Parameters derived from traces.}
 \begin{center}
-\begin{tabular}{@{}lll@{}}
+\begin{tabular}{@{}lcc@{}}
   \toprule
-  Parameter & Trace source & Field \\
+  & \textbf{Original MISOCP} & \textbf{Current MISOCP} \\
   \midrule
-  $\mu_{i,j,r}$  & \texttt{InstanceUsage}   & \texttt{average\_usage} \\
-  $\Sigma_r$     & \texttt{InstanceUsage}   & \texttt{random\_sampled\_usage} \\
-  $d_{i,j,r}$   & \texttt{InstanceEvents}  & \texttt{resource\_request} (per task, not per collection) \\
-  $C_{n,r}$     & \texttt{MachineEvents}   & \texttt{capacity} \\
-  $q(i,j)$      & \texttt{InstanceEvents}  & \texttt{scheduling\_class} ($3\to$ guaranteed, $0\to$ burstable) \\
-  $p_{i,j}$     & \texttt{InstanceEvents}  & \texttt{priority} (higher $\to$ higher penalty) \\
-  $N_{i,t}$     & \texttt{InstanceEvents}  & \texttt{SUBMIT} event count per tenant per 4-hour time-of-day bucket (prediction layer input) \\
+  Binary variable count     & $O(TWNH + TNH + NH + T)$ & $O(TNH + NH + T)$ \\
+  Continuous variables      & $O(TWNKH + TWH + NH)$ & $O(TNH + NH + 1)$ \\
+  Constraint classes        & 7 (incl.\ per-workload SOCP, McCormick) & 6 (C1a linear + C1b cone + C2--C5) \\
+  Cone constraints          & Yes (workload covariance $\Sigma$) & Yes (tenant usage variance $\sigma^2_{i,h}$) \\
+  External data required    & Workload covariance $\Sigma$, migration costs & $u_{i,h}$, \texttt{sigma\_frac} only \\
+  Migration tracking        & Yes ($m_{i,j,n,t}$) & No \\
+  Isolation primitives      & Yes (gVisor/Kata) & No \\
+  Exclusivity constraint    & Yes (hard block) & No (soft priority boost) \\
   \bottomrule
 \end{tabular}
 \end{center}
-
-\paragraph{Parameters requiring operator specification.}
-$\pi_n$, $\bar{\pi}_i$, $v_i^{\text{op}}$ (pricing);
-$L_{i,q}$ (SLA targets);
-$\tau_{i,i'}$, $\rho_{k,k'}$ (interference model, from benchmarks);
-$\eta_{k,r}$ (primitive overhead, from gVisor/Kata benchmarks);
-$\gamma_{i,j}$, $\Delta_i$ (migration policy);
-$\lambda_s$ (objective weights);
-$\alpha_r^{\text{oc}}$ (overcommit policy).
-
-\paragraph{Temporal alignment.}
-Google traces use 5-minute measurement windows.  Planning slots $\cH$
-correspond to coarser windows (e.g.\ 4-hour blocks).  $\mu_{i,j,r}$ and
-$\Sigma_r$ per slot are estimated by aggregating measurements within each
-window.  This aggregation is performed by the prediction model (separate
-component).
-
-% ============================================================
-\section{Complete Model Summary}
-% ============================================================
-
-\paragraph{Decision variables.}
-\begin{align*}
-  &x_{i,j,n,t},\;y_{i,n,t},\;z_{n,t},\;w_{i,j,k,t},\;m_{i,j,n,t}^{\text{mig}},\;a_i
-    \;\in\;\{0,1\}  \\
-  &e_{i,j,t},\;\eps_{n,t}^{\text{eff}} \;\ge\; 0  \\
-  &\xi_{i,j,n,k,t},\;\zeta_{i,j,i',j',n,t} \;\in\;\{0,1\} \quad\text{(McCormick auxiliaries)}\\
-  &\sigma \;\in\; [0,1]
-\end{align*}
-
-\paragraph{Objective.}  See \eqref{eq:obj}.
-
-\paragraph{Constraints.}
-\begin{center}
-\begin{tabular}{@{}lll@{}}
-  \toprule
-  Label & Name & Key property \\
-  \midrule
-  C1    & Placement integrity     & Equality: forces placement if admitted \\
-  C1b   & Tenant-on-node indicator & Drives $\eps_{n,t}^{\text{eff}}$ \\
-  C1c   & Compliance / residency  & Hard node exclusions via $N_{\text{allowed}}$ \\
-  C2    & Probabilistic capacity  & SOCP / Cantelli safety margin \\
-  C3a   & One primitive per workload & Exactly one $k$ selected \\
-  C3b   & Compliance floor        & $k \ge k_{\min,i}$ enforced \\
-  C3c   & Co-location compatibility & $\rho_{k,k'} \le \tau_{i,i'}$ for co-located pairs \\
-  C4a--d & Control-plane budgets  & etcd, QPS, service count, migration churn \\
-  C5    & SLA latency             & Big-$\BigM$ deactivation for rejected tenants \\
-  C6a   & No migration at $t=0$   & No prior state \\
-  C6b   & Migration trigger       & Relocation detection \\
-  C6c   & Disruption budget       & $\le\Delta_i$ migrations per tenant per slot \\
-  C7    & DRF fairness            & Max-min $\sigma$ across admitted tenants \\
-  \midrule
-  ---   & McCormick ($\xi$)       & $\xi = x\cdot w$ linearization \\
-  ---   & McCormick ($\zeta$)     & $\zeta = x\cdot x$ linearization \\
-  \bottomrule
-\end{tabular}
-\end{center}
-
-\paragraph{Solver.}
-Gurobi MISOCP (Mixed-Integer Second-Order Cone Program).
-Default settings: \texttt{TimeLimit}~$=300$~s, \texttt{MIPGap}~$=1\%$.
-Pipeline settings: \texttt{TimeLimit}~$=120$~s with \texttt{LogToConsole}
-enabled for medium/high complexity samples.
-
-\paragraph{Output.}
-\texttt{TenantAccessSchedule} $\to$ passed as
-\texttt{tenant\_node\_access} to the real-time model's \texttt{solve()} call.
-
-\bigskip
-
 
 \end{document}
