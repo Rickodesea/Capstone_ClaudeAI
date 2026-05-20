@@ -17,12 +17,24 @@ The original plan-ahead model was a Mixed-Integer Second-Order Cone Program (MIS
 that scheduled individual workloads, enforced probabilistic capacity constraints, and
 used hard tenant-node access control.  Simulation testing revealed that these design
 choices caused feasibility failures, queue starvation, and data requirements that
-cannot be met in practice.  This document justifies replacing it with a simpler
-Mixed-Integer Linear Program (MILP) that:
+cannot be met in practice.
 
-1. Operates on **tenant usage profiles** rather than individual workloads.
-2. Produces **priority hints** rather than hard access constraints.
-3. Eliminates SOCP terms, isolation primitives, and migration variables.
+**The refactored model remains a MISOCP.**  The cone constraint — and the
+probabilistic capacity guarantee it provides — is preserved intact.  What changed
+is the *source of uncertainty* driving that cone: the original model required a
+Cholesky decomposition of a full per-workload covariance matrix $\Sigma_r$ that
+is unknowable at planning time; the refactored model derives uncertainty directly
+from the **estimated aggregate tenant demand** $u_{i,h}$, which is forecastable.
+
+Specifically, this document justifies three changes:
+
+1. The **unit of planning** shifts from individual workload variables
+   $x_{i,j,n,t}$ to **tenant usage profiles** $u_{i,h}$ — the estimated
+   total resource consumption of tenant $i$ during period $h$.
+2. **Hard access constraints** are replaced with **priority hints**, removing
+   isolation primitives and migration variables.
+3. The **SOCP uncertainty input** changes from the per-workload Cholesky term
+   $\|\mathbf{L}_r \cdot \boldsymbol{\xi}_{n,r,t}\|_2$ (requiring joint workload covariance) to a per-tenant scalar variance $\sigma^2_{i,h} = (\texttt{sigma\_frac} \times u_{i,h})^2$ (derivable from usage traces).
 
 ---
 
@@ -85,7 +97,7 @@ constraint required.
 
 ---
 
-## 3. Why Change C5 from Hard Constraint to Soft Priority
+## 3. Why Change C5 from Hard Constraint to Soft Priority in the Realtime Model
 
 ### The Problem
 
@@ -122,10 +134,7 @@ model eliminated these backlogs without sacrificing the planning signal.
 
 Replace the hard block with a **priority boost** in the real-time objective:
 
-$$b_{t(j),n} = \begin{cases}
-  2.0 & \text{if } n \in \text{priority\_set}[t(j)] \\
-  1.0 & \text{otherwise}
-\end{cases}$$
+$$b_{t(j),n} = \begin{cases}  2.0 & \text{if } n \in \text{priority\_set}[t(j)] 1.0 & \text{otherwise} \end{cases}$$
 
 This makes plan-ahead-endorsed placements twice as attractive in the MILP
 objective, guiding the solver toward the planned allocation, but still
@@ -161,15 +170,13 @@ $$\sigma^2_{i,h} = (\text{sigma\_frac} \times u_{i,h})^2$$
 Larger predicted usage → proportionally larger uncertainty.  The capacity constraint
 is split into two parts:
 
-$$\sum_{i} f_{i,n,h} + \kappa \cdot t_{n,h} \leq C_n \cdot z_{n,h}
-\qquad \text{(C1a: allocation + safety buffer ≤ capacity)}$$
+$$\sum_{i} f_{i,n,h} + \kappa \cdot t_{n,h} \leq C_n \cdot z_{n,h}\qquad \text{(C1a: allocation + safety buffer ≤ capacity)}$$
 
-$$\sum_{i} \sigma^2_{i,h} \cdot y_{i,n,h} \leq t_{n,h}^2
-\qquad \text{(C1b: buffer must cover combined uncertainty)}$$
+$$\sum_{i} \sigma^2_{i,h} \cdot y_{i,n,h} \leq t_{n,h}^2\qquad \text{(C1b: buffer must cover combined uncertainty)}$$
 
 $t_{n,h}$ is a continuous variable the solver sizes automatically.  Together the two
 constraints guarantee that the node stays within capacity at least **90% of the time**
-even if actual demand exceeds the prediction ($\varepsilon = 0.10$, $\kappa = 3.0$).
+even if actual demand exceeds the prediction ($\varepsilon = 0.10$, $\kappa = 30$).
 
 ### What Changed and Why
 
@@ -216,13 +223,13 @@ no meaning at the planning level.
 
 ## 6. Summary of Model Complexity
 
-| Aspect | Original MISOCP | New MILP |
+| Aspect | Original MISOCP | Refactored MISOCP |
 |--------|----------------|---------|
 | Binary variables | $O(TW N H + TNH + NH + T)$ | $O(TNH + NH + T)$ |
-| Continuous variables | $O(TW N K H + T W H + NH)$ | $O(TNH + 1)$ |
-| Constraint classes | C1 placement, C1b indicator, C1c compliance, McCormick, C2 SOCP, C3 isolation, C4 control-plane, C5 latency, C6 migration, C7 DRF | C1 capacity, C2 priority link, C3 demand, C4 fairness, C5 node activation |
-| Cone constraints | Yes (SOCP) | None (pure MILP) |
-| External data required | Workload covariance $\Sigma$, isolation parameters, migration costs | Tenant usage profile $u_{i,h}$ |
+| Continuous variables | $O(TWNKH + TWH + NH)$ | $O(TNH + NH + 1)$ |
+| Constraint classes | C1 placement, C1b indicator, C1c compliance, McCormick, C2 SOCP, C3 isolation, C4 control-plane, C5 latency, C6 migration, C7 DRF | C1a capacity + C1b cone, C2 priority link, C3 demand, C4 fairness, C5 node activation |
+| Cone constraints | Yes — $\|\mathbf{L}_r \cdot \boldsymbol{\xi}_{n,r,t}\|_2 \leq\texttt{soc\_aux}$ (per-workload Cholesky) | Yes — $\sum_i \sigma^2_{i,h}\cdot y_{i,n,h} \leq t_{n,h}^2$ (per-tenant usage variance) |
+| External data required | Workload covariance matrix $\Sigma_r$, isolation overhead params, migration costs | Per-tenant usage profile $u_{i,h}$, `sigma_frac` scalar |
 
 ---
 
@@ -230,13 +237,21 @@ no meaning at the planning level.
 
 The refactored model is:
 
-- **Conceptually correct**: it forecasts what can be known (aggregate demand),
-  not what cannot (individual job arrivals).
-- **Mathematically simpler**: pure MILP, no SOCP, fewer variables.
+- **Conceptually correct**: it forecasts what can be known (aggregate demand
+  $u_{i,h}$), not what cannot (individual job arrival patterns).
+- **Mathematically rigorous and complex**: the model remains a MISOCP.  The
+  Cantelli cone constraint $\sum_i \sigma^2_{i,h} \cdot y_{i,n,h} \leq t_{n,h}^2$
+  provides the same probabilistic capacity guarantee (coverage $\geq 1 - \varepsilon$)
+  as the original, while operating on inputs that can actually be obtained.
 - **More robust**: priority hints degrade gracefully; no hard blocks.
 - **Practically implementable**: $u_{i,h}$ can be generated from cluster traces
   using standard time-series forecasting; the prediction team has a clear,
-  well-defined input to produce.
+  well-defined scalar input to produce instead of a full workload covariance matrix.
+
+The MILP mode (`use_socp=False`) exists solely as a simulation-speed fallback:
+the simulation fires the plan-ahead every 50 steps, making solve time observable.
+It drops the safety buffer and the cone constraint.  **This is not the primary
+model** and does not alter the MISOCP identity of the plan-ahead formulation.
 
 The plan-ahead output feeds the real-time model as a **soft guidance signal**,
 respecting the principle that operational decisions (actual job placement) should

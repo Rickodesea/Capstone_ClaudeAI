@@ -51,7 +51,8 @@
       "Bash(python plan_ahead_optimizer.py)",
       "Bash(python -m pytest test_main.py -v -x --timeout=600 -k \"not TestPlanAhead\")",
       "Bash(python -m pytest test_main.py -v -k \"not TestPlanAhead\")",
-      "Bash(python interface.py 1)"
+      "Bash(python interface.py 1)",
+      "Bash(python Cluster_Optimization_Models/Docs/generate_slides.py)"
     ],
     "deny": [],
     "ask": []
