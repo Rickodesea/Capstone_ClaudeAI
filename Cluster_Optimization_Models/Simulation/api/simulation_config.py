@@ -29,45 +29,45 @@ import numpy as np
 # ═══════════════════════════════════════════════════════════════════════════════
 
 DEFAULT_CONFIG: dict = {
-    # ── Cluster topology ──────────────────────────────────────────────────────
-    'num_nodes':              5,
-    'num_tenants':            3,
-    'node_mem_min_gb':       16,     # GB — smallest node RAM
-    'node_mem_max_gb':       64,     # GB — largest node RAM
-    'node_cpu_min':           8,     # cores — fewest CPU per node
-    'node_cpu_max':          64,     # cores — most CPU per node
-    # ── Workload ─────────────────────────────────────────────────────────────
-    'jobs_per_round':        20,     # new jobs per scheduling epoch
-    'req_mem_min_mb':       512,     # MB — min declared memory per job
-    'req_mem_max_mb':      1024,     # MB — max declared memory per job
-    'req_cpu_min':          0.25,    # cores — min CPU request per job
-    'req_cpu_max':          4.0,     # cores — max CPU request per job
-    'spike_prob_pct':        10,     # % of placed jobs that spike above pred_mem
-    'min_lifetime_sec':      60,     # s — shortest job runtime
-    'max_lifetime_sec':     600,     # s — longest job runtime
+    # ── Cluster topology (sets) ───────────────────────────────────────────────
+    'num_nodes':              5,      # total machines in pool (M = M_a ∪ M_b)
+    'num_tenants':            3,      # total tenants (T = T_e ∪ T_s)
+    'num_always_available':   3,      # |M_a| — always-on machines; rest are additional
+    'node_mem_min_gb':       16,      # GB — smallest machine RAM
+    'node_mem_max_gb':       64,      # GB — largest machine RAM
+    'node_cpu_min':           8,      # cores — fewest CPU per machine
+    'node_cpu_max':          64,      # cores — most CPU per machine
+    # ── Workload parameters ───────────────────────────────────────────────────
+    'jobs_per_round':        20,      # new jobs per scheduling interval
+    'req_mem_min_mb':       512,      # MB — min declared memory per job
+    'req_mem_max_mb':      1024,      # MB — max declared memory per job
+    'req_cpu_min':          0.25,     # cores — min CPU request per job
+    'req_cpu_max':          4.0,      # cores — max CPU request per job
+    'spike_prob_pct':        10,      # % of placed jobs that spike above pred_mem
+    'min_lifetime_sec':      60,      # s — shortest job runtime
+    'max_lifetime_sec':     600,      # s — longest job runtime
     # ── Model hyper-parameters ────────────────────────────────────────────────
-    'k_window':              10,     # rolling window for v̄_n^SLA and W̄_t
-    'mem_threshold_frac':  0.10,     # safety buffer = threshold_frac × M_n
-    'request_per':          0.60,    # actual usage lower bound as fraction of request
+    'k_window':              10,      # rolling window for v̄_n^SLA and W̄_t
+    'mem_threshold_frac':  0.10,      # safety buffer = threshold_frac × M_n
+    'request_per':          0.60,     # actual usage lower bound as fraction of request
     # ── Scheduler internals ───────────────────────────────────────────────────
-    'batch_duration_sec':    60,     # simulated seconds per epoch
-    'max_jobs_per_solve':     0,     # 0 = all queued jobs; any positive number caps the MILP window
-    # ── Plan-ahead ────────────────────────────────────────────────────────────
-    'plan_ahead_interval':   50,     # steps between plan-ahead refreshes
-    'access_period':          4,     # steps per planning period
-    # ── Plan-ahead data (mirrors PlanAhead/plan_ahead_data.py) ───────────────
-    'node_capacity':         10.0,
-    'tenant_usage_min':       0.8,   # lower bound for u[i,h] (capacity units)
-    'tenant_usage_max':       6.0,   # upper bound for u[i,h] (capacity units)
-    'plan_time_limit':        30,    # s — Gurobi wall-clock limit per plan solve
-    'plan_mip_gap':           0.05,  # Gurobi relative optimality gap target
-    'priority_boost':         2.0,   # objective multiplier for plan-ahead-endorsed nodes
-    'use_socp':               0,     # 0 = MILP (fast, default for simulation); 1 = MISOCP (Cantelli)
-    'sigma_frac':             0.20,  # demand uncertainty fraction — std dev = sigma_frac × u[i,h]
-    'cantelli_epsilon':       0.10,  # Cantelli tail probability — κ = sqrt((1-ε)/ε); ε=0.1 → κ=3
-    # ── Workload range (Simulation) ───────────────────────────────────────────
-    'jobs_min_per_round':     5,     # Simulation: min jobs sampled per epoch
-    'jobs_max_per_round':    20,     # Simulation: max jobs sampled per epoch
+    'batch_duration_sec':    60,      # simulated seconds per interval
+    'realtime_time_limit_ms': 2000,   # ms — solver time limit per realtime call (keep UI responsive)
+    # ── Plan-ahead parameters ─────────────────────────────────────────────────
+    'plan_ahead_interval':   50,      # intervals between plan-ahead refreshes
+    'access_period':          4,      # intervals per planning interval in plan-ahead
+    'exclusive_frac':        0.00,    # fraction of tenants tagged exclusive (0 = none)
+    'node_capacity':         10.0,    # C[n] — resource capacity per machine (plan-ahead units)
+    'tenant_usage_min':       0.8,    # lower bound for u[i,h] (capacity units)
+    'tenant_usage_max':       6.0,    # upper bound for u[i,h] (capacity units)
+    'plan_time_limit':        30,     # s — Gurobi wall-clock limit per plan solve
+    'plan_mip_gap':           0.05,   # Gurobi relative optimality gap target
+    'use_socp':               0,      # 0 = MILP (fast); 1 = MISOCP (Cantelli cone)
+    'sigma_frac':             0.20,   # demand uncertainty fraction for Cantelli
+    'cantelli_epsilon':       0.10,   # Cantelli tail probability (ε=0.1 → κ=3.0)
+    # ── Workload range (Simulation-specific) ──────────────────────────────────
+    'jobs_min_per_round':     5,      # min jobs sampled per interval
+    'jobs_max_per_round':    20,      # max jobs sampled per interval
 }
 
 
@@ -116,8 +116,7 @@ SPIKE_PROB:         float = DEFAULT_CONFIG['spike_prob_pct'] / 100.0
 SPIKE_MAX_FRAC:     float = 0.20
 
 BATCH_DURATION_SEC: int   = DEFAULT_CONFIG['batch_duration_sec']
-MAX_PLACEMENT_RETRIES: int = 5
-MAX_JOBS_PER_SOLVE: int   = 0   # 0 = no cap (send all queued jobs)
+MAX_PLACEMENT_RETRIES: int = 3
 
 
 def _make_node_mems(n: int, lo: float, hi: float) -> list[float]:

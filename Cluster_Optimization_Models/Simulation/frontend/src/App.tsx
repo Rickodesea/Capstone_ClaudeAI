@@ -51,7 +51,6 @@ type CfgRow = {
   set: (v: number) => void
   key: string
   min: number
-  max: number
   step?: number
   isFloat?: boolean
 }
@@ -94,7 +93,6 @@ export default function App() {
   const [cfgMaxLifetimeSec,     setCfgMaxLifetimeSec]     = useState(600)
   // Scheduler
   const [cfgBatchDurationSec,   setCfgBatchDurationSec]   = useState(60)
-  const [cfgMaxJobsPerSolve,    setCfgMaxJobsPerSolve]    = useState(0)
   const [cfgKWindow,            setCfgKWindow]            = useState(10)
   const [cfgMemThresholdFrac,   setCfgMemThresholdFrac]   = useState(0.10)
   // Plan-Ahead
@@ -104,7 +102,6 @@ export default function App() {
   const [cfgTenantUsageMax,     setCfgTenantUsageMax]     = useState(6.0)
   const [cfgPlanTimeLimit,      setCfgPlanTimeLimit]      = useState(30)
   const [cfgPlanMipGap,         setCfgPlanMipGap]         = useState(0.05)
-  const [cfgPriorityBoost,      setCfgPriorityBoost]      = useState(2.0)
   const [cfgUseSocp,            setCfgUseSocp]            = useState(0)   // 0=MILP, 1=SOCP
   const [cfgSigmaFrac,          setCfgSigmaFrac]          = useState(0.20)
   const [cfgCantelliEpsilon,    setCfgCantelliEpsilon]    = useState(0.10)
@@ -151,7 +148,6 @@ export default function App() {
             if (c.max_lifetime_sec     != null) setCfgMaxLifetimeSec(c.max_lifetime_sec)
             // Scheduler
             if (c.batch_duration_sec   != null) setCfgBatchDurationSec(c.batch_duration_sec)
-            if (c.max_jobs_per_solve   != null) setCfgMaxJobsPerSolve(c.max_jobs_per_solve)
             if (c.k_window             != null) setCfgKWindow(c.k_window)
             if (c.mem_threshold_frac   != null) setCfgMemThresholdFrac(c.mem_threshold_frac)
             // Plan-Ahead
@@ -161,7 +157,6 @@ export default function App() {
             if (c.tenant_usage_max     != null) setCfgTenantUsageMax(c.tenant_usage_max)
             if (c.plan_time_limit      != null) setCfgPlanTimeLimit(c.plan_time_limit)
             if (c.plan_mip_gap         != null) setCfgPlanMipGap(c.plan_mip_gap)
-            if (c.priority_boost       != null) setCfgPriorityBoost(c.priority_boost)
             if (c.use_socp             != null) setCfgUseSocp(c.use_socp)
             if (c.sigma_frac           != null) setCfgSigmaFrac(c.sigma_frac)
             if (c.cantelli_epsilon     != null) setCfgCantelliEpsilon(c.cantelli_epsilon)
@@ -278,17 +273,17 @@ export default function App() {
       <>
         <div className="text-[10px] text-slate-500 mb-1 mt-3">{title}</div>
         <div className="space-y-1.5">
-          {rows.map(({ label, val, set, key, min, max, step, isFloat }) => (
+          {rows.map(({ label, val, set, key, min, step, isFloat }) => (
             <div key={key} className="flex items-center justify-between gap-2 text-[11px]">
               <span className="text-slate-400 shrink-0">{label}</span>
               <input
                 type="number"
-                min={min} max={max}
+                min={min}
                 step={step ?? (isFloat ? 0.01 : 1)}
                 value={val}
                 onChange={(e) => {
                   const v = isFloat ? parseFloat(e.target.value) : parseInt(e.target.value)
-                  if (!isNaN(v)) { set(v); postConfig({ [key]: v }) }
+                  if (!isNaN(v) && v >= min) { set(v); postConfig({ [key]: v }) }
                 }}
                 className="w-16 bg-slate-700 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-white tabular-nums text-right focus:outline-none"
               />
@@ -583,13 +578,11 @@ export default function App() {
                     { term: 'Spike',             def: 'A placed job whose actual runtime memory exceeded the P95 prediction. Contributes to overflow risk.' },
                     { term: 'K Window',          def: 'Rolling window of K recent steps used to compute the SLA violation rate (v̄_n) and tenant delay weights (ω_delay).' },
                     { term: 'ω_delay (omega)',   def: 'Tenant delay weight in the real-time objective. Tenants waiting longer than average get a higher weight so their jobs are prioritized.' },
-                    { term: 'Plan-Ahead',        def: 'Optimization model (MILP or MISOCP) that runs periodically to decide which nodes each tenant should be prioritized on for the upcoming horizon.' },
-                    { term: 'Priority Boost',    def: 'Multiplier applied to the real-time objective coefficient for (job, node) pairs endorsed by the plan-ahead. Soft hint — no node is blocked.' },
+                    { term: 'Plan-Ahead',        def: 'Optimization model (MILP or MISOCP) that runs periodically. Assigns tenants to machine groups for the upcoming horizon. Groups are passed to the real-time scheduler each interval.' },
                     { term: 'SOCP (Cantelli)',   def: 'Second-order cone capacity constraint in MISOCP mode. Ensures actual usage stays within node capacity with at least (1−ε) probability, accounting for prediction uncertainty.' },
                     { term: 'sigma_frac',        def: 'Uncertainty fraction for SOCP mode. Demand std dev is modelled as sigma_frac × u[i,h]. Higher value = larger safety buffer.' },
                     { term: 'Cantelli ε',        def: 'Tail probability for SOCP capacity constraint. ε = 0.10 means the capacity guarantee holds 90% of the time.' },
-                    { term: 'Batch / Epoch',     def: 'One scheduling round. New jobs arrive, the real-time optimizer runs, jobs are placed or return to queue. Duration set by Batch Duration (s).' },
-                    { term: 'Max Jobs / Solve',  def: 'How many jobs from the front of the queue are passed to the MILP solver per batch. 0 = send all queued jobs at once.' },
+                    { term: 'Batch / Epoch',     def: 'One scheduling round. New jobs arrive, the real-time optimizer runs once per tenant group, jobs are placed or return to queue. Unplaced jobs get a wait bump each batch.' },
                   ] as { term: string; def: string }[]).map(({ term, def }) => (
                     <div key={term}>
                       <span className="font-bold text-slate-300">{term}</span>
@@ -618,41 +611,39 @@ export default function App() {
               <div className="text-[10px] text-slate-600 mb-1">Changes apply after Reset</div>
 
               <CfgSection title="Topology" rows={[
-                { label: 'Num Nodes',            val: cfgNumNodes,         set: setCfgNumNodes,         key: 'num_nodes',         min: 1,    max: 20     },
-                { label: 'Num Tenants',           val: cfgNumTenants,       set: setCfgNumTenants,       key: 'num_tenants',       min: 1,    max: 100    },
-                { label: 'Node RAM Min (GB)',      val: cfgNodeMemMinGb,     set: setCfgNodeMemMinGb,     key: 'node_mem_min_gb',   min: 4,    max: 256    },
-                { label: 'Node RAM Max (GB)',      val: cfgNodeMemMaxGb,     set: setCfgNodeMemMaxGb,     key: 'node_mem_max_gb',   min: 4,    max: 512    },
-                { label: 'Node CPU Min (cores)',   val: cfgNodeCpuMin,       set: setCfgNodeCpuMin,       key: 'node_cpu_min',      min: 1,    max: 128    },
-                { label: 'Node CPU Max (cores)',   val: cfgNodeCpuMax,       set: setCfgNodeCpuMax,       key: 'node_cpu_max',      min: 1,    max: 256    },
+                { label: 'Num Nodes',            val: cfgNumNodes,         set: setCfgNumNodes,         key: 'num_nodes',         min: 1  },
+                { label: 'Num Tenants',           val: cfgNumTenants,       set: setCfgNumTenants,       key: 'num_tenants',       min: 1  },
+                { label: 'Node RAM Min (GB)',      val: cfgNodeMemMinGb,     set: setCfgNodeMemMinGb,     key: 'node_mem_min_gb',   min: 1  },
+                { label: 'Node RAM Max (GB)',      val: cfgNodeMemMaxGb,     set: setCfgNodeMemMaxGb,     key: 'node_mem_max_gb',   min: 1  },
+                { label: 'Node CPU Min (cores)',   val: cfgNodeCpuMin,       set: setCfgNodeCpuMin,       key: 'node_cpu_min',      min: 1  },
+                { label: 'Node CPU Max (cores)',   val: cfgNodeCpuMax,       set: setCfgNodeCpuMax,       key: 'node_cpu_max',      min: 1  },
               ]} />
 
               <CfgSection title="Workload" rows={[
-                { label: 'Jobs Min / Round',       val: cfgJobsMinPerRound,  set: setCfgJobsMinPerRound,  key: 'jobs_min_per_round', min: 1,   max: 200    },
-                { label: 'Jobs Max / Round',       val: cfgJobsMaxPerRound,  set: setCfgJobsMaxPerRound,  key: 'jobs_max_per_round', min: 1,   max: 200    },
-                { label: 'Job RAM Min (MB)',        val: cfgReqMemMinMb,      set: setCfgReqMemMinMb,      key: 'req_mem_min_mb',    min: 64,   max: 8192   },
-                { label: 'Job RAM Max (MB)',        val: cfgReqMemMaxMb,      set: setCfgReqMemMaxMb,      key: 'req_mem_max_mb',    min: 64,   max: 16384  },
-                { label: 'Job CPU Min (cores)',     val: cfgReqCpuMin,        set: setCfgReqCpuMin,        key: 'req_cpu_min',       min: 0.1,  max: 16,    step: 0.1, isFloat: true },
-                { label: 'Job CPU Max (cores)',     val: cfgReqCpuMax,        set: setCfgReqCpuMax,        key: 'req_cpu_max',       min: 0.1,  max: 32,    step: 0.1, isFloat: true },
-                { label: 'Spike Prob %',            val: cfgSpikeProb,        set: setCfgSpikeProb,        key: 'spike_prob_pct',    min: 0,    max: 100    },
-                { label: 'Min Lifetime (s)',         val: cfgMinLifetimeSec,   set: setCfgMinLifetimeSec,   key: 'min_lifetime_sec',  min: 10,   max: 3600   },
-                { label: 'Max Lifetime (s)',         val: cfgMaxLifetimeSec,   set: setCfgMaxLifetimeSec,   key: 'max_lifetime_sec',  min: 10,   max: 7200   },
+                { label: 'Jobs Min / Round',       val: cfgJobsMinPerRound,  set: setCfgJobsMinPerRound,  key: 'jobs_min_per_round', min: 1  },
+                { label: 'Jobs Max / Round',       val: cfgJobsMaxPerRound,  set: setCfgJobsMaxPerRound,  key: 'jobs_max_per_round', min: 1  },
+                { label: 'Job RAM Min (MB)',        val: cfgReqMemMinMb,      set: setCfgReqMemMinMb,      key: 'req_mem_min_mb',    min: 1  },
+                { label: 'Job RAM Max (MB)',        val: cfgReqMemMaxMb,      set: setCfgReqMemMaxMb,      key: 'req_mem_max_mb',    min: 1  },
+                { label: 'Job CPU Min (cores)',     val: cfgReqCpuMin,        set: setCfgReqCpuMin,        key: 'req_cpu_min',       min: 0.1, step: 0.1, isFloat: true },
+                { label: 'Job CPU Max (cores)',     val: cfgReqCpuMax,        set: setCfgReqCpuMax,        key: 'req_cpu_max',       min: 0.1, step: 0.1, isFloat: true },
+                { label: 'Spike Prob %',            val: cfgSpikeProb,        set: setCfgSpikeProb,        key: 'spike_prob_pct',    min: 0  },
+                { label: 'Min Lifetime (s)',         val: cfgMinLifetimeSec,   set: setCfgMinLifetimeSec,   key: 'min_lifetime_sec',  min: 1  },
+                { label: 'Max Lifetime (s)',         val: cfgMaxLifetimeSec,   set: setCfgMaxLifetimeSec,   key: 'max_lifetime_sec',  min: 1  },
               ]} />
 
               <CfgSection title="Scheduler" rows={[
-                { label: 'Batch Duration (s)',      val: cfgBatchDurationSec, set: setCfgBatchDurationSec, key: 'batch_duration_sec', min: 1,   max: 3600   },
-                { label: 'Max Jobs / Solve (0=all)', val: cfgMaxJobsPerSolve,  set: setCfgMaxJobsPerSolve,  key: 'max_jobs_per_solve', min: 0,   max: 1000   },
-                { label: 'K Window',                val: cfgKWindow,          set: setCfgKWindow,          key: 'k_window',           min: 1,   max: 50     },
-                { label: 'Safety Buffer',           val: cfgMemThresholdFrac, set: setCfgMemThresholdFrac, key: 'mem_threshold_frac', min: 0.01,max: 0.5,   step: 0.01, isFloat: true },
+                { label: 'Batch Duration (s)',      val: cfgBatchDurationSec, set: setCfgBatchDurationSec, key: 'batch_duration_sec', min: 1  },
+                { label: 'K Window',                val: cfgKWindow,          set: setCfgKWindow,          key: 'k_window',           min: 1  },
+                { label: 'Safety Buffer',           val: cfgMemThresholdFrac, set: setCfgMemThresholdFrac, key: 'mem_threshold_frac', min: 0.01, step: 0.01, isFloat: true },
               ]} />
 
               <CfgSection title="Plan-Ahead" rows={[
-                { label: 'Horizon (intervals)',     val: cfgPlanAheadInterval, set: setCfgPlanAheadInterval, key: 'plan_ahead_interval', min: 5,    max: 500                         },
-                { label: 'Period Width (intervals)',val: cfgAccessPeriod,      set: setCfgAccessPeriod,      key: 'access_period',       min: 1,    max: 50                          },
-                { label: 'Usage Min (cap units)',   val: cfgTenantUsageMin,    set: setCfgTenantUsageMin,    key: 'tenant_usage_min',    min: 0.1,  max: 10,   step: 0.1, isFloat: true },
-                { label: 'Usage Max (cap units)',   val: cfgTenantUsageMax,    set: setCfgTenantUsageMax,    key: 'tenant_usage_max',    min: 0.1,  max: 10,   step: 0.1, isFloat: true },
-                { label: 'Gurobi Time Limit (s)',   val: cfgPlanTimeLimit,     set: setCfgPlanTimeLimit,     key: 'plan_time_limit',     min: 5,    max: 300                          },
-                { label: 'Gurobi MIP Gap',          val: cfgPlanMipGap,        set: setCfgPlanMipGap,        key: 'plan_mip_gap',        min: 0.001,max: 0.5,  step: 0.001, isFloat: true  },
-                { label: 'Priority Boost',          val: cfgPriorityBoost,     set: setCfgPriorityBoost,     key: 'priority_boost',      min: 1.0,  max: 100,  step: 0.5,   isFloat: true  },
+                { label: 'Horizon (intervals)',     val: cfgPlanAheadInterval, set: setCfgPlanAheadInterval, key: 'plan_ahead_interval', min: 1                          },
+                { label: 'Period Width (intervals)',val: cfgAccessPeriod,      set: setCfgAccessPeriod,      key: 'access_period',       min: 1                          },
+                { label: 'Usage Min (cap units)',   val: cfgTenantUsageMin,    set: setCfgTenantUsageMin,    key: 'tenant_usage_min',    min: 0.1, step: 0.1, isFloat: true },
+                { label: 'Usage Max (cap units)',   val: cfgTenantUsageMax,    set: setCfgTenantUsageMax,    key: 'tenant_usage_max',    min: 0.1, step: 0.1, isFloat: true },
+                { label: 'Gurobi Time Limit (s)',   val: cfgPlanTimeLimit,     set: setCfgPlanTimeLimit,     key: 'plan_time_limit',     min: 1                          },
+                { label: 'Gurobi MIP Gap',          val: cfgPlanMipGap,        set: setCfgPlanMipGap,        key: 'plan_mip_gap',        min: 0.001, step: 0.001, isFloat: true },
               ]} />
 
               {/* SOCP toggle — lives outside CfgSection since it's boolean */}
@@ -674,8 +665,8 @@ export default function App() {
               </div>
               {cfgUseSocp === 1 && (
                 <CfgSection title="SOCP Parameters" rows={[
-                  { label: 'Demand Sigma Frac',     val: cfgSigmaFrac,         set: setCfgSigmaFrac,         key: 'sigma_frac',          min: 0.0,  max: 1.0,  step: 0.05,  isFloat: true  },
-                  { label: 'Cantelli ε',            val: cfgCantelliEpsilon,   set: setCfgCantelliEpsilon,   key: 'cantelli_epsilon',    min: 0.01, max: 0.5,  step: 0.01,  isFloat: true  },
+                  { label: 'Demand Sigma Frac', val: cfgSigmaFrac,       set: setCfgSigmaFrac,       key: 'sigma_frac',       min: 0.0,  step: 0.05, isFloat: true },
+                  { label: 'Cantelli ε',        val: cfgCantelliEpsilon, set: setCfgCantelliEpsilon, key: 'cantelli_epsilon', min: 0.01, step: 0.01, isFloat: true },
                 ]} />
               )}
 

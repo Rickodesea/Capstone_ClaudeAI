@@ -8,104 +8,90 @@ Select a sample when running interface.py:
     python interface.py 2        # Sample 2 (medium)
     python interface.py 3        # Sample 3 (high)
 
-Configuration fields
-─────────────────────
-name                : display label
-n_tenants           : |T| — tenants in the plan-ahead model
-n_nodes             : |N| — cluster nodes
-n_time_slots        : |H| — planning periods (horizon ÷ access_period)
-n_jobs_per_slot     : real-time jobs submitted per plan-ahead period
-plan_time_limit     : Gurobi wall-clock limit in seconds
-plan_mip_gap        : Gurobi relative optimality gap threshold
-realtime_solver     : OR-Tools solver ID — "CBC" (exact MILP) or
-                      "GLOP" (LP relaxation + rounding, faster for
-                      large instances)
-seed                : random seed for reproducibility
-node_capacity       : C[n] — resource capacity per node (uniform)
-tenant_usage_min    : lower bound for u[i,h] (capacity units) — placeholder
-tenant_usage_max    : upper bound for u[i,h] (capacity units) — placeholder
-
-Complexity notes
-─────────────────
-Sample 1 — Simple
-  3T × 4N × 2H.  ~24 binary vars in the MILP.
-  Gurobi solves to optimality in < 1 second.
-  OR-Tools CBC handles 8 jobs/slot instantly.
-
-Sample 2 — Medium
-  3T × 5N × 3H.  ~45 binary vars.
-  Gurobi solves to optimality in < 10 seconds.
-  CBC still handles 12 real-time jobs/slot in a few seconds.
-
-Sample 3 — High
-  5T × 8N × 4H.  ~160 binary vars.
-  Gurobi solves quickly; real-time uses GLOP for speed with 20 jobs/slot.
+New in this version
+────────────────────
+  • n_always_available  : number of always-on machines (rest are additional)
+  • exclusive_frac      : fraction of tenants randomly tagged exclusive
+  • n_intervals         : planning horizon length (replaces n_time_slots)
+  • use_socp            : True = MISOCP (Cantelli cone); False = MILP
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
 class PipelineConfig:
-    name:             str
-    n_tenants:        int
-    n_nodes:          int
-    n_time_slots:     int
-    n_jobs_per_slot:  int
-    plan_time_limit:  int    # seconds
-    plan_mip_gap:     float
-    realtime_solver:  str    # "CBC" | "GLOP"
-    seed:             int
-    node_capacity:    float  # C[n] — resource capacity per node
-    tenant_usage_min: float  # lower bound for u[i,h] (placeholder for prediction)
-    tenant_usage_max: float  # upper bound for u[i,h] (placeholder for prediction)
+    name:                str
+    n_tenants:           int
+    n_nodes:             int
+    n_intervals:         int     # planning horizon length (number of intervals)
+    n_always_available:  int     # |M_a| — always-on machines; rest are additional
+    exclusive_frac:      float   # X% of tenants tagged exclusive
+    n_jobs_per_slot:     int     # real-time jobs generated per interval
+    plan_time_limit:     int     # Gurobi wall-clock limit (seconds)
+    plan_mip_gap:        float   # Gurobi relative optimality gap
+    realtime_solver:     str     # "CBC" | "GLOP"
+    use_socp:            bool    # True = Cantelli MISOCP, False = plain MILP
+    seed:                int
+    node_capacity:       float   # C[n] per machine (uniform)
+    tenant_usage_min:    float
+    tenant_usage_max:    float
 
 
 SAMPLE_1 = PipelineConfig(
-    name             = "Simple",
-    n_tenants        = 3,
-    n_nodes          = 4,
-    n_time_slots     = 2,
-    n_jobs_per_slot  = 8,
-    plan_time_limit  = 120,
-    plan_mip_gap     = 0.01,
-    realtime_solver  = "CBC",
-    seed             = 42,
-    node_capacity    = 10.0,
-    tenant_usage_min = 0.8,
-    tenant_usage_max = 6.0,
+    name                = "Simple",
+    n_tenants           = 4,
+    n_nodes             = 5,
+    n_intervals         = 2,
+    n_always_available  = 3,
+    exclusive_frac      = 0.25,
+    n_jobs_per_slot     = 8,
+    plan_time_limit     = 120,
+    plan_mip_gap        = 0.01,
+    realtime_solver     = "CBC",
+    use_socp            = False,
+    seed                = 42,
+    node_capacity       = 10.0,
+    tenant_usage_min    = 0.8,
+    tenant_usage_max    = 6.0,
 )
 
 SAMPLE_2 = PipelineConfig(
-    name             = "Medium",
-    n_tenants        = 3,
-    n_nodes          = 5,
-    n_time_slots     = 3,
-    n_jobs_per_slot  = 12,
-    plan_time_limit  = 120,
-    plan_mip_gap     = 0.01,
-    realtime_solver  = "CBC",
-    seed             = 42,
-    node_capacity    = 10.0,
-    tenant_usage_min = 0.8,
-    tenant_usage_max = 6.0,
+    name                = "Medium",
+    n_tenants           = 5,
+    n_nodes             = 7,
+    n_intervals         = 3,
+    n_always_available  = 4,
+    exclusive_frac      = 0.20,
+    n_jobs_per_slot     = 12,
+    plan_time_limit     = 120,
+    plan_mip_gap        = 0.01,
+    realtime_solver     = "CBC",
+    use_socp            = True,
+    seed                = 42,
+    node_capacity       = 10.0,
+    tenant_usage_min    = 0.8,
+    tenant_usage_max    = 6.0,
 )
 
 SAMPLE_3 = PipelineConfig(
-    name             = "High",
-    n_tenants        = 5,
-    n_nodes          = 8,
-    n_time_slots     = 4,
-    n_jobs_per_slot  = 20,
-    plan_time_limit  = 120,
-    plan_mip_gap     = 0.01,
-    realtime_solver  = "GLOP",   # LP relaxation — stays fast with 20 jobs
-    seed             = 42,
-    node_capacity    = 10.0,
-    tenant_usage_min = 0.8,
-    tenant_usage_max = 6.0,
+    name                = "High",
+    n_tenants           = 8,
+    n_nodes             = 10,
+    n_intervals         = 4,
+    n_always_available  = 6,
+    exclusive_frac      = 0.25,
+    n_jobs_per_slot     = 20,
+    plan_time_limit     = 120,
+    plan_mip_gap        = 0.01,
+    realtime_solver     = "GLOP",
+    use_socp            = True,
+    seed                = 42,
+    node_capacity       = 10.0,
+    tenant_usage_min    = 0.8,
+    tenant_usage_max    = 6.0,
 )
 
 SAMPLES: dict[int, PipelineConfig] = {

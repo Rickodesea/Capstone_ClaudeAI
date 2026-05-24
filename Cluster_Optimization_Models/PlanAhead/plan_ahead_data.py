@@ -2,17 +2,17 @@
 plan_ahead_data.py
 ──────────────────
 Configuration, Gurobi environment initialisation, and synthetic data
-generation for the plan-ahead MILP.
+generation for the plan-ahead MISOCP.
 
-The model forecasts which nodes each tenant should be prioritised on for
-each planning period h ∈ H.  Individual workloads are not modelled: each
-tenant i has a usage profile u[i,h] that estimates total resource consumption
-in period h.  This is a placeholder for a prediction layer; in production
-u[i,h] comes from historical cluster-usage traces.
+Key design properties:
+  • Pool of M machines: M_a always available, M_b additional (model decides activation).
+  • Exclusive tenants T_e (X% of all tenants): assigned machines for entire horizon.
+  • Shared tenants T_s: assigned machines per interval; can change between intervals.
+  • Demand variance σ²[i,h] enables Cantelli probabilistic capacity constraint.
+  • Feedback: SLA violation rates and wait times from realtime adjust capacity and demand.
+  • Output: ordered list of intervals, each with groups (tenant_ids, machine_ids, exclusive).
 
-Assignment output is a priority hint (not a hard constraint).  The real-time
-model receives y[i,n,h] and uses it to boost objective coefficients — not to
-block node access.
+All tenants are assigned machines every interval — no admission/rejection.
 """
 
 from __future__ import annotations
@@ -31,8 +31,6 @@ import gurobipy as gp
 #   WLSACCESSID  — Gurobi WLS access ID (UUID string)
 #   WLSSECRET    — Gurobi WLS secret    (UUID string)
 #   LICENSEID    — Gurobi license ID    (integer)
-#
-# Never commit .env to source control.
 
 def _load_env_file(path: Path) -> None:
     """Parse a simple KEY=VALUE .env file and write into os.environ."""
@@ -63,79 +61,134 @@ def make_gurobi_env() -> gp.Env:
 # ── Synthetic data generation ────────────────────────────────────────────────
 
 def build_synthetic_data(
-    seed:             int   = 42,
-    n_tenants:        int   = 3,
-    n_nodes:          int   = 4,
-    n_time_slots:     int   = 2,
-    node_capacity:    float = 10.0,
-    tenant_usage_min: float = 0.8,
-    tenant_usage_max: float = 6.0,
-    sigma_frac:       float = 0.20,
-    epsilon:          float = 0.10,
-    **_ignored,          # absorb deprecated kwargs (e.g. n_workloads_per_tenant)
+    seed:                 int   = 42,
+    n_tenants:            int   = 4,
+    n_nodes:              int   = 6,
+    n_intervals:          int   = 3,
+    node_capacity:        float = 10.0,
+    n_always_available:   int   = 3,       # |M_a| — always-on machines
+    exclusive_frac:       float = 0.25,    # X% of tenants tagged exclusive
+    tenant_usage_min:     float = 0.8,
+    tenant_usage_max:     float = 6.0,
+    sigma_frac:           float = 0.20,
+    epsilon:              float = 0.10,
+    feedback_vbar:        dict  | None = None,  # {node_id: v̄_n} from realtime
+    feedback_wait:        dict  | None = None,  # {tenant_id: W̄_i} from realtime
+    feedback_alpha:       float = 0.5,     # SLA feedback capacity scaling
+    feedback_beta:        float = 0.3,     # wait-time demand scaling
+    feedback_wait_ref:    float = 60.0,    # W̄_ref (seconds) for normalisation
+    **_ignored,
 ) -> dict:
-    """Return a parameter dict for a synthetic instance of the plan-ahead MISOCP.
+    """
+    Return a parameter dict for a synthetic instance of the plan-ahead MISOCP.
 
     Parameters
     ----------
-    seed             : random seed for reproducibility
-    n_tenants        : number of tenants  (|T|)
-    n_nodes          : number of cluster nodes  (|N|)
-    n_time_slots     : planning horizon in periods  (|H|)
-    node_capacity    : C[n] — resource capacity per node (uniform)
-    tenant_usage_min : lower bound for u[i,h] (capacity units)
-    tenant_usage_max : upper bound for u[i,h] (capacity units)
-    sigma_frac       : demand uncertainty fraction — std dev = sigma_frac * u[i,h]
-    epsilon          : Cantelli tail probability — κ = sqrt((1-ε)/ε)
-
-    u[i,h] is a placeholder for the prediction team's output.  In production,
-    derive from historical CollectionEvents SUBMIT counts per tenant per period.
-
-    Uncertainty model
-    -----------------
-    σ²[i,h] = (sigma_frac × u[i,h])²  — per-tenant, per-period demand variance.
-    κ = sqrt((1-ε)/ε)                  — Cantelli safety factor for tail prob ε.
-    With ε=0.10 → κ=3.0 (capacity holds with at least 90% probability).
+    seed                : random seed for reproducibility
+    n_tenants           : total number of tenants (T = T_e ∪ T_s)
+    n_nodes             : total machines in pool (M = M_a ∪ M_b)
+    n_intervals         : planning horizon length |H|
+    node_capacity       : C[n] — resource capacity per machine (uniform)
+    n_always_available  : |M_a| — machines always on; rest are additional (M_b)
+    exclusive_frac      : fraction of tenants tagged as exclusive (randomly)
+    tenant_usage_min    : lower bound for u[i,h]
+    tenant_usage_max    : upper bound for u[i,h]
+    sigma_frac          : demand uncertainty fraction — std dev = sigma_frac × u[i,h]
+    epsilon             : Cantelli tail probability — κ = sqrt((1-ε)/ε)
+    feedback_vbar       : SLA violation rates per node {node_id: float} (0..1)
+    feedback_wait       : average wait times per tenant {tenant_id: float} (seconds)
+    feedback_alpha      : capacity reduction factor per unit violation rate
+    feedback_beta       : demand inflation factor per unit normalised wait
+    feedback_wait_ref   : reference wait time for normalising W̄_i
     """
     rng = np.random.default_rng(seed)
 
     # --- Sets ----------------------------------------------------------------
     T = list(range(n_tenants))
-    N = list(range(n_nodes))
-    H = list(range(n_time_slots))
 
-    # --- Node parameters -----------------------------------------------------
-    C    = {n: node_capacity for n in N}          # resource capacity per node
-    pi_n = {n: 1.0           for n in N}          # infrastructure cost per node-period
+    # Tag exclusive tenants randomly
+    n_exclusive = max(1, int(round(n_tenants * exclusive_frac)))
+    exclusive_ids = sorted(rng.choice(T, size=n_exclusive, replace=False).tolist())
+    T_e = exclusive_ids
+    T_s = [i for i in T if i not in exclusive_ids]
 
-    # --- Tenant contract parameters ------------------------------------------
-    # pi_bar and v_op scale with n_time_slots so contract value grows with horizon.
-    pi_bar = {i: 3.0 * n_time_slots for i in T}   # contract revenue
-    v_op   = {i: 0.5 * n_time_slots for i in T}   # operational cost
+    # Machines: M_a always available, M_b additional
+    n_always = min(n_always_available, n_nodes)
+    M = list(range(n_nodes))
+    M_a = list(range(n_always))              # always-available: indices 0..A-1
+    M_b = list(range(n_always, n_nodes))     # additional: indices A..M-1
+
+    H = list(range(n_intervals))
+
+    # --- Machine parameters --------------------------------------------------
+    C = {n: node_capacity for n in M}        # base capacity per machine (uniform)
+    pi_n = {n: 1.0 for n in M_b}            # activation cost (only for additional machines)
+
+    # Effective capacity after SLA feedback: C_eff[n] = C[n] × (1 - α·v̄_n)
+    fb_vbar = feedback_vbar or {}
+    C_eff = {
+        n: C[n] * (1.0 - feedback_alpha * min(1.0, fb_vbar.get(n, 0.0)))
+        for n in M
+    }
 
     # --- Tenant usage profiles u[i,h] ----------------------------------------
-    # Placeholder — replace with prediction layer output in production.
-    u = {
+    u_raw = {
         (i, h): float(rng.uniform(tenant_usage_min, tenant_usage_max))
         for i in T for h in H
     }
 
+    # Peak demand for exclusive tenants (max over intervals)
+    u_max = {i: max(u_raw[i, h] for h in H) for i in T_e}
+
+    # Feedback-adjusted demand for shared tenants
+    fb_wait = feedback_wait or {}
+    W_bar_ref = feedback_wait_ref
+    u_fb = {}
+    for i in T_s:
+        w_i = fb_wait.get(i, 0.0)
+        scale = 1.0 + feedback_beta * min(2.0, w_i / max(1.0, W_bar_ref))
+        for h in H:
+            u_fb[(i, h)] = u_raw[(i, h)] * scale
+
+    # Combine into full u dict (exclusive tenants use raw demand; shared use fb-adjusted)
+    u = {}
+    for i in T:
+        for h in H:
+            u[(i, h)] = u_raw[(i, h)] if i in T_e else u_fb[(i, h)]
+
     # --- Cantelli uncertainty model ------------------------------------------
-    # σ²[i,h] = (sigma_frac × u[i,h])²  — proportional-to-demand variance.
-    # κ = sqrt((1-ε)/ε)                  — one-sided Cantelli safety factor.
     kappa  = math.sqrt((1.0 - epsilon) / epsilon)
     sigma2 = {
         (i, h): (sigma_frac * u[i, h]) ** 2
-        for i in T for h in H
+        for i in T_s for h in H    # variance only for shared tenants
     }
 
+    # --- Identify heavy / light shared tenants for mix objective -----------
+    if T_s:
+        avg_usage = {i: sum(u[i, h] for h in H) / len(H) for i in T_s}
+        median_usage = float(np.median(list(avg_usage.values())))
+        T_s_heavy = [i for i in T_s if avg_usage[i] >= median_usage]
+        T_s_light = [i for i in T_s if avg_usage[i] < median_usage]
+    else:
+        T_s_heavy, T_s_light = [], []
+
     # --- Objective weights ---------------------------------------------------
-    # lam[0] = infrastructure cost weight  (minimize active nodes)
-    # lam[1] = admission revenue weight    (maximize admitted tenants)
-    # lam[2] = fairness weight             (maximize min demand satisfaction)
-    lam = {0: 1.0, 1: 1.0, 2: 5.0}
+    lam = {0: 1.0, 1: 5.0, 2: 2.0}   # [infra_cost, fairness σ, mix bonus]
 
     return dict(
-        T=T, N=N, H=H, C=C, pi_n=pi_n, pi_bar=pi_bar, v_op=v_op, u=u, lam=lam,
+        # Sets
+        T=T, T_e=T_e, T_s=T_s, T_s_heavy=T_s_heavy, T_s_light=T_s_light,
+        M=M, M_a=M_a, M_b=M_b,
+        H=H,
+        # Machine parameters
+        C=C, C_eff=C_eff, pi_n=pi_n,
+        # Demand
+        u=u, u_max=u_max,
+        # Uncertainty
         sigma2=sigma2, kappa=kappa,
+        # Objective
+        lam=lam,
+        # Metadata
+        n_tenants=n_tenants, n_nodes=n_nodes, n_intervals=n_intervals,
+        exclusive_frac=exclusive_frac,
     )

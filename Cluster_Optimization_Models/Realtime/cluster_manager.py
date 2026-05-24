@@ -1,58 +1,46 @@
 """
 cluster_manager.py
 ──────────────────
-The central simulation driver for the multi-tenant cluster scheduler.
+Central simulation driver for the multi-tenant cluster scheduler.
 
-How the pieces fit together
-────────────────────────────
-  simulation_data.py      config constants, dataclasses, sampling helpers
-  optimizer_google_or.py  MILP solver  (goal_programming_v4)
-  cluster_manager.py      orchestration — THIS FILE
-  test_cluster_manager.py integration tests
+Architecture
+─────────────
+Each simulation interval:
+  1. Advance simulated clock by BATCH_DURATION_SEC.
+  2. Expire running jobs whose lifetime has elapsed; free their memory.
+  3. Recompute U_n from running jobs; record SLA violation history (once per interval).
+  4. Generate new jobs and add to queue (stamps arrival_timestamp).
+  5. Per-group scheduling loop (from plan-ahead output):
+       For each tenant group (tenant_ids, machine_ids):
+         a. Filter queue to jobs belonging to this tenant group.
+         b. Filter nodes to machines assigned to this group.
+         c. Call MILP solver → placement dict.
+         d. Place placed jobs; for unplaced jobs, bump their W_t by one interval.
+     Repeat until no more progress or MAX_PLACEMENT_RETRIES consecutive failures.
+  6. Update W_t (per-tenant average wait time for fairness).
 
 Key concepts
-─────────────
+────────────
+Per-group model calls
+    The Realtime model is called once per tenant group per interval.
+    The Cluster Manager handles all tenant/machine filtering before the call.
+    The Realtime model receives only the filtered job list and machine list —
+    no knowledge of tenants, plan-ahead, or machine assignments.
+
+All jobs always sent
+    The Cluster Manager sends ALL queued jobs for a tenant group to the solver.
+    No cap on number of jobs per solve call. If nodes are saturated, the solver
+    returns None for unplaced jobs and the retry counter increments.
+
+Wait-time bump for unplaced jobs
+    When a job fails to be placed, the Cluster Manager records a synthetic
+    wait event (1 interval duration) for that tenant in the W_t rolling window.
+    This raises ω_delay,t in the next solve call, boosting the tenant's priority.
+
 Job lifetime
-    Every job placed by the optimizer is assigned a random lifetime drawn
-    from [MIN_LIFETIME_SEC, MAX_LIFETIME_SEC].  The cluster manager tracks
-    all running jobs in self._running_jobs.  At the start of each batch,
-    expired jobs are removed and their memory is returned to the node.
-    This replaces the old MEMORY_RELEASE_FRAC approach with a proper
-    per-job lifecycle.
-
-Node used_mb (U_n)
-    The optimizer needs U_n — the current memory usage on each node.
-    Rather than accumulating it as a running total, the cluster manager
-    RECOMPUTES it from scratch each round by summing act_mem_mb of all
-    RunningJobs on that node.  This is always accurate and self-correcting.
-
-Actual memory vs predicted memory
-    The prediction layer (teammates' model) produces pred_mem_mb = m̂_j.
-    For this simulation we assume:
-        act_mem = pred_mem                     (most runs, no spike)
-        act_mem = pred_mem × (1 + spike_frac)  (SPIKE_PROB fraction of jobs)
-    spike_frac ~ Uniform(0, SPIKE_MAX_FRAC) when a spike occurs.
-    The optimizer plans using pred_mem; act_mem is what is actually consumed.
-
-Timestamps (simulated time)
-    Each batch advances a simulated clock by BATCH_DURATION_SEC seconds.
-    Jobs receive:
-        arrival_timestamp    — when the job entered the waiting queue
-        scheduling_timestamp — when the optimizer placed it on a node
-    wait_sec = (scheduling_timestamp − arrival_timestamp).total_seconds()
-
-Feedback loops (goal_programming_v4 §4)
-    SLA feedback   → v̄_n is updated once per batch; the optimizer uses it
-                     to reduce R_n^eff on struggling nodes via S_{fn}.
-    Fairness       → W_t is recomputed after every placement group; the
-                     optimizer uses it to boost ω_t for waiting tenants.
-
-Usage
-─────
-    from cluster_manager import ClusterManager
-    cm     = ClusterManager(seed=42)
-    result = cm.run(num_batches=10)
-    print(result)
+    Every placed job is assigned a random lifetime [MIN_LIFETIME_SEC, MAX_LIFETIME_SEC].
+    Once elapsed (simulated time), the job is removed and its memory freed.
+    This is tracked by the Cluster Manager, not the Realtime model.
 """
 
 from __future__ import annotations
@@ -72,51 +60,44 @@ from simulation_data import (
     compute_utilization_weight, compute_node_weight,
     sample_spike_fraction,
     JOBS_PER_ROUND, K_WINDOW,
-    MAX_PLACEMENT_RETRIES, MAX_JOBS_PER_SOLVE,
+    MAX_PLACEMENT_RETRIES,
     MIN_LIFETIME_SEC, MAX_LIFETIME_SEC, BATCH_DURATION_SEC,
     NODE_MEM_MB, OS_TAX_MB, NODE_CPU_CORES, NUM_NODES, NUM_TENANTS,
     SPIKE_PROB, SPIKE_MAX_FRAC, NUM_BATCHES,
     REQUEST_MEM_MIN_MB, REQUEST_MEM_MAX_MB,
 )
 from optimizer_google_or import solve
-from tenant_priority import sort_by_plan_priority
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# § RUNNING JOB — tracks a placed job during its execution
+# § RUNNING JOB
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @dataclass
 class RunningJob:
     """
-    A job that has been placed by the optimizer and is currently running.
-
-    The cluster manager holds a list of RunningJob objects.  Each batch,
-    expired jobs (end_time ≤ sim_time) are removed and their memory freed.
+    A job that has been placed and is currently running.
 
     Fields:
-        job           the original Job object (carries req_mem, pred_mem, etc.)
-        node_id       the node the job was placed on
-        act_mem_mb    actual memory consumed = pred_mem × (1 + spike_frac)
-                      This is what is physically charged against the node.
+        job           original Job object
+        node_id       machine the job is placed on
+        act_mem_mb    actual memory consumed (pred_mem × (1 + spike_frac))
         is_spike      True if act_mem_mb > job.pred_mem_mb
-        start_time    simulated UTC datetime when the job started running
+        start_time    simulated UTC datetime when the job started
         lifetime_sec  randomly assigned job duration in simulated seconds
     """
     job:          Job
     node_id:      int
-    act_mem_mb:   float   # actual memory (pred_mem + optional spike)
-    is_spike:     bool    # True  → spike occurred; act_mem > pred_mem
+    act_mem_mb:   float
+    is_spike:     bool
     start_time:   datetime
     lifetime_sec: float
 
     @property
     def end_time(self) -> datetime:
-        """When this job is considered complete (start + lifetime)."""
         return self.start_time + timedelta(seconds=self.lifetime_sec)
 
     def has_expired(self, now: datetime) -> bool:
-        """Returns True if the job's lifetime has passed by simulated time now."""
         return now >= self.end_time
 
 
@@ -126,83 +107,65 @@ class RunningJob:
 
 @dataclass
 class BatchResult:
-    """
-    Statistics captured at the end of one scheduling epoch (batch).
-
-    Attributes:
-        batch_id               zero-based index of this batch
-        jobs_generated         new jobs added to the queue this batch
-        jobs_placed            jobs successfully scheduled this batch
-        queue_size_after       jobs still waiting after this batch ends
-        solver_calls           how many times the MILP was invoked this batch
-        consecutive_failures   how many consecutive zero-placement calls at exit
-                               0 = queue drained cleanly
-                               ≥ MAX_PLACEMENT_RETRIES = gave up (nodes full)
-        node_violations        number of nodes where U_n^mem > M_n^cap (SLA violation)
-        spike_count            number of placed jobs whose act_mem > pred_mem
-        physical_overflow_count number of nodes where U_n + τ_n > M_n
-                               (critical: tenant jobs + OS exceed physical RAM)
-        jobs_expired           running jobs that completed and were removed
-    """
+    """Statistics for one scheduling interval."""
     batch_id:                int
     jobs_generated:          int
     jobs_placed:             int
     queue_size_after:        int
     solver_calls:            int
     consecutive_failures:    int
-    node_violations:         int   # U_n^mem > M_n^cap (SLA breach)
-    spike_count:             int   # act_mem > pred_mem
-    physical_overflow_count: int   # U_n + τ_n > M_n  (critical)
+    node_violations:         int
+    spike_count:             int
+    physical_overflow_count: int
     jobs_expired:            int
-    nodes_assigned:          int  # Unique nodes that received a job THIS batch
-    total_nodes_used:        int  # Total nodes with at least one running job
-    avg_eff_mem_pct:         float  # (U_n / M_n^cap) * 100, avg over ALL nodes
-    avg_phys_mem_pct:        float  # (U_n / M_n) * 100, avg over all nodes
-    avg_eff_active_pct:      float  # (U_n / M_n^cap) * 100, avg over USED nodes only
+    nodes_assigned:          int
+    total_nodes_used:        int
+    avg_eff_mem_pct:         float
+    avg_phys_mem_pct:        float
+    avg_eff_active_pct:      float
 
 
 @dataclass
 class SimulationResult:
-    """Aggregate statistics across all batches of a simulation run."""
+    """Aggregate statistics across all simulation intervals."""
     num_batches:      int
     total_generated:  int
     total_placed:     int
     final_queue_size: int
-    total_violations: int   # SLA: U_n^mem > M_n^cap
-    total_spikes:     int   # job-level: act_mem > pred_mem
-    total_overflows:  int   # critical: U_n + τ_n > M_n
-    total_expired:    int   # jobs that completed naturally
+    total_violations: int
+    total_spikes:     int
+    total_overflows:  int
+    total_expired:    int
     batch_results:    list[BatchResult]
-    final_W_t:        dict[int, float]   # avg wait per tenant (seconds)
+    final_W_t:        dict[int, float]
 
     def placement_rate(self) -> float:
-        """Fraction of generated jobs that were eventually scheduled."""
         return self.total_placed / max(1, self.total_generated)
 
     def __str__(self) -> str:
         lines = [
-            f"SimulationResult - {self.num_batches} batches",
+            f"SimulationResult — {self.num_batches} intervals",
             f"  generated  : {self.total_generated}",
             f"  placed     : {self.total_placed}  ({self.placement_rate():.1%})",
             f"  queue left : {self.final_queue_size}",
-            f"  violations : {self.total_violations}  (U_n^mem > M_n^cap)",
+            f"  violations : {self.total_violations}  (U_n > M_n^cap)",
             f"  spikes     : {self.total_spikes}  (act > pred)",
             f"  overflows  : {self.total_overflows}  (U_n + tax > capacity)",
             f"  expired    : {self.total_expired}",
         ]
         if self.batch_results:
             n = len(self.batch_results)
-            avg_placed  = sum(r.jobs_placed          for r in self.batch_results) / n
-            avg_queue   = sum(r.queue_size_after      for r in self.batch_results) / n
-            avg_eff     = sum(r.avg_eff_mem_pct  for r in self.batch_results) / n
-            avg_phys    = sum(r.avg_phys_mem_pct for r in self.batch_results) / n
-            avg_solves  = sum(r.solver_calls     for r in self.batch_results) / n
+            avg_placed  = sum(r.jobs_placed         for r in self.batch_results) / n
+            avg_queue   = sum(r.queue_size_after     for r in self.batch_results) / n
+            avg_eff     = sum(r.avg_eff_mem_pct      for r in self.batch_results) / n
+            avg_phys    = sum(r.avg_phys_mem_pct     for r in self.batch_results) / n
+            avg_solves  = sum(r.solver_calls         for r in self.batch_results) / n
             lines += [
-                f"  avg placed/batch  : {avg_placed:.1f}",
-                f"  avg queue/batch   : {avg_queue:.1f}",
-                f"  avg eff mem %     : {avg_eff:.1f}%",
-                f"  avg phys mem %    : {avg_phys:.1f}%",
-                f"  avg solver calls  : {avg_solves:.1f}",
+                f"  avg placed/interval  : {avg_placed:.1f}",
+                f"  avg queue/interval   : {avg_queue:.1f}",
+                f"  avg eff mem %        : {avg_eff:.1f}%",
+                f"  avg phys mem %       : {avg_phys:.1f}%",
+                f"  avg solver calls     : {avg_solves:.1f}",
             ]
         if self.final_W_t:
             waits = list(self.final_W_t.values())
@@ -223,83 +186,39 @@ class ClusterManager:
     Orchestrates the multi-tenant cluster scheduling simulation.
 
     Responsibilities:
-      • Maintain a shared job queue across batches
-      • Generate new jobs each batch and stamp arrival timestamps
-      • Call the MILP optimizer to place queued jobs
-      • Track running jobs with lifetimes; expire them when done
-      • Compute node U_n from running jobs (accurate, no drift)
-      • Update SLA violation history (once per batch)
-      • Record scheduling log with timestamps and wait times
-      • Maintain per-tenant average wait time W_t for the fairness feedback
-
-    Parameters
-    ----------
-    seed    : RNG seed for full reproducibility (None = non-deterministic)
-    verbose : print a one-line summary after each batch
+      • Maintain a shared job queue across intervals
+      • Generate new jobs each interval and stamp arrival timestamps
+      • Per-interval: loop through tenant groups from plan-ahead output,
+        filter jobs and machines, call the Realtime model for each group
+      • Track running jobs with lifetimes; expire when done
+      • Maintain per-tenant average wait time W_t for fairness feedback
+      • Bump W_t for unplaced jobs (failed-placement wait signal)
     """
 
     def __init__(
         self,
-        seed:           Optional[int]  = None,
-        verbose:        bool           = True,
-        jobs_per_round: Optional[int]  = None,
-        k_window:       Optional[int]  = None,
-        log_file:       Optional[str]  = "simulation_log.txt",
+        seed:           Optional[int] = None,
+        verbose:        bool          = True,
+        jobs_per_round: Optional[int] = None,
+        k_window:       Optional[int] = None,
+        log_file:       Optional[str] = "simulation_log.txt",
     ) -> None:
-        """
-        Parameters
-        ----------
-        seed          : RNG seed for reproducibility  (None = non-deterministic)
-        verbose       : print per-batch summary and startup config
-        jobs_per_round: override JOBS_PER_ROUND
-        k_window      : override K_WINDOW  (violation rolling window)
-        log_file      : path for detailed per-batch log (None = no log file)
-        """
         self.rng     = np.random.default_rng(seed)
         self.verbose = verbose
         self._log_handle = open(log_file, "w", encoding="utf-8") if log_file else None
 
-        # Effective configuration (module defaults if not overridden)
         self._jobs_per_round = jobs_per_round if jobs_per_round is not None else JOBS_PER_ROUND
         self._k_window       = k_window       if k_window       is not None else K_WINDOW
 
-        # ── Cluster state ──────────────────────────────────────────────────
         self.nodes: list[NodeState] = generate_nodes(self.rng)
-
-        # ── Job queue (persists across batches) ────────────────────────────
-        # Un-placed jobs stay here, accumulating wait time that eventually
-        # raises their ω_t weight so the optimizer prefers them later.
-        self.job_queue: list[Job] = []
-
-        # ── Running jobs (the "active set") ───────────────────────────────
-        # Every placed job lives here until its lifetime expires.
-        # node.used_mb is computed by summing act_mem_mb of jobs here.
+        self.job_queue:    list[Job]        = []
         self._running_jobs: list[RunningJob] = []
-
-        # ── Scheduling log ─────────────────────────────────────────────────
-        # One entry per placed job.  Written when a job is scheduled.
-        # Used to compute per-tenant wait-time averages.
         self.scheduling_log: dict[str, dict] = {}
 
-        # ── Fairness state (§3, §4) ───────────────────────────────────────
-        # W_t  : per-tenant average wait time over the last K rounds (seconds).
-        #        Fed to optimizer so it can compute ω_delay,t weights.
-        # _tenant_wait_times : rolling K-window of individual wait times per
-        #        tenant (deque with maxlen=K), so W_t reflects only recent rounds.
-        self.W_t: dict[int, float] = {}
+        self.W_t: dict[int, float]               = {}
         self._tenant_wait_times: dict[int, deque] = {}
 
-        # ── Simulated clock ────────────────────────────────────────────────
-        # sim_time advances by BATCH_DURATION_SEC at the start of each batch.
-        # All timestamps on jobs are expressed in this simulated time so that
-        # wait_sec is meaningful across batches.
         self.sim_time: datetime = datetime.now(timezone.utc)
-
-        # ── Pre-load nodes with synthetic already-running jobs ─────────────
-        # Simulates a partially-occupied cluster at startup. Generates 0–4
-        # RunningJob objects per node; then refreshes node.used_mb so that
-        # the first solver call and the startup printout see accurate usage.
-        self._preload_nodes()
         self._refresh_node_states(record_history=False)
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -308,29 +227,19 @@ class ClusterManager:
 
     def run(
         self,
-        num_batches:        int,
-        tenant_node_access: dict[int, list[int]] | None = None,
+        num_batches: int,
+        plan_output: dict | None = None,
     ) -> SimulationResult:
         """
-        Run the simulation for num_batches scheduling epochs.
+        Run the simulation for num_batches intervals.
 
         Parameters
         ----------
-        num_batches        : number of scheduling epochs
-        tenant_node_access : plan-ahead priority map — tenant_id -> [node_ids].
-                             Used to sort the queue and boost objective weights.
-                             Pass None to run without plan-ahead (default).
+        num_batches  : number of scheduling intervals
+        plan_output  : plan-ahead output dict (from extract_plan_output()).
+                       If None, all jobs compete for all nodes (no grouping).
 
-        Each batch:
-          1. Advance the simulated clock by BATCH_DURATION_SEC.
-          2. Expire running jobs whose lifetime has passed; free their memory.
-          3. Recompute each node's U_n from remaining running jobs.
-          4. Record one SLA violation history entry per node (for v̄_n).
-          5. Generate JOBS_PER_ROUND new jobs; stamp arrival_timestamp.
-          6. Repeat: call MILP solver → update state → until queue empty
-             or MAX_PLACEMENT_RETRIES consecutive zero-placement calls.
-
-        Returns a SimulationResult with per-batch and aggregate statistics.
+        Returns SimulationResult with per-interval and aggregate statistics.
         """
         batch_results: list[BatchResult] = []
         batch_id = -1
@@ -338,7 +247,7 @@ class ClusterManager:
         if self.verbose:
             self._print_startup()
             print(
-                f"{'Batch':>5}  {'New':>6} {'Placed':>6}  {'Queue':>5}  "
+                f"{'Intvl':>5}  {'New':>6} {'Placed':>6}  {'Queue':>5}  "
                 f"{'Assign':>6}  {'Used':>5}  "
                 f"{'Spike':>5}  {'Ovrflw':>6}  {'Viols':>5}  "
                 f"{'Util % (U/M)':>14}  {'Eff% (U/C)':>12}  {'Eff% (Active)':>14}"
@@ -347,38 +256,19 @@ class ClusterManager:
 
         try:
             for batch_id in range(num_batches):
-                result = self._run_batch(batch_id, tenant_node_access)
+                result = self._run_batch(batch_id, plan_output)
                 batch_results.append(result)
                 if self.verbose:
                     self._print_batch(result)
         except KeyboardInterrupt:
             if self.verbose:
                 print(
-                    f"\n[Interrupted]  Stopped after batch {batch_id}  "
-                    f"({len(batch_results)} batches completed)."
+                    f"\n[Interrupted]  Stopped after interval {batch_id}  "
+                    f"({len(batch_results)} intervals completed)."
                 )
 
         if self.verbose:
             print("-" * 112)
-            print()
-            print("  Glossary")
-            print("  " + "-" * 83)
-            print("  Batch    Scheduling epoch index (each batch = 60 s simulated time)")
-            print("  New      New jobs generated and added to the queue this batch")
-            print("  Placed   Jobs successfully assigned to a node this batch")
-            print("  Queue    Jobs still waiting in the queue after this batch ends")
-            print("  Assign   Unique nodes that received at least one new job this batch")
-            print("  Used     Total nodes with at least one running job at end of batch")
-            print("  Spike    Jobs whose actual runtime memory exceeded the P95 prediction")
-            print("  Ovrflw   Nodes where tenant job memory + OS overhead exceeded physical RAM")
-            print("  Viols    Nodes where U_n^mem > M_n^cap (SLA breach: usage exceeded capacity")
-            print("           ceiling including OS tax and safety threshold buffer)")
-            print("  Util%    Cluster-average memory utilization = U_n^mem / M_n (physical RAM),")
-            print("           averaged across all nodes")
-            print("  Eff%     Effective utilization = U_n^mem / M_n^cap (schedulable capacity),")
-            print("           averaged across all nodes; reaches 100% when node is fully packed")
-            print("  Eff%(A)  Same as Eff% but averaged only over nodes currently in use")
-            print("           (used_mb > 0); shows true packing density of active nodes")
 
         if self._log_handle:
             self._log_handle.close()
@@ -386,60 +276,42 @@ class ClusterManager:
 
         return SimulationResult(
             num_batches      = num_batches,
-            total_generated  = sum(r.jobs_generated          for r in batch_results),
-            total_placed     = sum(r.jobs_placed              for r in batch_results),
+            total_generated  = sum(r.jobs_generated         for r in batch_results),
+            total_placed     = sum(r.jobs_placed             for r in batch_results),
             final_queue_size = len(self.job_queue),
-            total_violations = sum(r.node_violations          for r in batch_results),
-            total_spikes     = sum(r.spike_count              for r in batch_results),
-            total_overflows  = sum(r.physical_overflow_count  for r in batch_results),
-            total_expired    = sum(r.jobs_expired             for r in batch_results),
+            total_violations = sum(r.node_violations         for r in batch_results),
+            total_spikes     = sum(r.spike_count             for r in batch_results),
+            total_overflows  = sum(r.physical_overflow_count for r in batch_results),
+            total_expired    = sum(r.jobs_expired            for r in batch_results),
             batch_results    = batch_results,
             final_W_t        = dict(self.W_t),
         )
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Internal: batch execution
+    # Internal: interval execution
     # ─────────────────────────────────────────────────────────────────────────
 
     def _run_batch(
         self,
-        batch_id:           int,
-        tenant_node_access: dict[int, list[int]] | None = None,
+        batch_id:    int,
+        plan_output: dict | None = None,
     ) -> BatchResult:
-        """Execute one scheduling epoch and return its statistics."""
+        """Execute one scheduling interval and return its statistics."""
 
-        # ── Step 1: Advance simulated clock ───────────────────────────────
-        # From this point on, sim_time represents "now" for this batch.
-        # All new jobs and placed jobs get timestamps = sim_time.
+        # Step 1: Advance simulated clock
         self.sim_time += timedelta(seconds=BATCH_DURATION_SEC)
 
-        # ── Step 2: Expire completed jobs ─────────────────────────────────
-        # Remove running jobs whose lifetime has passed.
-        # Their memory is freed implicitly — _compute_node_used_mb() will
-        # no longer include them when we recompute U_n next.
+        # Step 2: Expire completed jobs
         expired_count = self._expire_jobs()
 
-        # ── Step 3: Recompute U_n and record SLA violation history ────────
-        # U_n = sum of act_mem_mb for all still-running jobs on node n.
-        # We record ONE violation entry per node per batch (for v̄_n rolling
-        # window).  Within a batch, node.used_mb is updated for the solver
-        # but violation_history is NOT appended again — only once per batch.
-        #
-        # This implements the SLA feedback loop from §4:
-        #   violation → v̄_n rises → R_n^eff shrinks → fewer new jobs admitted
-        #   → over time violations subside as the node recovers
+        # Step 3: Recompute U_n and record SLA violation history
         node_violations_start = self._refresh_node_states(record_history=True)
-        self._log_batch_header(batch_id)
 
-        # ── Step 4: Generate new jobs and add to queue ────────────────────
-        # arrival_timestamp is set to sim_time (current simulated time).
-        # New jobs join any un-placed jobs from previous batches.
+        # Step 4: Generate new jobs
         new_jobs = self._make_jobs(batch_id)
         self.job_queue.extend(new_jobs)
 
-        # ── Step 5: Scheduling loop ────────────────────────────────────────
-        # Call the optimizer repeatedly until the queue drains or
-        # MAX_PLACEMENT_RETRIES consecutive zero-placement calls occur.
+        # Step 5: Per-group scheduling loop
         solver_calls         = 0
         placed_this_batch    = 0
         spikes_this_batch    = 0
@@ -447,152 +319,121 @@ class ClusterManager:
         consecutive_failures = 0
         nodes_assigned_set   = set()
 
-        while self.job_queue:
+        groups = self._get_groups(plan_output, batch_id)
 
+        while True:
             if consecutive_failures >= MAX_PLACEMENT_RETRIES:
-                # The solver cannot place anything more (nodes saturated).
-                # Remaining jobs carry over to the next batch, where they
-                # accumulate more wait time → higher ω_t → better priority.
                 break
 
-            # Refresh U_n before each solver call so the optimizer sees
-            # the most up-to-date remaining capacity R_n.
-            # (Do NOT record violation history again within the same batch.)
-            self._refresh_node_states(record_history=False)
+            made_progress_this_pass = False
 
-            # ── Call the MILP optimizer (goal_programming_v4 §5–§7) ───────
-            #
-            # We cap the number of jobs sent to the solver at MAX_JOBS_PER_SOLVE
-            # to prevent the C++ solver from hanging with thousands of binary
-            # variables when JOBS_PER_ROUND is large.  Jobs are sorted oldest-
-            # first (by arrival_round) so the most urgent work is processed first.
-            #
-            # Inputs from this manager:
-            #   queue_slice : subset of J  — oldest MAX_JOBS_PER_SOLVE jobs
-            #   nodes       : set N        — current state including U_n and v̄_n
-            #   W_t         : W̄_t         — per-tenant average wait (→ ω_t weights)
-            #
-            # The solver returns: job_id → node_id | None
-            # Sort by arrival (FIFO), then promote plan-ahead-prioritised tenants
-            # to the front of the slice so they are more likely to be included
-            # when MAX_JOBS_PER_SOLVE caps the window.
-            fifo_queue  = sorted(self.job_queue, key=lambda j: j.arrival_round)
-            priority_queue = sort_by_plan_priority(fifo_queue, tenant_node_access)
-            queue_slice = priority_queue[:MAX_JOBS_PER_SOLVE]
+            for group in groups:
+                tenant_ids  = set(group["tenant_ids"])
+                machine_ids = set(group["machine_ids"])
 
-            placements = solve(
-                jobs               = queue_slice,
-                nodes              = self.nodes,
-                W_t                = self.W_t,
-                K                  = self._k_window,
-                tenant_node_access = tenant_node_access,
-            )
-            solver_calls += 1
-            self._log_solve_result(solver_calls, queue_slice, placements)
+                group_jobs  = [j for j in self.job_queue if j.tenant_id in tenant_ids]
+                group_nodes = [n for n in self.nodes if n.node_id in machine_ids]
 
-            # Split queue_slice: placed vs still waiting
-            placed_jobs: list[Job] = [
-                j for j in queue_slice
-                if placements.get(j.job_id) is not None
-            ]
+                if not group_jobs or not group_nodes:
+                    continue
 
-            if not placed_jobs:
-                # Zero placements this call — nodes may be near capacity
+                self._refresh_node_states(record_history=False)
+
+                placements = solve(
+                    jobs          = group_jobs,
+                    nodes         = group_nodes,
+                    W_t           = self.W_t,
+                    K             = self._k_window,
+                    time_limit_ms = 10_000,
+                )
+                solver_calls += 1
+
+                placed_jobs: list[Job] = [
+                    j for j in group_jobs if placements.get(j.job_id) is not None
+                ]
+                unplaced_jobs: list[Job] = [
+                    j for j in group_jobs if placements.get(j.job_id) is None
+                ]
+
+                if not placed_jobs and unplaced_jobs:
+                    # Record synthetic wait event for unplaced tenants (bump W_t)
+                    self._bump_wait_for_unplaced(unplaced_jobs)
+                    continue
+
+                if placed_jobs:
+                    made_progress_this_pass = True
+
+                # Process placed jobs
+                for j in placed_jobs:
+                    nid = placements[j.job_id]
+                    nodes_assigned_set.add(nid)
+                    rj = self._start_job(j, nid)
+
+                    wait_sec = (
+                        j.scheduling_timestamp - j.arrival_timestamp
+                    ).total_seconds()
+
+                    self.scheduling_log[j.job_id] = {
+                        "tenant_id":            j.tenant_id,
+                        "job_id":               j.job_id,
+                        "arrival_batch":        j.arrival_round,
+                        "scheduled_batch":      batch_id,
+                        "arrival_timestamp":    j.arrival_timestamp.isoformat(),
+                        "scheduling_timestamp": j.scheduling_timestamp.isoformat(),
+                        "wait_sec":             wait_sec,
+                        "req_mem_mb":           j.req_mem_mb,
+                        "pred_mem_mb":          j.pred_mem_mb,
+                        "act_mem_mb":           rj.act_mem_mb,
+                        "req_cpu":              j.req_cpu,
+                        "is_spike":             rj.is_spike,
+                        "lifetime_sec":         rj.lifetime_sec,
+                        "node_id":              nid,
+                    }
+
+                    if rj.is_spike:
+                        spikes_this_batch += 1
+
+                    if j.tenant_id not in self._tenant_wait_times:
+                        self._tenant_wait_times[j.tenant_id] = deque(maxlen=self._k_window)
+                    self._tenant_wait_times[j.tenant_id].append(wait_sec)
+
+                # Remove placed jobs from queue
+                placed_ids = {j.job_id for j in placed_jobs}
+                self.job_queue = [j for j in self.job_queue if j.job_id not in placed_ids]
+                placed_this_batch += len(placed_jobs)
+
+                self._update_W_t()
+
+                # Check for physical overflow
+                self._refresh_node_states(record_history=False)
+                for n in self.nodes:
+                    if n.used_mb + n.os_tax_mb > n.capacity_mb:
+                        overflows_this_batch += 1
+
+            # After a full pass through all groups
+            if not made_progress_this_pass:
                 consecutive_failures += 1
-                continue
+            else:
+                consecutive_failures = 0
 
-            consecutive_failures = 0   # reset: we made progress
+            # Stop if no more queued jobs
+            if not self.job_queue:
+                break
 
-            # ── Process each placed job ────────────────────────────────────
-            for j in placed_jobs:
-                nid = placements[j.job_id]
-                nodes_assigned_set.add(nid)
-
-                # Create a RunningJob with simulated act_mem and lifetime.
-                # This sets j.scheduling_timestamp = sim_time.
-                rj = self._start_job(j, nid)
-
-                # Compute wait time (seconds in simulated time)
-                wait_sec = (
-                    j.scheduling_timestamp - j.arrival_timestamp
-                ).total_seconds()
-
-                # Write full placement record to the scheduling log
-                self.scheduling_log[j.job_id] = {
-                    # Identity
-                    "tenant_id":             j.tenant_id,
-                    "job_id":                j.job_id,
-                    # Batch indices
-                    "arrival_batch":         j.arrival_round,
-                    "scheduled_batch":       batch_id,
-                    # Wall-clock (simulated) timestamps
-                    "arrival_timestamp":     j.arrival_timestamp.isoformat(),
-                    "scheduling_timestamp":  j.scheduling_timestamp.isoformat(),
-                    # Wait time
-                    "wait_sec":              wait_sec,
-                    # Memory fields (all three for comparison)
-                    "req_mem_mb":            j.req_mem_mb,    # declared
-                    "pred_mem_mb":           j.pred_mem_mb,   # m̂_j  (optimizer input)
-                    "act_mem_mb":            rj.act_mem_mb,   # actual consumption
-                    # CPU (not used in optimizer — future work)
-                    "req_cpu":               j.req_cpu,
-                    # Spike / lifetime
-                    "is_spike":              rj.is_spike,
-                    "lifetime_sec":          rj.lifetime_sec,
-                    # Placement
-                    "node_id":               nid,
-                }
-
-                # Track spike
-                if rj.is_spike:
-                    spikes_this_batch += 1
-
-                # Accumulate wait time for this tenant (used to recompute W_t)
-                # Rolling K-window deque: keeps only the last K wait times per tenant
-                if j.tenant_id not in self._tenant_wait_times:
-                    self._tenant_wait_times[j.tenant_id] = deque(maxlen=self._k_window)
-                self._tenant_wait_times[j.tenant_id].append(wait_sec)
-
-            # ── Remove placed jobs from queue ──────────────────────────────
-            placed_ids = {j.job_id for j in placed_jobs}
-            self.job_queue = [
-                j for j in self.job_queue if j.job_id not in placed_ids
-            ]
-            placed_this_batch += len(placed_jobs)
-
-            # ── Update W_t (fairness feedback §4) ─────────────────────────
-            # Recompute per-tenant average wait times so the NEXT solver
-            # call within this batch (or the next batch) uses fresh ω_t.
-            self._update_W_t()
-
-            # ── Check for physical memory overflow ─────────────────────────
-            # After placing this group, refresh U_n and check if any node
-            # has tenant jobs + OS tax exceeding physical RAM.
-            # This is more severe than an SLA violation (which uses M_eff
-            # which already includes the safety buffer).
-            self._refresh_node_states(record_history=False)
-            for n in self.nodes:
-                # Physical overflow: job memory + OS overhead > physical RAM
-                if n.used_mb + n.os_tax_mb > n.capacity_mb:
-                    overflows_this_batch += 1
-                    # Note: this counts node-events, so a node can be counted
-                    # multiple times if multiple placement groups trigger it.
-
-        # Count nodes that have at least one job currently running
-        active_node_ids = {rj.node_id for rj in self._running_jobs}
+        # Compute batch statistics
+        active_node_ids  = {rj.node_id for rj in self._running_jobs}
         total_nodes_used = len(active_node_ids)
 
-        # Calc mem %
-        eff_pcts = []
+        eff_pcts  = []
         phys_pcts = []
         for n in self.nodes:
             phys_pcts.append((n.used_mb / n.capacity_mb) * 100)
-            m_cap = compute_available_capacity(n)   # M_n^cap
+            m_cap = compute_available_capacity(n)
             eff_pcts.append((n.used_mb / max(1, m_cap)) * 100)
 
         active_eff_pcts = [p for n, p in zip(self.nodes, eff_pcts) if n.used_mb > 0]
-        avg_eff_active = (sum(active_eff_pcts) / len(active_eff_pcts)
-                          if active_eff_pcts else 0.0)
+        avg_eff_active  = (sum(active_eff_pcts) / len(active_eff_pcts)
+                           if active_eff_pcts else 0.0)
 
         return BatchResult(
             batch_id                = batch_id,
@@ -607,8 +448,8 @@ class ClusterManager:
             jobs_expired            = expired_count,
             nodes_assigned          = len(nodes_assigned_set),
             total_nodes_used        = total_nodes_used,
-            avg_eff_mem_pct         = sum(eff_pcts) / len(eff_pcts),
-            avg_phys_mem_pct        = sum(phys_pcts) / len(phys_pcts),
+            avg_eff_mem_pct         = sum(eff_pcts) / max(1, len(eff_pcts)),
+            avg_phys_mem_pct        = sum(phys_pcts) / max(1, len(phys_pcts)),
             avg_eff_active_pct      = avg_eff_active,
         )
 
@@ -616,75 +457,50 @@ class ClusterManager:
     # Internal helpers
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _preload_nodes(self) -> None:
+    def _get_groups(self, plan_output: dict | None, batch_id: int) -> list[dict]:
         """
-        Populate nodes with synthetic RunningJob objects before batch 0.
+        Resolve the tenant groups for the current interval.
 
-        Each node gets 0–4 pre-existing jobs (drawn uniformly with randint).
-        Lifetimes are a 50/50 mix of:
-          short : uniform [60, 300] s   — may expire in the first few batches
-          long  : uniform [86400, 999999] s — effectively permanent for the run
-
-        act_mem_mb is drawn from [REQUEST_MEM_MIN_MB, REQUEST_MEM_MAX_MB]; no
-        spike is applied (pre-loaded jobs are assumed stable).
-
-        After this method returns, call _refresh_node_states() so node.used_mb
-        reflects the pre-loaded memory before the first solver call.
+        If plan_output is provided, select the interval group list using
+        batch_id mod number of intervals. Otherwise, create a single group
+        containing all tenants on all machines (no grouping).
         """
-        for n in self.nodes:
-            # TODO: disable preload nodes
-            continue
-            n_jobs = int(self.rng.integers(0, 5))   # 0 to 4 inclusive
-            for k in range(n_jobs):
-                mem_mb = float(self.rng.uniform(REQUEST_MEM_MIN_MB, REQUEST_MEM_MAX_MB))
-                if self.rng.random() < 0.5:
-                    lifetime_sec = float(self.rng.uniform(60.0, 300.0))
-                else:
-                    lifetime_sec = float(self.rng.uniform(86400.0, 999999.0))
+        if plan_output and "intervals" in plan_output:
+            intervals = plan_output["intervals"]
+            h = batch_id % len(intervals)
+            return intervals[h]["groups"]
+        # Fallback: one group with all tenants and all machines
+        all_tenants = sorted({j.tenant_id for j in self.job_queue})
+        all_machine_ids = [n.node_id for n in self.nodes]
+        return [{"tenant_ids": all_tenants, "machine_ids": all_machine_ids, "exclusive": False}]
 
-                synthetic_job = Job(
-                    job_id        = f"init_n{n.node_id}_j{k}",
-                    tenant_id     = int(self.rng.integers(0, NUM_TENANTS)),
-                    req_mem_mb    = round(mem_mb, 2),
-                    req_cpu       = 1.0,
-                    pred_mem_mb   = round(mem_mb, 2),
-                    pred_cpu_p95  = 1.0,
-                    arrival_round = -1,
-                )
-                self._running_jobs.append(RunningJob(
-                    job          = synthetic_job,
-                    node_id      = n.node_id,
-                    act_mem_mb   = round(mem_mb, 2),
-                    is_spike     = False,
-                    start_time   = self.sim_time,
-                    lifetime_sec = lifetime_sec,
-                ))
+    def _bump_wait_for_unplaced(self, unplaced_jobs: list[Job]) -> None:
+        """
+        Record a synthetic wait event for each unplaced job's tenant.
+
+        This ensures that tenants whose jobs cannot be placed immediately
+        accumulate wait time in the W_t rolling window, raising their
+        ω_delay weight in the next solver call.
+        """
+        interval_duration = float(BATCH_DURATION_SEC)
+        tenant_ids_seen = set()
+        for j in unplaced_jobs:
+            if j.tenant_id in tenant_ids_seen:
+                continue
+            tenant_ids_seen.add(j.tenant_id)
+            if j.tenant_id not in self._tenant_wait_times:
+                self._tenant_wait_times[j.tenant_id] = deque(maxlen=self._k_window)
+            self._tenant_wait_times[j.tenant_id].append(interval_duration)
+        if tenant_ids_seen:
+            self._update_W_t()
 
     def _make_jobs(self, batch_id: int) -> list[Job]:
-        """
-        Generate self._jobs_per_round new jobs for this batch.
-
-        Stamps each job's arrival_timestamp = sim_time so that wait times
-        can be computed in seconds when the job is eventually scheduled.
-        CPU fields are generated but not used in the optimizer.
-        """
         jobs = generate_jobs(batch_id, num_jobs=self._jobs_per_round, rng=self.rng)
         for j in jobs:
-            # arrival_timestamp is set here, when the job enters the queue.
-            # scheduling_timestamp will be set in _start_job() when placed.
             j.arrival_timestamp = self.sim_time
         return jobs
 
     def _expire_jobs(self) -> int:
-        """
-        Remove running jobs whose simulated lifetime has elapsed.
-
-        A job is expired when sim_time >= job.end_time.  Since node.used_mb
-        is computed dynamically from _running_jobs, removing expired jobs
-        automatically frees their memory — no explicit decrement needed.
-
-        Returns the count of jobs that were removed.
-        """
         active, expired = [], []
         for rj in self._running_jobs:
             (expired if rj.has_expired(self.sim_time) else active).append(rj)
@@ -692,77 +508,31 @@ class ClusterManager:
         return len(expired)
 
     def _compute_node_used_mb(self) -> dict[int, float]:
-        """
-        Compute U_n for each node from all running jobs.
-
-        Always recomputed from scratch — self-correcting and consistent with
-        the active job set (expired jobs are absent, so memory is freed).
-        """
         used: dict[int, float] = {n.node_id: 0.0 for n in self.nodes}
         for rj in self._running_jobs:
             used[rj.node_id] += rj.act_mem_mb
         return used
 
     def _refresh_node_states(self, record_history: bool) -> int:
-        """
-        Recompute U_n for all nodes and optionally record SLA violation history.
-
-        Called at the start of each batch (record_history=True) and before
-        each solver call within a batch (record_history=False).
-
-        When record_history=True:
-          Appends one bool per node to violation_history.
-          A violation = (U_n > M_n^avail), i.e. actual job memory exceeds the
-          available capacity.  This feeds the SLA feedback loop (§4):
-          the rolling rate v̄_n is computed from this history each solver call.
-
-        Returns the count of nodes currently in violation (U_n > M_n^avail).
-        """
-        used = self._compute_node_used_mb()
+        used       = self._compute_node_used_mb()
         violations = 0
-
         for n in self.nodes:
             n.used_mb    = used[n.node_id]
             m_cap        = compute_available_capacity(n)
-            in_overflow  = n.used_mb > m_cap          # soft: exceeds schedulable capacity
-            in_violation = n.used_mb > n.capacity_mb  # hard: exceeds physical RAM
-
+            in_overflow  = n.used_mb > m_cap
+            in_violation = n.used_mb > n.capacity_mb
             if record_history:
                 n.overflow_history.append(in_overflow)
                 n.violation_history.append(in_violation)
-
             if in_overflow:
                 violations += 1
-
         return violations
 
     def _start_job(self, job: Job, node_id: int) -> RunningJob:
-        """
-        Register a placed job as running.
-
-        Actions:
-          1. Set job.scheduling_timestamp = sim_time.
-          2. Sample a spike fraction (usually 0; ~10 % of jobs spike).
-          3. Compute act_mem_mb = pred_mem × (1 + spike_frac).
-             This is the memory that will be charged to the node.
-          4. Draw a random lifetime in [MIN_LIFETIME_SEC, MAX_LIFETIME_SEC].
-          5. Create and store a RunningJob.
-
-        The RunningJob is added to self._running_jobs, which means future
-        calls to _compute_node_used_mb() will include its act_mem_mb in U_n.
-        """
-        # Stamp the scheduling time (simulated wall-clock)
         job.scheduling_timestamp = self.sim_time
-
-        # Determine actual memory consumption
-        # Most of the time spike_frac = 0 (no spike).
-        # About SPIKE_PROB = 10 % of the time, a spike adds 0–20 % extra.
         spike_frac   = sample_spike_fraction(self.rng)
         act_mem_mb   = job.pred_mem_mb * (1.0 + spike_frac)
-
-        # Assign a random job lifetime drawn uniformly from the configured range
         lifetime_sec = float(self.rng.uniform(MIN_LIFETIME_SEC, MAX_LIFETIME_SEC))
-
         rj = RunningJob(
             job          = job,
             node_id      = node_id,
@@ -775,21 +545,13 @@ class ClusterManager:
         return rj
 
     def _update_W_t(self) -> None:
-        """
-        Recompute W_t — per-tenant average scheduling delay over the last K rounds.
-
-        W_t is the W̄_t parameter from the math model (§3, Appendix C).
-        Only the last K wait times per tenant are kept (rolling K-window deque),
-        so the weight reflects recent fairness rather than all-time history.
-        Longer-waiting tenants get higher ω_delay,t in the next solver call.
-        """
         self.W_t = {
             t: sum(ws) / len(ws)
             for t, ws in self._tenant_wait_times.items()
         }
 
     # ─────────────────────────────────────────────────────────────────────────
-    # Logging helpers
+    # Logging / display
     # ─────────────────────────────────────────────────────────────────────────
 
     def _write_log(self, line: str) -> None:
@@ -797,113 +559,18 @@ class ClusterManager:
             self._log_handle.write(line + "\n")
             self._log_handle.flush()
 
-    def _log_batch_header(self, batch_id: int) -> None:
-        """Write node states (capacity, usage, weights) at the start of a batch."""
-        self._write_log(f"\n{'═'*90}")
-        self._write_log(f"  BATCH {batch_id}   sim_time={self.sim_time.strftime('%H:%M:%S')}")
-        self._write_log(f"{'═'*90}")
-        self._write_log(
-            f"  {'Node':>4}  {'used_mb':>8}  {'m_cap':>8}  {'m_eff':>8}  "
-            f"{'vbar':>6}  {'σ':>4}  {'ω_util':>7}  {'eff%':>6}"
-        )
-        self._write_log(
-            f"  {'-'*4}  {'-'*8}  {'-'*8}  {'-'*8}  "
-            f"{'-'*6}  {'-'*4}  {'-'*7}  {'-'*6}"
-        )
-        for n in self.nodes:
-            vbar   = compute_violation_rate(n.overflow_history, self._k_window)
-            m_cap  = compute_available_capacity(n)
-            r_avail = compute_remaining_avail(n, m_cap)
-            m_eff  = compute_remaining_eff(r_avail, vbar)
-            omega  = compute_utilization_weight(n)
-            sigma  = compute_node_weight(n.node_id, len(self.nodes))
-            eff_pct = (n.used_mb / max(1.0, m_cap)) * 100
-            self._write_log(
-                f"  {n.node_id:>4}  {n.used_mb:>8.0f}  {m_cap:>8.0f}  {m_eff:>8.0f}  "
-                f"{vbar:>6.3f}  {sigma:>4.0f}  {omega:>7.3f}  {eff_pct:>5.1f}%"
-            )
-
-    def _log_solve_result(
-        self,
-        solve_num:   int,
-        queue_slice: list[Job],
-        placements:  dict[str, int | None],
-    ) -> None:
-        """Write per-job placement decisions and per-node summary for one solve call."""
-        placed = [(j, placements[j.job_id]) for j in queue_slice if placements.get(j.job_id) is not None]
-        unplaced_count = sum(1 for j in queue_slice if placements.get(j.job_id) is None)
-
-        self._write_log(
-            f"\n  -- Solve #{solve_num}: sent={len(queue_slice)}  "
-            f"placed={len(placed)}  unplaced={unplaced_count}"
-        )
-
-        if not placed:
-            return
-
-        # Per-job detail
-        self._write_log(
-            f"  {'job_id':<16}  {'node':>4}  {'pred_mb':>8}  {'cpu_p95':>8}  {'tenant':>6}"
-        )
-        self._write_log(f"  {'-'*16}  {'-'*4}  {'-'*8}  {'-'*8}  {'-'*6}")
-        for j, nid in sorted(placed, key=lambda x: x[1]):   # sort by node for readability
-            self._write_log(
-                f"  {j.job_id:<16}  {nid:>4}  {j.pred_mem_mb:>8.0f}  "
-                f"{j.pred_cpu_p95:>8.2f}  {j.tenant_id:>6}"
-            )
-
-        # Per-node summary
-        node_totals: dict[int, list[float]] = {}
-        for j, nid in placed:
-            node_totals.setdefault(nid, []).append(j.pred_mem_mb)
-
-        self._write_log(f"\n  Per-node this solve:")
-        self._write_log(f"  {'Node':>4}  {'Jobs':>5}  {'Total pred_mb':>14}  {'m_cap':>8}  {'cap_used%':>10}")
-        self._write_log(f"  {'-'*4}  {'-'*5}  {'-'*14}  {'-'*8}  {'-'*10}")
-        for nid in sorted(node_totals):
-            n        = self.nodes[nid]
-            m_cap    = compute_available_capacity(n)
-            total_mb = sum(node_totals[nid])
-            cap_pct  = (total_mb / max(1.0, m_cap)) * 100
-            self._write_log(
-                f"  {nid:>4}  {len(node_totals[nid]):>5}  {total_mb:>14.0f}  "
-                f"{m_cap:>8.0f}  {cap_pct:>9.1f}%"
-            )
-
     def _print_startup(self) -> None:
-        """Print configuration summary before the simulation starts."""
         print("=" * 95)
         print("  Cluster Simulation Configuration")
         print("=" * 95)
         print(f"  Nodes              : {NUM_NODES}")
         print(f"  Tenants            : {NUM_TENANTS}")
-        print(f"  Jobs/round         : {self._jobs_per_round}")
-        print(f"  Max jobs/solve     : {MAX_JOBS_PER_SOLVE}")
+        print(f"  Jobs/interval      : {self._jobs_per_round}")
         print(f"  K window           : {self._k_window}")
         print(f"  Job lifetime       : {MIN_LIFETIME_SEC:.0f}-{MAX_LIFETIME_SEC:.0f} s")
-        print(f"  Batch duration     : {BATCH_DURATION_SEC} s")
+        print(f"  Interval duration  : {BATCH_DURATION_SEC} s")
         print(f"  Spike prob/max     : {SPIKE_PROB:.0%} / {SPIKE_MAX_FRAC:.0%}")
-        print(f"  Max retries        : {MAX_PLACEMENT_RETRIES}")
-        print()
-        print(
-            f"  {'Node':>4}  {'RAM (MB)':>10}  {'OS Tax (MB)':>12}  "
-            f"{'M_cap (MB)':>12}  {'CPU cores':>10}  {'Used (MB)':>10}  {'Util%':>7}  {'Init Jobs':>9}"
-        )
-        print(f"  {'-'*4}  {'-'*10}  {'-'*12}  {'-'*12}  {'-'*10}  {'-'*10}  {'-'*7}  {'-'*9}")
-        from simulation_data import MEM_THRESHOLD_FRAC
-        init_counts = {n.node_id: 0 for n in self.nodes}
-        for rj in self._running_jobs:
-            init_counts[rj.node_id] += 1
-        for i, (m, t, c) in enumerate(zip(NODE_MEM_MB, OS_TAX_MB, NODE_CPU_CORES)):
-            m_cap      = m - t - MEM_THRESHOLD_FRAC * m
-            used       = self.nodes[i].used_mb
-            util_pct   = (used / m) * 100
-            init_count = init_counts.get(i, 0)
-            print(
-                f"  {i:>4}  {m:>10.0f}  {t:>12.0f}  "
-                f"{m_cap:>12.0f}  {c:>10.1f}  {used:>10.0f}  {util_pct:>6.1f}%  {init_count:>9}"
-            )
-        print("=" * 95)
+        print(f"  Max retries/group  : {MAX_PLACEMENT_RETRIES}")
         print()
 
     @staticmethod
@@ -918,7 +585,7 @@ class ClusterManager:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# § SCRIPT ENTRY POINT
+# § ENTRY POINT
 # ═══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":

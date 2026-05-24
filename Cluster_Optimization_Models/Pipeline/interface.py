@@ -1,24 +1,24 @@
 """
 pipeline/interface.py
 ──────────────────────
-End-to-end pipeline connecting the three model layers:
+End-to-end pipeline connecting the three model layers.
 
-  1. Synthesis / prediction  — build_synthetic_data() generates tenant usage
-     profiles u[i,h] as placeholders for the prediction layer output.
+Architecture
+─────────────
+  1. Synthesis — build_synthetic_data() generates tenant usage profiles u[i,h]
+     with exclusive tenant tagging and machine pool partitioning.
 
-  2. Plan-ahead MILP (Gurobi) — solves the periodic scheduling problem over
-     the planning horizon H.  Decides which tenants are admitted and which
-     nodes each tenant is prioritised on per planning period.
-     Output: TenantAccessSchedule = dict[(tenant_id, h) -> list[node_id]]
-     This is a priority hint, not a hard access constraint.
+  2. Plan-Ahead MISOCP (Gurobi) — solves over the planning horizon H.
+     Output: ordered list of intervals, each with tenant groups
+     (tenant_ids, machine_ids, exclusive_flag). All tenants assigned every interval.
 
-  3. Real-time MILP / heuristic (OR-Tools) — one call per scheduling round.
-     Receives tenant_node_access from the plan-ahead and applies PRIORITY_BOOST
-     to objective coefficients.  All nodes remain accessible.
+  3. Real-Time MILP (OR-Tools) — called once per tenant group per interval.
+     The Cluster Manager filters jobs and machines before each call.
+     The Realtime model has no knowledge of tenants or plan-ahead structure.
 
 Usage
 ─────
-    python interface.py          # Sample 1 — Simple  (default)
+    python interface.py          # Sample 1 — Simple (default)
     python interface.py 2        # Sample 2 — Medium
     python interface.py 3        # Sample 3 — High
 """
@@ -37,97 +37,26 @@ sys.path.insert(0, str(_ROOT / "Realtime"))
 sys.path.insert(0, str(_ROOT / "PlanAhead"))
 
 from plan_ahead_data      import build_synthetic_data, make_gurobi_env
-from plan_ahead_optimizer import build_model, extract_tenant_access_schedule
+from plan_ahead_optimizer import build_model, solve_and_report, extract_plan_output
 from gurobipy import GRB
 
 import optimizer_google_or as rt_module
 from simulation_data import Job, NodeState
-from tenant_priority import sort_by_plan_priority
 
 from pipeline_configs import SAMPLES, PipelineConfig
 
 
 # ============================================================================
-# § DATA STRUCTURES
+# § HELPERS
 # ============================================================================
 
-@dataclass
-class TenantLease:
-    """A single priority grant from the plan-ahead model.
-
-    Represents: "tenant_id is prioritised on authorised_nodes during [start, end)."
-    Contiguous periods with the same node set are merged into one lease.
-    """
-    tenant_id:        int
-    authorised_nodes: list[int]
-    start_slot:       int
-    end_slot:         int    # exclusive — [start_slot, end_slot)
-
-    def is_active(self, slot: int) -> bool:
-        return self.start_slot <= slot < self.end_slot
-
-
-@dataclass
-class TenantSchedule:
-    """Full plan-ahead output: raw schedule + derived lease list."""
-    schedule:    dict[tuple[int, int], list[int]]   # (tenant_id, period) -> [node_id]
-    leases:      list[TenantLease]
-    tenant_ids:  list[int]
-    time_slots:  list[int]
-    node_ids:    list[int]
-
-
-# ============================================================================
-# § PIPELINE UTILITIES
-# ============================================================================
-
-def schedule_to_leases(
-    schedule:   dict[tuple[int, int], list[int]],
-    tenant_ids: list[int],
-    time_slots: list[int],
-) -> list[TenantLease]:
-    """Convert TenantAccessSchedule to a compact list of TenantLease tuples.
-
-    Contiguous periods with the same node set are merged into one lease.
-    """
-    leases: list[TenantLease] = []
-    for i in tenant_ids:
-        current_nodes: list[int] | None = None
-        start: int | None = None
-        for t in time_slots:
-            nodes = sorted(schedule.get((i, t), []))
-            if nodes != current_nodes:
-                if current_nodes is not None and start is not None:
-                    leases.append(TenantLease(i, current_nodes, start, t))
-                current_nodes = nodes
-                start = t
-        if current_nodes is not None and start is not None:
-            leases.append(TenantLease(i, current_nodes, start, time_slots[-1] + 1))
-    return sorted(leases, key=lambda l: (l.tenant_id, l.start_slot))
-
-
-def filter_active_access(
-    schedule: dict[tuple[int, int], list[int]],
-    time_t:   int,
-) -> dict[int, list[int]]:
-    """Slice TenantAccessSchedule to a single planning period.
-
-    Returns dict[tenant_id -> list[node_id]] for tenants with at least
-    one priority node at time_t.  Passed as tenant_node_access to the
-    real-time solve() call for priority boosting.
-    """
-    return {tenant: nodes
-            for (tenant, t), nodes in schedule.items()
-            if t == time_t and nodes}
-
-
-def _make_realtime_nodes(node_ids: list[int]) -> list[NodeState]:
-    """Create NodeState objects whose IDs match the plan-ahead node set."""
+def _make_realtime_nodes(machine_ids: list[int]) -> list[NodeState]:
+    """Create NodeState objects for the given machine IDs."""
     nodes = []
-    for nid in node_ids:
-        mem_mb = float(16_384 + nid * 2_048)             # 16, 18, 20 … GB
+    for nid in machine_ids:
+        mem_mb = float(16_384 + nid * 2_048)
         tax_mb = round(mem_mb * 0.05 / 1024.0) * 1024.0
-        cores  = float(max(8, 8 + nid * 2))              # 8, 10, 12 … cores
+        cores  = float(max(8, 8 + nid * 2))
         nodes.append(NodeState(
             node_id        = nid,
             capacity_mb    = mem_mb,
@@ -140,76 +69,92 @@ def _make_realtime_nodes(node_ids: list[int]) -> list[NodeState]:
 
 
 def _make_realtime_jobs(
-    slot:     int,
-    admitted: list[int],
-    n_jobs:   int,
-    rng:      np.random.Generator,
+    interval:   int,
+    tenant_ids: list[int],
+    n_jobs:     int,
+    rng:        np.random.Generator,
 ) -> list[Job]:
-    """Generate real-time jobs for admitted tenants in the given period."""
+    """Generate real-time jobs for the given tenant group."""
     jobs = []
     for k in range(n_jobs):
-        tenant   = admitted[k % len(admitted)]
+        tenant   = tenant_ids[k % len(tenant_ids)]
         req_mem  = float(rng.uniform(256.0, 1024.0))
         req_cpu  = float(rng.uniform(0.5, 4.0))
         pred_mem = req_mem * rng.uniform(0.80, 1.00)
         pred_cpu = req_cpu * rng.uniform(0.80, 0.95)
         jobs.append(Job(
-            job_id        = f"s{slot}_j{k}",
+            job_id        = f"h{interval}_g{k}",
             tenant_id     = tenant,
             req_mem_mb    = round(req_mem,  2),
             req_cpu       = round(req_cpu,  3),
             pred_mem_mb   = round(pred_mem, 2),
             pred_cpu_p95  = round(pred_cpu, 3),
-            arrival_round = slot,
+            arrival_round = interval,
         ))
     return jobs
 
 
+def _banner(title: str) -> None:
+    print(flush=True)
+    print("=" * 70, flush=True)
+    print(f"  {title}", flush=True)
+    print("=" * 70, flush=True)
+
+
 # ============================================================================
-# § DEMO RUNNER
+# § PIPELINE RUNNER
 # ============================================================================
 
 def run_pipeline(cfg: PipelineConfig) -> None:
     """Run the full three-layer pipeline for the given configuration."""
 
     rng = np.random.default_rng(cfg.seed)
+    rt_module.SOLVER_ID = cfg.realtime_solver
 
-    # ── Layer 1: Synthesis / prediction ───────────────────────────────────
-    _banner(f"LAYER 1  Synthesis / prediction  [{cfg.name}]")
+    # ── Layer 1: Synthesis ─────────────────────────────────────────────────
+    _banner(f"LAYER 1  Synthesis  [{cfg.name}]")
     P = build_synthetic_data(
-        seed             = cfg.seed,
-        n_tenants        = cfg.n_tenants,
-        n_nodes          = cfg.n_nodes,
-        n_time_slots     = cfg.n_time_slots,
-        node_capacity    = cfg.node_capacity,
-        tenant_usage_min = cfg.tenant_usage_min,
-        tenant_usage_max = cfg.tenant_usage_max,
+        seed                = cfg.seed,
+        n_tenants           = cfg.n_tenants,
+        n_nodes             = cfg.n_nodes,
+        n_intervals         = cfg.n_intervals,
+        node_capacity       = cfg.node_capacity,
+        n_always_available  = cfg.n_always_available,
+        exclusive_frac      = cfg.exclusive_frac,
+        tenant_usage_min    = cfg.tenant_usage_min,
+        tenant_usage_max    = cfg.tenant_usage_max,
     )
-    print(f"  Tenants:         {len(P['T'])}  ({P['T'][0]}..{P['T'][-1]})")
-    print(f"  Nodes:           {len(P['N'])}  ({P['N'][0]}..{P['N'][-1]})")
-    print(f"  Planning periods:{len(P['H'])}")
-    print(f"  Node capacity:   {cfg.node_capacity}")
-    print(f"  Usage range:     [{cfg.tenant_usage_min}, {cfg.tenant_usage_max}] (capacity units)")
-    print(f"  Real-time solver: {cfg.realtime_solver}  "
-          f"({cfg.n_jobs_per_slot} jobs/period)")
-    print()
-    print("  Tenant usage profiles u[i,h]:")
-    for i in P['T']:
-        row = "  ".join(f"h{h}:{P['u'][i,h]:.2f}" for h in P['H'])
-        print(f"    tenant {i}: {row}")
+    T_e, T_s = P['T_e'], P['T_s']
+    M_a, M_b = P['M_a'], P['M_b']
 
-    # ── Layer 2: Plan-ahead MILP ──────────────────────────────────────────
-    _banner("LAYER 2  Plan-ahead MILP  (Gurobi)")
-    env   = make_gurobi_env()
-    model, vars_ = build_model(P, env)
+    print(f"  Tenants:           {len(P['T'])}  total")
+    print(f"    Exclusive T_e:   {T_e}  (fixed machine assignment, entire horizon)")
+    print(f"    Shared    T_s:   {T_s}  (per-interval assignment)")
+    print(f"  Machines:          {len(P['M'])}  total")
+    print(f"    Always-available M_a: {M_a}")
+    print(f"    Additional       M_b: {M_b}  (model decides which to activate)")
+    print(f"  Intervals (horizon): {len(P['H'])}")
+    print(f"  Node capacity:       {cfg.node_capacity}")
+    print(f"  Usage range:         [{cfg.tenant_usage_min}, {cfg.tenant_usage_max}]")
+    print(f"  Realtime solver:     {cfg.realtime_solver}  ({cfg.n_jobs_per_slot} jobs/group/interval)")
+    print()
+    print("  Tenant demand profiles u[i,h]:")
+    for i in P['T']:
+        tag  = "EXCL" if i in T_e else "SHRD"
+        row  = "  ".join(f"h{h}:{P['u'][i,h]:.2f}" for h in P['H'])
+        print(f"    [{tag}] tenant {i}: {row}")
+
+    # ── Layer 2: Plan-Ahead MISOCP ─────────────────────────────────────────
+    mode = "MISOCP" if cfg.use_socp else "MILP"
+    _banner(f"LAYER 2  Plan-Ahead {mode}  (Gurobi)")
+    env = make_gurobi_env()
+    model, vars_ = build_model(P, env, use_socp=cfg.use_socp)
     model.Params.TimeLimit    = cfg.plan_time_limit
     model.Params.MIPGap       = cfg.plan_mip_gap
-    model.Params.LogToConsole = 0 if cfg.plan_time_limit <= 60 else 1
+    model.Params.LogToConsole = 0
 
-    print(f"  Solving MILP  (time limit: {cfg.plan_time_limit}s, "
-          f"gap target: {cfg.plan_mip_gap*100:.0f}%)  ...")
-    print(f"  Tenants: {len(P['T'])}  |  Nodes: {len(P['N'])}  |  "
-          f"Periods: {len(P['H'])}", flush=True)
+    print(f"  Solving {mode}  (time limit: {cfg.plan_time_limit}s, "
+          f"gap target: {cfg.plan_mip_gap*100:.0f}%)  ...", flush=True)
     model.optimize()
 
     status_str = {2: "OPTIMAL", 9: "TIME_LIMIT", 13: "SUBOPTIMAL"}.get(
@@ -219,103 +164,78 @@ def run_pipeline(cfg: PipelineConfig) -> None:
         print(f"  Plan-ahead infeasible ({status_str}). Aborting.")
         return
 
-    print(f"  Status:           {status_str}")
-    print(f"  Objective:        {model.ObjVal:.4f}")
-    print(f"  Fairness sigma:   {vars_['sigma'].X:.4f}")
-    print(f"  MIP gap:          {model.MIPGap * 100:.2f}%")
-    print()
+    print(f"  Status:          {status_str}")
+    print(f"  Objective:       {model.ObjVal:.4f}")
+    print(f"  Fairness sigma:  {vars_['sigma'].X:.4f}")
+    print(f"  MIP gap:         {model.MIPGap * 100:.2f}%")
 
-    a = vars_['a']
-    admitted = [i for i in P['T'] if a[i].X > 0.5]
-    rejected = [i for i in P['T'] if a[i].X <= 0.5]
-    print(f"  Admitted ({len(admitted)}): {admitted}")
-    print(f"  Rejected ({len(rejected)}): {rejected}")
+    # ── Layer 3: Extract plan output ───────────────────────────────────────
+    _banner("LAYER 3  Plan-Ahead Output  (interval groups)")
+    plan_out = extract_plan_output(vars_, P)
 
-    # ── Layer 3: TenantAccessSchedule ─────────────────────────────────────
-    _banner("LAYER 3  TenantAccessSchedule  (priority hints from plan-ahead)")
-    raw_schedule = extract_tenant_access_schedule(vars_, P)
-    leases       = schedule_to_leases(raw_schedule, P['T'], P['H'])
-    ts = TenantSchedule(
-        schedule=raw_schedule, leases=leases,
-        tenant_ids=P['T'], time_slots=P['H'], node_ids=P['N'],
-    )
+    for interval_dict in plan_out["intervals"]:
+        h = interval_dict["interval"]
+        print(f"  Interval {h}:")
+        for g in interval_dict["groups"]:
+            tag = "EXCL" if g["exclusive"] else "SHRD"
+            print(f"    [{tag}] tenants={g['tenant_ids']:20}  machines={g['machine_ids']}")
 
-    print("  Raw schedule  (tenant, period) -> priority nodes:")
-    for (tenant, period), nodes in sorted(ts.schedule.items()):
-        print(f"    tenant={tenant:>3}  h={period}  priority_nodes={nodes}")
+    # ── Layer 4+5: Real-Time scheduling per interval ────────────────────────
+    for interval_dict in plan_out["intervals"]:
+        h      = interval_dict["interval"]
+        groups = interval_dict["groups"]
 
-    print()
-    print("  Lease view  (tenant, node_set, start_period, end_period):")
-    for lease in ts.leases:
-        if lease.authorised_nodes:
-            print(f"    tenant={lease.tenant_id:>3}  "
-                  f"nodes={lease.authorised_nodes}  "
-                  f"periods=[{lease.start_slot}, {lease.end_slot})")
+        _banner(f"LAYER 4+5  Real-Time Scheduling  (interval h={h})")
 
-    # ── Layer 4+5: Real-time scheduling per period ────────────────────────
-    rt_module.SOLVER_ID = cfg.realtime_solver
-    realtime_nodes = _make_realtime_nodes(P['N'])
+        total_placed   = 0
+        total_unplaced = 0
 
-    for t in P['H']:
-        _banner(f"LAYER 4+5  Real-time scheduling  (period h={t}  "
-                f"solver={cfg.realtime_solver})")
+        for g_idx, group in enumerate(groups):
+            tenant_ids  = group["tenant_ids"]
+            machine_ids = group["machine_ids"]
+            exclusive   = group["exclusive"]
+            tag         = "EXCL" if exclusive else "SHRD"
 
-        tenant_node_access = filter_active_access(ts.schedule, t)
-        print(f"  Priority hints (h={t})  [boost={rt_module.PRIORITY_BOOST}x]:")
-        for tenant, nodes in sorted(tenant_node_access.items()):
-            print(f"    tenant {tenant:>3} -> priority nodes {nodes}")
-        print()
+            if not machine_ids:
+                print(f"  [{tag}] group {g_idx} tenants={tenant_ids}: "
+                      f"no machines assigned — skipping.")
+                continue
 
-        if not admitted:
-            print("  No admitted tenants — skipping.")
-            continue
+            # Generate jobs for this tenant group
+            jobs  = _make_realtime_jobs(h, tenant_ids, cfg.n_jobs_per_slot, rng)
+            nodes = _make_realtime_nodes(machine_ids)
 
-        jobs = _make_realtime_jobs(t, admitted, cfg.n_jobs_per_slot, rng)
-
-        # Sort queue: plan-ahead prioritised tenants first
-        sorted_jobs = sort_by_plan_priority(jobs, tenant_node_access)
-
-        placements = rt_module.solve(
-            jobs               = sorted_jobs,
-            nodes              = realtime_nodes,
-            W_t                = {},
-            tenant_node_access = tenant_node_access,
-        )
-
-        placed   = {jid: nid for jid, nid in placements.items() if nid is not None}
-        unplaced = [jid for jid, nid in placements.items() if nid is None]
-        print(f"  Placed: {len(placed)}/{len(jobs)}  |  "
-              f"Unplaced: {len(unplaced)}")
-
-        # Group by node for a compact summary
-        node_jobs: dict[int, list[str]] = {}
-        for jid, nid in sorted(placed.items()):
-            node_jobs.setdefault(nid, []).append(jid)
-        for nid in sorted(node_jobs):
-            jids = node_jobs[nid]
-            tenants_here = sorted({next(j for j in jobs if j.job_id == jid).tenant_id
-                                   for jid in jids})
-            total_mem = sum(
-                next(j for j in jobs if j.job_id == jid).pred_mem_mb
-                for jid in jids
+            placements = rt_module.solve(
+                jobs          = jobs,
+                nodes         = nodes,
+                W_t           = {},
+                time_limit_ms = 10_000,
             )
-            print(f"    node {nid:>3}: {len(jids):>3} jobs  "
-                  f"tenants={tenants_here}  "
-                  f"total_pred_mem={total_mem:,.0f} MB")
 
-        if unplaced:
-            print(f"  Unplaced job IDs: {unplaced}")
+            placed   = {jid: nid for jid, nid in placements.items() if nid is not None}
+            unplaced_count = sum(1 for nid in placements.values() if nid is None)
+
+            print(f"  [{tag}] group {g_idx}  tenants={tenant_ids}  "
+                  f"machines={machine_ids}")
+            print(f"          jobs={len(jobs)}  placed={len(placed)}  "
+                  f"unplaced={unplaced_count}")
+
+            # Per-machine summary
+            node_jobs: dict[int, list[str]] = {}
+            for jid, nid in placed.items():
+                node_jobs.setdefault(nid, []).append(jid)
+            for nid in sorted(node_jobs):
+                job_objs = [j for j in jobs if j.job_id in node_jobs[nid]]
+                total_mem = sum(j.pred_mem_mb for j in job_objs)
+                print(f"          machine {nid:>3}: {len(node_jobs[nid]):>3} jobs  "
+                      f"total_pred_mem={total_mem:,.0f} MB")
+
+            total_placed   += len(placed)
+            total_unplaced += unplaced_count
+
+        print(f"\n  Interval {h} total: placed={total_placed}  unplaced={total_unplaced}")
 
     _banner("PIPELINE COMPLETE")
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────
-
-def _banner(title: str) -> None:
-    print(flush=True)
-    print("=" * 64, flush=True)
-    print(f"  {title}", flush=True)
-    print("=" * 64, flush=True)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────

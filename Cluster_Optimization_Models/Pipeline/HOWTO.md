@@ -3,9 +3,11 @@
 ## Overview
 End-to-end integration of all three model layers:
 
-1. **Synthesis / Prediction** — `build_synthetic_data()` generates resource demand, mean usage, and covariance matching Google cluster-usage traces v3.
-2. **Plan-Ahead MISOCP** (Gurobi) — solves the periodic scheduling problem over the planning horizon. Decides which tenants are admitted and which nodes each tenant is authorized to use per time slot. Output: `TenantAccessSchedule`.
-3. **Real-Time MILP** (OR-Tools) — one call per scheduling round. Receives `TenantAccessSchedule` from the plan-ahead and enforces constraint C5 (tenant access control).
+1. **Synthesis** — `build_synthetic_data()` generates tenant demand profiles u[i,h], classifies tenants as exclusive (T_e) or shared (T_s), and partitions machines into always-available (M_a) and additional (M_b).
+
+2. **Plan-Ahead MILP/MISOCP** (Gurobi) — solves over the planning horizon H. Assigns exclusive tenants to dedicated machines for the full horizon; assigns shared tenants to machines per interval. Output: ordered list of intervals, each with tenant groups and their assigned machines.
+
+3. **Real-Time MILP** (OR-Tools) — called once per tenant group per interval by the Cluster Manager. Receives pre-filtered jobs and machines; no knowledge of plan-ahead structure or tenant classifications.
 
 ## Requirements
 ```bash
@@ -14,7 +16,6 @@ pip install gurobipy ortools numpy
 You also need a valid Gurobi WLS license in `PlanAhead/.env`.
 
 ## Run the pipeline
-
 ```bash
 cd Pipeline/
 python interface.py          # Sample 1 — Simple (default)
@@ -22,57 +23,88 @@ python interface.py 2        # Sample 2 — Medium
 python interface.py 3        # Sample 3 — High
 ```
 
+## Run sensitivity analysis
+```bash
+cd Pipeline/
+python sensitivity_analysis.py
+```
+Sweeps interval frequency, machine count, tenant count, and a saturation grid.  
+Saves CSVs to `Pipeline/sensitivity_data/` and plots to `Pipeline/sensitivity_plots/`.
+
 ## Sample configurations
 
-| Sample | Tenants | Nodes | Slots | Jobs/Slot | Solver | Notes |
-|--------|---------|-------|-------|-----------|--------|-------|
-| 1 — Simple | 3 | 4 | 2 | 8 | CBC | Gurobi solves to optimality in < 1 s |
-| 2 — Medium | 3 | 5 | 3 | 12 | CBC | ~120 s Gurobi budget |
-| 3 — High | 3 | 5 | 4 | 20 | GLOP | LP relaxation keeps real-time step fast |
+| Sample | Tenants | Nodes | Intervals | Always-On | Excl% | Jobs/Group | Solver |
+|--------|---------|-------|-----------|-----------|-------|-----------|--------|
+| 1 — Simple | 4 | 5 | 2 | 3 | 25% | 8 | CBC / MILP |
+| 2 — Medium | 5 | 7 | 3 | 4 | 20% | 12 | CBC / MISOCP |
+| 3 — High | 8 | 10 | 4 | 6 | 25% | 20 | GLOP / MISOCP |
 
 See `pipeline_configs.py` for all tunable parameters.
 
 ## Output (per run)
 ```
-LAYER 1  Synthesis / prediction
-  Tenants: 3  Nodes: 4  Time slots: 2  Workloads: 6 total
+LAYER 1  Synthesis  [Simple]
+  Tenants:           4  total
+    Exclusive T_e:   [1]  (fixed machine assignment, entire horizon)
+    Shared    T_s:   [0, 2, 3]  (per-interval assignment)
+  Machines:          5  total
+    Always-available M_a: [0, 1, 2]
+    Additional       M_b: [3, 4]  (model decides which to activate)
+  Intervals (horizon): [0, 1]
 
-LAYER 2  Plan-ahead MISOCP  (Gurobi)
-  Status:       OPTIMAL
-  Objective:    0.4823
-  Fairness sigma: 0.9210
-  Admitted (3): [0, 1, 2]
+LAYER 2  Plan-Ahead MILP  (Gurobi)
+  Status:          OPTIMAL
+  Objective:       0.3842
+  Fairness sigma:  0.8210
+  MIP gap:         0.00%
 
-LAYER 3  TenantAccessSchedule
-  tenant=0  t=0  nodes=[2, 3]
-  tenant=1  t=0  nodes=[0, 1]
-  ...
+LAYER 3  Plan-Ahead Output  (interval groups)
+  Interval 0:
+    [EXCL] tenants=[1]        machines=[2, 4]
+    [SHRD] tenants=[0, 2, 3]  machines=[0, 1, 3]
+  Interval 1:
+    [EXCL] tenants=[1]        machines=[2, 4]
+    [SHRD] tenants=[0, 2, 3]  machines=[0, 1]
 
-LAYER 4+5  Real-time scheduling  (slot t=0  solver=CBC)
-  Placed: 8/8
-  node 0:   3 jobs  tenants=[1]  total_pred_mem=1,024 MB
-  ...
+LAYER 4+5  Real-Time Scheduling  (interval h=0)
+  [EXCL] group 0  tenants=[1]  machines=[2, 4]
+          jobs=2  placed=2  unplaced=0
+          machine   2:   1 jobs  total_pred_mem=512 MB
+  [SHRD] group 1  tenants=[0, 2, 3]  machines=[0, 1, 3]
+          jobs=6  placed=5  unplaced=1
+          ...
 ```
 
 ## Key data structures
 
-### TenantLease
-Represents a contiguous block of time slots where a tenant has the same authorized node set:
+### plan_output (from extract_plan_output)
 ```python
-@dataclass
-class TenantLease:
-    tenant_id:        int
-    authorised_nodes: list[int]
-    start_slot:       int
-    end_slot:         int    # exclusive — [start_slot, end_slot)
+plan_output = {
+    "intervals": [
+        {
+            "interval": 0,
+            "groups": [
+                {"tenant_ids": [1],       "machine_ids": [2, 4],    "exclusive": True},
+                {"tenant_ids": [0, 2, 3], "machine_ids": [0, 1, 3], "exclusive": False},
+            ]
+        },
+        {
+            "interval": 1,
+            "groups": [
+                {"tenant_ids": [1],       "machine_ids": [2, 4],    "exclusive": True},
+                {"tenant_ids": [0, 2, 3], "machine_ids": [0, 1],    "exclusive": False},
+            ]
+        },
+    ]
+}
 ```
 
-### filter_active_access
-Slices the full `TenantAccessSchedule` to a single time slot for the real-time solver:
+### Per-group real-time loop
 ```python
-access = filter_active_access(schedule, time_t=1)
-# Returns dict[tenant_id -> list[node_id]]
-placements = solve(jobs=jobs, nodes=nodes, W_t={}, tenant_node_access=access)
+for group in interval_dict["groups"]:
+    jobs  = _make_realtime_jobs(h, group["tenant_ids"], n_jobs, rng)
+    nodes = _make_realtime_nodes(group["machine_ids"])
+    placements = rt_module.solve(jobs=jobs, nodes=nodes, W_t={}, time_limit_ms=10_000)
 ```
 
 ## Path setup

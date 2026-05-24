@@ -3,317 +3,401 @@
 % Plan-Ahead Cluster Optimization Model — MISOCP Formulation
 %
 % Compile with: pdflatex plan_ahead.tex  (run twice for TOC)
+% Source of truth: Docs/plan_ahead_math_explained.md
 % ============================================================
 
 \documentclass[11pt,a4paper]{article}
 
 % ── Packages ─────────────────────────────────────────────────
-\usepackage[T1]{fontenc}
-\usepackage[utf8]{inputenc}
-\usepackage{lmodern}
-\usepackage[margin=2.5cm]{geometry}
-\usepackage{amsmath,amssymb,amsthm}
-\usepackage{mathtools}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
 \usepackage{booktabs}
 \usepackage{array}
-\usepackage{longtable}
 \usepackage{xcolor}
-\usepackage{hyperref}
+\usepackage[hidelinks]{hyperref}
 \usepackage{enumitem}
-\usepackage{microtype}
 \usepackage{parskip}
-\usepackage{titlesec}
 
-\hypersetup{
-  colorlinks = true,
-  linkcolor  = blue!60!black,
-  urlcolor   = blue!60!black,
-  citecolor  = green!50!black,
-  pdftitle   = {Plan-Ahead Cluster Optimization Model (MISOCP)},
-  pdfauthor  = {Alrick Grandison},
-}
+% ── Macros ───────────────────────────────────────────────────
+\newcommand{\T}{\mathcal{T}}
+\newcommand{\Te}{\mathcal{T}_e}
+\newcommand{\Ts}{\mathcal{T}_s}
+\newcommand{\Th}{\mathcal{T}_s^{\mathrm{h}}}
+\newcommand{\Tl}{\mathcal{T}_s^{\mathrm{l}}}
+\newcommand{\M}{\mathcal{M}}
+\newcommand{\Ma}{\mathcal{M}_a}
+\newcommand{\Mb}{\mathcal{M}_b}
+\newcommand{\H}{\mathcal{H}}
+\newcommand{\Ceff}{C^{\mathrm{eff}}}
+\newcommand{\ufb}{u^{\mathrm{fb}}}
+\newcommand{\umax}{u^{\max}}
 
-\definecolor{constblue}{RGB}{30,80,160}
-\definecolor{notegrey}{RGB}{90,90,90}
-
-\newcommand{\cT}{\mathcal{T}}
-\newcommand{\cN}{\mathcal{N}}
-\newcommand{\cH}{\mathcal{H}}
-
-\titleformat{\section}{\large\bfseries}{}{0em}{}[\titlerule]
-\titleformat{\subsection}{\normalsize\bfseries}{}{0em}{}
+\title{\textbf{Plan-Ahead Resource Allocation Model}\\[6pt]
+       \large Mixed-Integer Second-Order Cone Program (MISOCP)\\[2pt]
+       \normalsize Multi-Tenant Cluster Optimization}
+\author{Capstone Project --- Cluster Optimization Models}
+\date{}
 
 \begin{document}
-
-% ── Title ─────────────────────────────────────────────────────
-\begin{center}
-  {\LARGE\bfseries Plan-Ahead Cluster Optimization Model}\\[4pt]
-  {\large Mixed-Integer Second-Order Cone Program (MISOCP)}\\[8pt]
-  {\normalsize Alrick Grandison \quad Capstone Project, Spring 2026}
-\end{center}
-
+\maketitle
 \tableofcontents
-\newpage
+\bigskip
 
 % ─────────────────────────────────────────────────────────────
 \section{Overview}
-% ─────────────────────────────────────────────────────────────
 
-The plan-ahead model is a MISOCP solved periodically (every
-\texttt{plan\_ahead\_interval} simulation steps).  Its purpose is to
-determine which nodes each tenant should be \emph{prioritised} on for
-each planning period, given estimated resource demand, while providing
-a probabilistic guarantee that node capacity is not exceeded.
+The plan-ahead model is a \textbf{Mixed-Integer Second-Order Cone Program (MISOCP)} solved
+once per planning horizon. It answers:
 
-The output is a \textbf{priority hint} --- a
-\texttt{TenantAccessSchedule} mapping $(\text{tenant}, \text{period})
-\to [\text{node\_ids}]$.  The real-time scheduler uses this hint to
-boost objective coefficients; no node is blocked.
+\begin{quote}
+\emph{Which machines should each tenant be assigned to for each planning interval,
+given their estimated resource demand, machine pool, and feedback from the previous horizon?}
+\end{quote}
 
-The second-order cone component (C1b) implements a
-\textbf{variance-extended Cantelli capacity constraint}: it ensures
-that node capacity is respected with at least probability $1-\varepsilon$
-even under demand uncertainty, using only the per-tenant usage profile
-variance --- not per-workload covariance as in the original formulation.
+\subsection*{What the Model Decides}
+\begin{enumerate}[label=(\arabic*)]
+  \item Which additional machines (beyond the always-available pool) to activate.
+  \item Which machines to assign \emph{exclusively} to exclusive tenants (fixed for the full horizon).
+  \item Which machines to assign to \emph{shared} tenants per interval (can change each interval).
+  \item How to mix high-usage and low-usage shared tenants on the same machines.
+\end{enumerate}
+
+\subsection*{Output}
+An ordered list of planning intervals. Each interval has a list of \textbf{tenant groups}.
+Each group specifies the tenant IDs and their assigned machine IDs for that interval.
+All tenants appear in every interval. The Cluster Manager calls the Real-Time model
+once per group per interval, passing only the pre-filtered jobs and machines.
+
+\subsection*{Two Solver Modes}
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Mode & \texttt{use\_socp} & Capacity constraint \\
+\midrule
+MILP  & \texttt{False} & Hard linear bound \\
+MISOCP & \texttt{True} & Cantelli probabilistic bound (distribution-free) \\
+\bottomrule
+\end{tabular}
+\end{center}
 
 % ─────────────────────────────────────────────────────────────
 \section{Sets}
-% ─────────────────────────────────────────────────────────────
 
-\begin{longtable}{@{}lp{10cm}@{}}
-  \toprule
-  \textbf{Symbol} & \textbf{Description} \\
-  \midrule
-  $\cT$ & Tenants, $i \in \{0,\ldots,|\cT|-1\}$ \\
-  $\cN$ & Cluster nodes, $n \in \{0,\ldots,|\cN|-1\}$ \\
-  $\cH$ & Planning periods, $h \in \{0,\ldots,|\cH|-1\}$ \\
-  \bottomrule
-\end{longtable}
-
-The number of planning periods is:
-\[
-  |\cH| = \left\lfloor \frac{\texttt{plan\_ahead\_interval}}{\texttt{access\_period}} \right\rfloor
-\]
+\begin{center}
+\begin{tabular}{p{2.2cm} p{11cm}}
+\toprule
+Symbol & Description \\
+\midrule
+$\T$ & All tenants: $\T = \Te \cup \Ts$ \\
+$\Te$ & Exclusive tenants (randomly tagged; fraction = \texttt{exclusive\_frac}).
+        Do not share machines with others. \\
+$\Ts$ & Shared tenants: $\Ts = \T \setminus \Te$. May share machines. \\
+$\Th$ & Heavy-demand shared tenants (avg demand $\geq$ median over $\Ts$) \\
+$\Tl$ & Light-demand shared tenants: $\Ts \setminus \Th$ \\
+$\M$ & All machines: $\M = \Ma \cup \Mb$ \\
+$\Ma$ & Always-available machines ($|\Ma|=A$). Always active, no activation cost. \\
+$\Mb$ & Additional machines ($\M \setminus \Ma$). Model decides activation. \\
+$\H$ & Planning intervals: $\H = \{0,\,1,\,\ldots,\,|\H|-1\}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
 
 % ─────────────────────────────────────────────────────────────
 \section{Parameters}
-% ─────────────────────────────────────────────────────────────
 
-\begin{longtable}{@{}lp{10cm}@{}}
-  \toprule
-  \textbf{Symbol} & \textbf{Description} \\
-  \midrule
-  $u_{i,h}$ & Estimated total resource demand of tenant $i$ in period $h$ (capacity units). Placeholder for prediction layer output. \\[2pt]
-  $C_n$     & Resource capacity of node $n$ (uniform in synthetic data). \\[2pt]
-  $\pi_n$   & Infrastructure cost of activating node $n$ per period. \\[2pt]
-  $\bar\pi_i$ & Contract revenue for admitting tenant $i$. \\[2pt]
-  $v_i$     & Operational cost for tenant $i$. \\[2pt]
-  $\lambda_0, \lambda_1, \lambda_2$ & Objective weights (infrastructure cost, admission revenue, fairness). \\[4pt]
-  \midrule
-  \multicolumn{2}{@{}l}{\textit{Cantelli uncertainty parameters}} \\[2pt]
-  \texttt{sigma\_frac} & Demand uncertainty fraction: $\mathrm{std}(D_{i,h}) = \texttt{sigma\_frac} \times u_{i,h}$. \\[2pt]
-  $\sigma^2_{i,h}$ & Per-tenant per-period demand variance: $(\texttt{sigma\_frac} \times u_{i,h})^2$. \\[2pt]
-  $\varepsilon$ & Cantelli tail probability (\texttt{cantelli\_epsilon}); default 0.10. \\[2pt]
-  $\kappa$ & Cantelli safety factor: $\kappa = \sqrt{(1-\varepsilon)/\varepsilon}$. With $\varepsilon=0.10$, $\kappa = 3.0$. \\
-  \bottomrule
-\end{longtable}
+\subsection*{Machine Parameters}
+\begin{center}
+\begin{tabular}{p{2.5cm} p{10cm}}
+\toprule
+Symbol & Description \\
+\midrule
+$C_n$ & Resource capacity of machine $n$ (abstract units) \\
+$\pi_n$ & Activation cost for additional machine $n \in \Mb$ \\
+$\Ceff_n$ & Effective capacity after feedback: $\Ceff_n = C_n(1-\alpha\bar{v}_n)$ \\
+\bottomrule
+\end{tabular}
+\end{center}
 
-\subsection*{Tenant Usage Profiles}
+\subsection*{Tenant Demand Parameters}
+\begin{center}
+\begin{tabular}{p{2.5cm} p{10cm}}
+\toprule
+Symbol & Description \\
+\midrule
+$u_{ih}$ & Expected demand of tenant $i$ in interval $h$ \\
+$\umax_i$ & Peak demand of exclusive tenant $i$: $\max_{h\in\H}\,u_{ih}$ \\
+$\ufb_{ih}$ & Feedback-adjusted demand: $\ufb_{ih} = u_{ih}(1+\beta\bar{W}_i/\bar{W}_{\mathrm{ref}})$ \\
+$\sigma^2_{ih}$ & Demand variance: $\sigma^2_{ih} = (\sigma_{\mathrm{frac}}\cdot u_{ih})^2$ \\
+\bottomrule
+\end{tabular}
+\end{center}
 
-$u_{i,h}$ is drawn from \texttt{Uniform(tenant\_usage\_min, tenant\_usage\_max)}
-as a placeholder.  In production, derive from historical
-CollectionEvents SUBMIT counts per tenant per access period.
+\subsection*{Uncertainty and Safety Parameters}
+\begin{center}
+\begin{tabular}{p{2.5cm} p{10cm}}
+\toprule
+Symbol & Description \\
+\midrule
+$\varepsilon$ & Tail probability for Cantelli bound (default $0.10$ $\Rightarrow$ 90\% safety) \\
+$\kappa$ & Cantelli factor: $\kappa = \sqrt{(1-\varepsilon)/\varepsilon}$.
+          For $\varepsilon=0.10$: $\kappa=3.0$ \\
+$\sigma_{\mathrm{frac}}$ & Demand uncertainty fraction (default $0.20$) \\
+\bottomrule
+\end{tabular}
+\end{center}
 
-\subsection*{Uncertainty Model}
+\subsection*{Feedback Parameters}
+\begin{center}
+\begin{tabular}{p{2.5cm} p{10cm}}
+\toprule
+Symbol & Description \\
+\midrule
+$\bar{v}_n$ & Rolling SLA violation rate on machine $n$ (from real-time layer) \\
+$\bar{W}_i$ & Average scheduling wait time of tenant $i$ (from real-time layer) \\
+$\alpha$ & Capacity shrinkage coefficient (default $0.5$) \\
+$\beta$ & Demand inflation coefficient (default $0.3$) \\
+\bottomrule
+\end{tabular}
+\end{center}
 
-The demand of tenant $i$ on node $n$ in period $h$ is modelled as a random
-variable $D_{i,n,h}$ with mean $f_{i,n,h}$ and variance
-$\sigma^2_{i,h} \cdot y_{i,n,h}$.  The variance is active only when the
-tenant is assigned to that node ($y_{i,n,h}=1$).  By the \emph{one-sided
-Cantelli inequality}:
-
-\[
-  P\!\left[\sum_{i \in \cT} D_{i,n,h} \leq C_n \cdot z_{n,h}\right] \;\geq\; 1 - \varepsilon
-\]
-
-is guaranteed by C1a and C1b together (see Section~\ref{sec:constraints}).
+\subsection*{Objective Weights}
+\begin{center}
+\begin{tabular}{p{2.5cm} p{10cm}}
+\toprule
+Symbol & Description \\
+\midrule
+$\lambda_0$ & Infrastructure cost weight \\
+$\lambda_1$ & Fairness weight (maximize minimum satisfaction ratio $\sigma$) \\
+$\lambda_2$ & Mix bonus weight (reward heavy+light co-location) \\
+\bottomrule
+\end{tabular}
+\end{center}
 
 % ─────────────────────────────────────────────────────────────
 \section{Decision Variables}
-% ─────────────────────────────────────────────────────────────
 
-\begin{longtable}{@{}llp{9cm}@{}}
-  \toprule
-  \textbf{Variable} & \textbf{Domain} & \textbf{Description} \\
-  \midrule
-  $f_{i,n,h}$ & $\geq 0$ & Allocation of node $n$'s capacity to tenant $i$ in period $h$. \\[2pt]
-  $y_{i,n,h}$ & $\{0,1\}$ & 1 iff tenant $i$ has a priority assignment on node $n$ in period $h$. \\[2pt]
-  $z_{n,h}$   & $\{0,1\}$ & 1 iff node $n$ is active in period $h$. \\[2pt]
-  $t_{n,h}$   & $\geq 0$  & Cantelli slack --- upper bound on weighted demand standard deviation on node $n$ in period $h$. \\[2pt]
-  $a_i$       & $\{0,1\}$ & 1 iff tenant $i$ is admitted for this planning horizon. \\[2pt]
-  $\sigma$    & $[0,1]$   & Minimum demand-satisfaction ratio across admitted tenants (fairness proxy). \\
-  \bottomrule
-\end{longtable}
+\begin{center}
+\begin{tabular}{p{3.8cm} p{1.8cm} p{8.5cm}}
+\toprule
+Variable & Domain & Description \\
+\midrule
+$e_{in}$ & $\{0,1\}$ &
+  1 iff exclusive tenant $i\in\Te$ is assigned to machine $n$ (entire horizon) \\
+$z^{\mathrm{on}}_n$ & $\{0,1\}$ &
+  1 iff additional machine $n\in\Mb$ is activated \\
+$z_{nh}$ & $\{0,1\}$ &
+  1 iff machine $n$ is active in interval $h$ \\
+$y_{inh}$ & $\{0,1\}$ &
+  1 iff shared tenant $i\in\Ts$ is assigned to machine $n$ in interval $h$ \\
+$f_{inh}$ & $\geq 0$ &
+  Capacity of machine $n$ allocated to shared tenant $i$ in interval $h$ \\
+$\sigma$ & $[0,1]$ &
+  Min demand-satisfaction ratio across all shared tenants (fairness measure) \\
+$t_{nh}$ & $\geq 0$ &
+  Cantelli slack — upper bound on weighted demand std.\ dev.\ (MISOCP only) \\
+$\mathrm{hH}_{nh}$ & $\{0,1\}$ &
+  1 iff machine $n$ has $\geq 1$ heavy-demand tenant in interval $h$ \\
+$\mathrm{hL}_{nh}$ & $\{0,1\}$ &
+  1 iff machine $n$ has $\geq 1$ light-demand tenant in interval $h$ \\
+$\mathrm{mix}_{nh}$ & $\{0,1\}$ &
+  1 iff machine $n$ has both heavy and light tenants in interval $h$ \\
+\bottomrule
+\end{tabular}
+\end{center}
 
 % ─────────────────────────────────────────────────────────────
 \section{Constraints}
-\label{sec:constraints}
-% ─────────────────────────────────────────────────────────────
 
-\subsection*{C1a --- Capacity with Cantelli Margin (linear)}
+\subsection{Machine Activation}
 
-\begin{equation}
-  \sum_{i \in \cT} f_{i,n,h} + \kappa \cdot t_{n,h} \;\leq\; C_n \cdot z_{n,h}
-  \qquad \forall\, n \in \cN,\; h \in \cH
-  \tag{C1a}
+\paragraph{C\textsubscript{aa} --- Always Available.}
+Always-available machines are always active:
+\begin{equation}\tag{C$_{\mathrm{aa}}$}
+  z_{nh} = 1 \qquad \forall\; n \in \Ma,\ h \in \H
 \end{equation}
 
-Mean allocations plus a $\kappa$-weighted uncertainty margin must not exceed
-node capacity when active.  When $\kappa = 0$ (no uncertainty), this reduces
-to the deterministic capacity constraint.
-
-\subsection*{C1b --- Second-Order Cone Constraint (SOCP)}
-
-\begin{equation}
-  \sum_{i \in \cT} \sigma^2_{i,h} \cdot y_{i,n,h} \;\leq\; t_{n,h}^2
-  \qquad \forall\, n \in \cN,\; h \in \cH
-  \tag{C1b}
+\paragraph{C\textsubscript{act} --- Additional Machine Activation.}
+Additional machines are active only if switched on:
+\begin{equation}\tag{C$_{\mathrm{act}}$}
+  z_{nh} \leq z^{\mathrm{on}}_n \qquad \forall\; n \in \Mb,\ h \in \H
 \end{equation}
 
-Forces $t_{n,h}$ to be at least the weighted demand standard deviation on
-node $n$ in period $h$.  This is a second-order cone constraint and is what
-makes the model an MISOCP.  In Gurobi it is expressed as a
-\texttt{QConstr}: \mbox{$t_{n,h}^2 \geq \sum_i \sigma^2_{i,h} \cdot y_{i,n,h}$}.
-
-\medskip
-\noindent\textit{Combined probabilistic guarantee:} C1a and C1b together
-ensure $P[\sum_i D_{i,n,h} \leq C_n z_{n,h}] \geq 1-\varepsilon$
-with $\varepsilon = 0.10$, $\kappa = 3.0$ by default.
-
-\subsection*{C2 --- Priority Link}
-
-\begin{equation}
-  f_{i,n,h} \;\leq\; C_n \cdot y_{i,n,h}
-  \qquad \forall\, i \in \cT,\; n \in \cN,\; h \in \cH
-  \tag{C2}
+\paragraph{C\textsubscript{zact} --- Machine Active if Assigned.}
+A machine must be active if any shared tenant is assigned to it:
+\begin{equation}\tag{C$_{\mathrm{zact}}$}
+  z_{nh} \geq y_{inh} \qquad \forall\; i \in \Ts,\ n \in \M,\ h \in \H
 \end{equation}
 
-If $y_{i,n,h}=0$, no capacity can be allocated to tenant $i$ on node $n$
-in period $h$.  This links the continuous allocation to the binary priority
-indicator.
+\subsection{Exclusive Tenant Constraints}
 
-\subsection*{C3 --- Demand Satisfaction}
-
-\begin{equation}
-  \sum_{n \in \cN} f_{i,n,h} \;\geq\; u_{i,h} \cdot a_i
-  \qquad \forall\, i \in \cT,\; h \in \cH
-  \tag{C3}
+\paragraph{C\textsubscript{excl1} --- At Most One Exclusive Per Machine.}
+\begin{equation}\tag{C$_{\mathrm{excl1}}$}
+  \sum_{i \in \Te} e_{in} \leq 1 \qquad \forall\; n \in \M
 \end{equation}
 
-Admitted tenants must receive at least their estimated demand in each period.
-Rejected tenants ($a_i=0$) have this constraint deactivated.
+\paragraph{C\textsubscript{excl2} --- Each Exclusive Must Be Assigned.}
+\begin{equation}\tag{C$_{\mathrm{excl2}}$}
+  \sum_{n \in \M} e_{in} \geq 1 \qquad \forall\; i \in \Te
+\end{equation}
 
-\subsection*{C4 --- Fairness}
+\paragraph{C\textsubscript{excl\_cap} --- Exclusive Capacity Coverage.}
+Machines assigned exclusively to tenant $i$ must together cover its peak demand:
+\begin{equation}\tag{C$_{\mathrm{excl\_cap}}$}
+  \sum_{n \in \M} e_{in}\cdot C_n \geq \umax_i \qquad \forall\; i \in \Te
+\end{equation}
 
-\begin{equation}
+\paragraph{C\textsubscript{sep} --- Exclusive-Shared Separation.}
+A machine assigned exclusively to any exclusive tenant cannot be used by shared tenants:
+\begin{equation}\tag{C$_{\mathrm{sep}}$}
+  \sum_{i \in \Te} e_{in} + y_{jnh} \leq 1
+  \qquad \forall\; j \in \Ts,\ n \in \M,\ h \in \H
+\end{equation}
+
+\subsection{Shared Tenant Constraints}
+
+\paragraph{C\textsubscript{share} --- Every Shared Tenant Assigned Every Interval.}
+\begin{equation}\tag{C$_{\mathrm{share}}$}
+  \sum_{n \in \M} y_{inh} \geq 1 \qquad \forall\; i \in \Ts,\ h \in \H
+\end{equation}
+
+\paragraph{C\textsubscript{1a} --- Capacity with Cantelli Safety Buffer.}
+\begin{equation}\tag{C$_{1a}$}
+  \sum_{i \in \Ts} f_{inh} + \kappa\cdot t_{nh}
+  \;\leq\; \Ceff_n \cdot z_{nh}
+  \qquad \forall\; n \in \M,\ h \in \H
+\end{equation}
+In MILP mode: same constraint without the $\kappa\cdot t_{nh}$ term (and $t_{nh}$ is absent).
+
+\paragraph{C\textsubscript{1b} --- Cantelli Cone (MISOCP only).}
+\begin{equation}\tag{C$_{1b}$}
+  \sum_{i \in \Ts} \sigma^2_{ih}\cdot y_{inh}
+  \;\leq\; t_{nh}^{2}
+  \qquad \forall\; n \in \M,\ h \in \H
+\end{equation}
+This is a second-order cone (SOC) constraint. Together, C$_{1a}$ + C$_{1b}$ guarantee:
+\[
+  P\!\bigl[\text{total demand on machine }n\text{ in interval }h \leq \Ceff_n\bigr]
+  \;\geq\; 1-\varepsilon.
+\]
+
+\paragraph{C\textsubscript{2} --- Priority Link.}
+A shared tenant can receive allocation only on machines it is assigned to:
+\begin{equation}\tag{C$_2$}
+  f_{inh} \leq C_n \cdot y_{inh}
+  \qquad \forall\; i \in \Ts,\ n \in \M,\ h \in \H
+\end{equation}
+
+\paragraph{C\textsubscript{3} --- Demand Satisfaction.}
+Every shared tenant must receive at least its feedback-adjusted demand every interval:
+\begin{equation}\tag{C$_3$}
+  \sum_{n \in \M} f_{inh} \geq \ufb_{ih}
+  \qquad \forall\; i \in \Ts,\ h \in \H
+\end{equation}
+
+\paragraph{C\textsubscript{4} --- Fairness.}
+$\sigma$ is the minimum demand-satisfaction fraction across all shared tenants:
+\begin{equation}\tag{C$_4$}
   \sigma \;\leq\;
-  \frac{\displaystyle\sum_{n \in \cN,\, h \in \cH} f_{i,n,h}}
-       {\displaystyle\sum_{h \in \cH} u_{i,h}}
-  + (1 - a_i)
-  \qquad \forall\, i \in \cT
-  \tag{C4}
+  \frac{\displaystyle\sum_{n \in \M,\,h \in \H} f_{inh}}
+       {\displaystyle\sum_{h \in \H} \ufb_{ih}}
+  \qquad \forall\; i \in \Ts
 \end{equation}
 
-$\sigma$ is the minimum demand-satisfaction ratio across all admitted tenants
-(DRF-style fairness).  The $(1-a_i)$ term deactivates this constraint for
-rejected tenants.  Since $u_{i,h}$ is a parameter, this constraint is
-\textbf{linear}.
+\subsection{Mix Bonus Constraints}
 
-\subsection*{C5 --- Node Activation}
+$\mathrm{mix}_{nh}=1$ iff machine $n$ has at least one heavy \emph{and} one light tenant in interval $h$.
+This is a linearized AND gate:
 
-\begin{equation}
-  z_{n,h} \;\geq\; y_{i,n,h}
-  \qquad \forall\, i \in \cT,\; n \in \cN,\; h \in \cH
-  \tag{C5}
-\end{equation}
-
-A node must be marked active if any tenant has a priority assignment on it.
+\begin{align}
+  \mathrm{hH}_{nh} &\geq y_{inh} & &\forall\; i\in\Th,\; n\in\M,\; h\in\H
+    \tag{Mix$_{\mathrm{H}}$}\\[2pt]
+  \mathrm{hL}_{nh} &\geq y_{jnh} & &\forall\; j\in\Tl,\; n\in\M,\; h\in\H
+    \tag{Mix$_{\mathrm{L}}$}\\[2pt]
+  \mathrm{mix}_{nh} &\leq \mathrm{hH}_{nh} & &\forall\; n\in\M,\; h\in\H
+    \tag{Mix$_1$}\\[2pt]
+  \mathrm{mix}_{nh} &\leq \mathrm{hL}_{nh} & &\forall\; n\in\M,\; h\in\H
+    \tag{Mix$_2$}\\[2pt]
+  \mathrm{mix}_{nh} &\geq \mathrm{hH}_{nh}+\mathrm{hL}_{nh}-1 & &\forall\; n\in\M,\; h\in\H
+    \tag{Mix$_3$}
+\end{align}
 
 % ─────────────────────────────────────────────────────────────
-\section{Objective Function}
-% ─────────────────────────────────────────────────────────────
+\section{Objective}
 
 \begin{equation}
-  \min\quad
-  \underbrace{\lambda_0 \sum_{n \in \cN,\, h \in \cH} \pi_n \cdot z_{n,h}}_{\text{infrastructure cost}}
-  - \underbrace{\lambda_1 \sum_{i \in \cT} (\bar\pi_i - v_i) \cdot a_i}_{\text{admission revenue}}
-  - \underbrace{\lambda_2 \cdot \sigma}_{\text{fairness}}
-  \tag{OBJ}
+\boxed{
+\min\;
+  \lambda_0\!\underbrace{\sum_{n\in\Mb}\!\pi_n z^{\mathrm{on}}_n}_{\text{InfraCost}}
+  \;-\;
+  \lambda_1\,\sigma
+  \;-\;
+  \lambda_2\!\underbrace{\sum_{n\in\M,\,h\in\H}\!\mathrm{mix}_{nh}}_{\text{MixTotal}}
+}
 \end{equation}
 
-The three components balance:
-\begin{enumerate}[leftmargin=2cm]
-  \item \textbf{Infrastructure cost} --- prefer fewer active nodes.
-  \item \textbf{Admission revenue} --- prefer admitting more tenants.
-  \item \textbf{Fairness} --- maximise the minimum demand-satisfaction ratio.
+\begin{enumerate}[label=(\arabic*)]
+  \item \textbf{InfraCost} (minimize): activate as few additional machines as possible.
+  \item \textbf{Fairness} $\sigma$ (maximize): every shared tenant receives its fair share.
+  \item \textbf{MixTotal} (maximize): reward co-locating heavy-demand and light-demand tenants.
 \end{enumerate}
 
 % ─────────────────────────────────────────────────────────────
-\section{Output Interface}
-% ─────────────────────────────────────────────────────────────
+\section{Uncertainty Model (Cantelli Bound)}
 
-\texttt{extract\_tenant\_access\_schedule(vars\_, P)} returns:
+\subsection*{Why Cantelli?}
+We know only mean $u_{ih}$ and variance $\sigma^2_{ih}$ of tenant demand — not the full distribution.
+Cantelli's inequality is \emph{distribution-free}: it bounds the one-sided tail using only
+mean and variance.
+
+\subsection*{Applied to the Capacity Constraint}
+Let $D_{nh}=\sum_{i\in\Ts}D_{inh}$ be the total random demand on machine $n$ in interval $h$, where $D_{inh}$ has mean $f_{inh}$ and variance $\sigma^2_{ih}y_{inh}$.
+
+By Cantelli's inequality:
 \[
-  \texttt{TenantAccessSchedule} = \bigl\{(i,\,h) \;\mapsto\; \{n : y_{i,n,h}=1\}\bigr\}
+  P\!\Bigl[D_{nh} > \mu_{nh} + \kappa\,\sigma^{\mathrm{tot}}_{nh}\Bigr]
+  \;\leq\; \frac{1}{1+\kappa^2} = \varepsilon,
 \]
+where $\mu_{nh}=\sum_i f_{inh}$ and $\left(\sigma^{\mathrm{tot}}_{nh}\right)^2=\sum_i\sigma^2_{ih}y_{inh}$.
 
-These are \textbf{priority hints}.  The real-time scheduler applies a
-\texttt{PRIORITY\_BOOST} $= 2.0$ multiplier to the objective coefficient
-for $(j,\,n)$ pairs where $n \in \texttt{TenantAccessSchedule}[t(j),\,h]$,
-and uses \texttt{sort\_by\_plan\_priority} to front-load prioritised jobs
-in the solver window.  \emph{All nodes remain accessible regardless.}
-
-% ─────────────────────────────────────────────────────────────
-\section{Real-Time Integration}
-% ─────────────────────────────────────────────────────────────
-
-The real-time MILP maximises:
+Constraints C$_{1a}$+C$_{1b}$ together enforce $\mu_{nh}+\kappa\sigma^{\mathrm{tot}}_{nh}\leq\Ceff_n z_{nh}$, giving:
 \[
-  \max \sum_{j \in J} \sum_{n \in \cN}
-  \omega_{\delta,t(j)} \cdot \hat{m}_j \cdot u_n^{\mathrm{mem}} \cdot \sigma_n^{\mathrm{consolid}}
-  \cdot b_{t(j),n} \cdot x_{jn}
+  P\!\Bigl[D_{nh}\leq \Ceff_n z_{nh}\Bigr] \;\geq\; 1-\varepsilon.
 \]
-where
-\[
-  b_{t(j),n} =
-  \begin{cases}
-    \text{PRIORITY\_BOOST} & n \in \text{TenantAccessSchedule}[t(j), h] \\
-    1.0                    & \text{otherwise}
-  \end{cases}
-\]
-
-This replaces the former hard-block constraint
-$x_{jn} = 0 \text{ if } n \notin A_{t(j)}$ with a soft objective preference.
+For $\varepsilon=0.10$, $\kappa=3.0$: machines overflow at most 10\% of the time
+under the worst-case demand distribution with the given mean and variance.
 
 % ─────────────────────────────────────────────────────────────
-\section{Complexity Comparison}
-% ─────────────────────────────────────────────────────────────
+\section{Feedback Integration}
 
-\begin{center}
-\begin{tabular}{@{}lcc@{}}
-  \toprule
-  & \textbf{Original MISOCP} & \textbf{Current MISOCP} \\
-  \midrule
-  Binary variable count     & $O(TWNH + TNH + NH + T)$ & $O(TNH + NH + T)$ \\
-  Continuous variables      & $O(TWNKH + TWH + NH)$ & $O(TNH + NH + 1)$ \\
-  Constraint classes        & 7 (incl.\ per-workload SOCP, McCormick) & 6 (C1a linear + C1b cone + C2--C5) \\
-  Cone constraints          & Yes (workload covariance $\Sigma$) & Yes (tenant usage variance $\sigma^2_{i,h}$) \\
-  External data required    & Workload covariance $\Sigma$, migration costs & $u_{i,h}$, \texttt{sigma\_frac} only \\
-  Migration tracking        & Yes ($m_{i,j,n,t}$) & No \\
-  Isolation primitives      & Yes (gVisor/Kata) & No \\
-  Exclusivity constraint    & Yes (hard block) & No (soft priority boost) \\
-  \bottomrule
-\end{tabular}
-\end{center}
+After the first planning horizon, the Real-Time layer reports $\bar{v}_n$ (SLA violation rate)
+and $\bar{W}_i$ (average wait time per tenant), which update the plan parameters:
+
+\begin{align}
+  \Ceff_n &= C_n(1-\alpha\bar{v}_n)
+    & &\text{(shrink capacity of overloaded machines)} \\[4pt]
+  \ufb_{ih} &= u_{ih}\!\left(1+\beta\frac{\bar{W}_i}{\bar{W}_{\mathrm{ref}}}\right)
+    & &\text{(inflate demand for tenants with long waits)}
+\end{align}
+
+Default: $\alpha=0.5$,\ $\beta=0.3$,\ $\bar{W}_{\mathrm{ref}}=60\text{ s}$.
+
+% ─────────────────────────────────────────────────────────────
+\section{Connection to Real-Time Model}
+
+The Cluster Manager uses the plan output as follows each interval:
+\begin{enumerate}
+  \item Resolve $h = \text{sim\_interval} \bmod |\H|$.
+  \item Get the group list for interval $h$.
+  \item For each group $g$:
+    \begin{enumerate}[label=(\alph*)]
+      \item Filter job queue: jobs with $\text{tenant\_id}\in g.\text{tenant\_ids}$.
+      \item Filter nodes: machines with $\text{node\_id}\in g.\text{machine\_ids}$.
+      \item Call $\mathrm{solve}(\text{group\_jobs},\,\text{group\_nodes},\,W_t,\,K,\,\text{time\_limit\_ms})$.
+      \item Place returned assignments; unplaced jobs return to queue with a wait-time bump.
+    \end{enumerate}
+\end{enumerate}
+
+The Real-Time model has \textbf{no knowledge} of tenants, plan-ahead, or machine assignments.
+It receives only the pre-filtered jobs and nodes, and returns the best placement given capacity.
 
 \end{document}

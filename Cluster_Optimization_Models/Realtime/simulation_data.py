@@ -140,13 +140,7 @@ BATCH_DURATION_SEC: int = 60   # simulated seconds per scheduling epoch
 # If the optimizer returns zero placements this many times consecutively
 # within a single batch, the cluster manager gives up and carries remaining
 # jobs to the next batch (nodes are likely saturated).
-MAX_PLACEMENT_RETRIES: int = 5
-
-# ── Solver queue cap ───────────────────────────────────────────────────────────
-# Maximum number of jobs sent to the MILP solver per call.  Prevents the solver
-# from receiving thousands of binary variables when JOBS_PER_ROUND is large.
-# Oldest jobs (by arrival_round) are always sent first.
-MAX_JOBS_PER_SOLVE: int = 200
+MAX_PLACEMENT_RETRIES: int = 3
 
 
 
