@@ -67,7 +67,8 @@
       "Bash(python -X utf8 plan_ahead_sensitivity.py)",
       "Bash(python test_pipeline_quality.py)",
       "Bash(Select-Object FullName)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(python large_scale_sensitivity.py)"
     ],
     "deny": [],
     "ask": []

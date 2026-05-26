@@ -32,9 +32,9 @@ DEFAULT_CONFIG: dict = {
     # ── Cluster topology (sets) ───────────────────────────────────────────────
     'total_nodes':            20,     # total machines in pool (M = M_a ∪ M_b)
     'num_tenants':             3,     # total tenants (T = T_e ∪ T_s)
-    'always_on_nodes':         7,     # |M_a| — always-running machines; rest are additional
+    'always_on_nodes':         4,     # |M_a| — always-running machines; rest are additional
     'node_mem_min_gb':        64,     # GB — smallest machine RAM
-    'node_mem_max_gb':       256,     # GB — largest machine RAM
+    'node_mem_max_gb':       128,     # GB — largest machine RAM
     'node_cpu_min':            4,     # cores — fewest CPU per machine
     'node_cpu_max':           16,     # cores — most CPU per machine
     # ── Workload parameters ───────────────────────────────────────────────────
@@ -45,7 +45,7 @@ DEFAULT_CONFIG: dict = {
     'req_cpu_max':            1.0,    # cores — max CPU request per job
     'spike_prob_pct':           5,    # % of placed jobs that spike above pred_mem
     'min_lifetime_sec':         4,    # s — shortest job runtime
-    'max_lifetime_sec':        20,    # s — longest job runtime
+    'max_lifetime_sec':        60,    # s — longest job runtime
     # ── Model hyper-parameters ────────────────────────────────────────────────
     'k_window':               10,     # rolling window for v̄_n^SLA and W̄_t
     'mem_threshold_frac':   0.10,     # safety buffer = threshold_frac × M_n

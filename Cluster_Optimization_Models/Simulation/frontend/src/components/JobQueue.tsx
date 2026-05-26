@@ -25,7 +25,7 @@ export function JobQueue({ queue, recentPlacements }: Props) {
                 key={job.job_id}
                 layout
                 initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: wasPlaced ? 0.35 : 1, x: 0 }}
+                animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 24, height: 0, paddingTop: 0, paddingBottom: 0, marginBottom: 0 }}
                 transition={{ duration: 0.2 }}
                 className={`rounded border-l-2 bg-slate-900 px-2 py-1.5 text-xs

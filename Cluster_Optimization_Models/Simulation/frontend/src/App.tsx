@@ -8,7 +8,7 @@ import { JobQueue } from './components/JobQueue'
 import { NodeGrid } from './components/NodeGrid'
 import { MemoryWave } from './components/MemoryWave'
 import { PlanAheadOverlay } from './components/PlanAheadOverlay'
-import { Play, Pause, RotateCcw, Zap, ChevronUp, Users, Settings, Info } from 'lucide-react'
+import { Play, Pause, RotateCcw, Zap, ChevronUp, Users, Settings, Info, RefreshCw } from 'lucide-react'
 
 async function fetchWithRetry(fn: () => Promise<SimState>, retries = 5, delay = 1000): Promise<SimState> {
   for (let i = 0; i < retries; i++) {
@@ -151,9 +151,9 @@ export default function App() {
   // Topology
   const [cfgTotalNodes,         setCfgTotalNodes]         = useState(20)
   const [cfgNumTenants,         setCfgNumTenants]         = useState(3)
-  const [cfgAlwaysOnNodes,      setCfgAlwaysOnNodes]      = useState(7)
+  const [cfgAlwaysOnNodes,      setCfgAlwaysOnNodes]      = useState(4)
   const [cfgNodeMemMinGb,       setCfgNodeMemMinGb]       = useState(64)
-  const [cfgNodeMemMaxGb,       setCfgNodeMemMaxGb]       = useState(256)
+  const [cfgNodeMemMaxGb,       setCfgNodeMemMaxGb]       = useState(128)
   const [cfgNodeCpuMin,         setCfgNodeCpuMin]         = useState(4)
   const [cfgNodeCpuMax,         setCfgNodeCpuMax]         = useState(16)
   // Workload
@@ -165,7 +165,7 @@ export default function App() {
   const [cfgReqCpuMax,          setCfgReqCpuMax]          = useState(1.0)
   const [cfgSpikeProb,          setCfgSpikeProb]          = useState(5)
   const [cfgMinLifetimeSec,     setCfgMinLifetimeSec]     = useState(4)
-  const [cfgMaxLifetimeSec,     setCfgMaxLifetimeSec]     = useState(20)
+  const [cfgMaxLifetimeSec,     setCfgMaxLifetimeSec]     = useState(60)
   // Scheduler
   const [cfgKWindow,            setCfgKWindow]            = useState(10)
   const [cfgMemThresholdFrac,   setCfgMemThresholdFrac]   = useState(0.10)
@@ -370,19 +370,30 @@ export default function App() {
     } catch { /* backend may be unreachable */ }
   }, [])
 
-  const handleReset = async () => {
+  const handleReset = async (resume = false) => {
     setIsRunning(false)
     isStepping.current = false
+    prevQueueIds.current = new Set()
+    setFlashQueue([])
     const fresh = await api.reset()
     setState(fresh)
     setError(null)
-    // Auto-run plan-ahead after every reset so the schedule is always fresh
-    try {
-      const pa = await api.triggerPlanAhead()
-      setPlanAheadData(pa)
+    if (fresh.plan_ahead) {
+      setPlanAheadData(fresh.plan_ahead)
       setShowPlanAhead(true)
       if (paTimer.current) clearTimeout(paTimer.current)
-    } catch { /* plan-ahead is optional — ignore failures */ }
+      if (resume) {
+        // Defer auto-play until the plan popup closes (same mechanism as mid-run plan-ahead)
+        paWasRunning.current = true
+        paTriggeredManually.current = false
+        paTimer.current = setTimeout(() => {
+          setShowPlanAhead(false)
+          setIsRunning(true)
+        }, 10000)
+      }
+    } else if (resume) {
+      setIsRunning(true)
+    }
   }
 
   const handleStep = () => { setIsRunning(false); advance() }
@@ -679,12 +690,17 @@ export default function App() {
                     { term: 'Spike',             def: 'A placed job whose actual runtime memory exceeded the P95 prediction. Contributes to overflow risk.' },
                     { term: 'K Window',          def: 'Rolling window of K recent steps used to compute the SLA violation rate (v̄_n) and tenant delay weights (ω_delay).' },
                     { term: 'ω_delay (omega)',   def: 'Tenant delay weight in the real-time objective. Tenants waiting longer than average get a higher weight so their jobs are prioritized.' },
-                    { term: 'Plan-Ahead',        def: 'Optimization model (MILP or MISOCP) that runs periodically. Assigns tenants to machine groups for the upcoming horizon. Groups are passed to the real-time scheduler each interval.' },
-                    { term: 'SOCP (Cantelli)',   def: 'Second-order cone capacity constraint in MISOCP mode. Ensures actual usage stays within node capacity with at least (1−ε) probability, accounting for prediction uncertainty.' },
-                    { term: 'sigma_frac',        def: 'Uncertainty fraction for SOCP mode. Demand std dev is modelled as sigma_frac × u[i,h]. Higher value = larger safety buffer.' },
-                    { term: 'Cantelli ε',        def: 'Tail probability for SOCP capacity constraint. ε = 0.10 means the capacity guarantee holds 90% of the time.' },
-                    { term: 'Realtime Headroom', def: 'MILP only. Fraction of each node\'s schedulable capacity (C_eff) withheld from plan-ahead allocations. E.g. 0.25 means plan-ahead uses at most 75% of C_eff, leaving 25% headroom for the realtime scheduler. In SOCP mode this is handled automatically by the Cantelli cone buffer.' },
-                    { term: 'Batch / Epoch',     def: 'One scheduling round. New jobs arrive, the real-time optimizer runs once per tenant group, jobs are placed or return to queue. Unplaced jobs get a wait bump each batch.' },
+                    { term: 'Plan-Ahead',        def: 'Optimization model (MISOCP/MILP) that runs every Horizon intervals. Assigns tenants to machine groups and planning periods. The real-time scheduler then uses these groups to filter jobs and machines each interval.' },
+                    { term: 'SOCP (Cantelli)',   def: 'Second-order cone capacity constraint in MISOCP mode. Reserves a safety buffer κ×σ on each node so that actual demand stays within capacity with ≥(1−ε) probability even under prediction uncertainty.' },
+                    { term: 'Demand Sigma Frac', def: 'Uncertainty fraction for SOCP. Demand std dev = sigma_frac × mean_demand. Default 0.20 = 20% spread around expected usage. Higher value = larger safety buffer = fewer tenants per machine.' },
+                    { term: 'Cantelli ε',        def: 'Tail probability for the SOCP capacity cone. ε=0.10 → 90% safety guarantee. Lower ε → stricter → κ grows → fewer tenants fit per machine. Below ε≈0.05 the problem often becomes infeasible.' },
+                    { term: 'Feedback Wait Ref', def: 'Reference wait time in seconds (default 1 s = one unplaced interval). When a tenant\'s average wait equals this value, the plan-ahead inflates its demand by β×100% = 30%. So if jobs sit unplaced even one interval, demand inflation kicks in.' },
+                    { term: 'Feedback Queue Scale (γ)', def: 'Scales demand based on queued job count. γ=0.3: when a tenant has q_ref queued jobs the inflation = 30%. Combined wait×queue inflation is capped at 3× raw demand.' },
+                    { term: 'Queue Ref Size',    def: 'Reference queue depth for the queue-size feedback signal (default 10 jobs). When a tenant has 10+ jobs queued the queue_scale signal = 1.30 (30% demand inflation). At 20+ jobs it hits the cap of 1.60.' },
+                    { term: 'Horizon (steps)',   def: 'How many simulation intervals before the plan-ahead re-runs. Default 24. Each horizon is split into period_steps-wide slots. The plan assigns machine groups per slot, so exclusive tenants can get different machines in different slots.' },
+                    { term: 'Period Width (steps)', def: 'Width of each planning period in intervals. Default 6. With horizon=24 and period=6 the plan-ahead creates 4 planning periods. Exclusive tenant machine assignments can change between periods.' },
+                    { term: 'Realtime Headroom', def: 'MILP only. Fraction of C_eff withheld from plan-ahead. E.g. 0.25 leaves 25% capacity for the real-time scheduler. In SOCP mode the Cantelli buffer serves this role automatically.' },
+                    { term: 'Batch / Epoch',     def: 'One scheduling round. New jobs arrive, the real-time optimizer runs once per tenant group, jobs are placed or return to queue. Unplaced jobs add 1s to that tenant\'s wait and raise its priority next round.' },
                   ] as { term: string; def: string }[]).map(({ term, def }) => (
                     <div key={term}>
                       <span className="font-bold text-slate-300">{term}</span>
@@ -831,12 +847,22 @@ export default function App() {
 
         {error && <span className="text-red-400 text-xs">{error}</span>}
 
-        <button
-          onClick={handleReset}
-          className="ml-auto flex items-center gap-1 px-2 py-1.5 rounded text-xs text-slate-600 hover:text-red-400 hover:bg-slate-800 transition-colors"
-        >
-          <RotateCcw size={11} /> Reset
-        </button>
+        <div className="ml-auto flex items-center gap-1">
+          <button
+            onClick={() => handleReset(false)}
+            className="flex items-center gap-1 px-2 py-1.5 rounded text-xs text-slate-500 hover:text-slate-200 hover:bg-slate-800 border border-slate-700 hover:border-slate-600 transition-colors"
+            title="Reset simulation and stay paused"
+          >
+            <RotateCcw size={11} /> Reset
+          </button>
+          <button
+            onClick={() => handleReset(true)}
+            className="flex items-center gap-1 px-2 py-1.5 rounded text-xs text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950 border border-emerald-800 hover:border-emerald-600 transition-colors"
+            title="Reset simulation and start running"
+          >
+            <RefreshCw size={11} /> Restart
+          </button>
+        </div>
       </div>
 
       <AnimatePresence>
