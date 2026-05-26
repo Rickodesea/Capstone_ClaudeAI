@@ -422,7 +422,11 @@ export default function App() {
     )
   }
 
-  const activeNodes = state.nodes.filter((n) => n.running_jobs.length > 0).length
+  const activeNodes   = state.nodes.filter((n) => n.running_jobs.length > 0).length
+  const displayQueue  = [
+    ...state.queue,
+    ...flashQueue.filter((fj) => !state.queue.some((q) => q.job_id === fj.job_id)),
+  ]
   const batchStats  = state.batch_stats
   const defaultTotals = {
     num_batches: 0, k_window: 10, total_generated: 0, total_placed: 0, placement_rate: 0,
@@ -444,7 +448,7 @@ export default function App() {
       <div className="shrink-0 flex border-b border-slate-800">
         <div className="w-52 shrink-0 border-r border-slate-800 px-3 py-1.5 flex items-center">
           <span className="text-[11px] font-bold text-slate-300 uppercase tracking-widest">Queue</span>
-          <span className="text-[11px] text-slate-500 ml-auto tabular-nums">{state.queue.length} pending</span>
+          <span className="text-[11px] text-slate-500 ml-auto tabular-nums">{displayQueue.length} pending</span>
         </div>
         <div className="flex-1 px-3 py-1.5 flex items-center">
           <span className="text-[11px] font-bold text-slate-300 uppercase tracking-widest">Cluster Nodes</span>
@@ -460,10 +464,7 @@ export default function App() {
 
         <div className="w-52 shrink-0 border-r border-slate-800 flex flex-col min-h-0">
           <JobQueue
-            queue={[
-              ...state.queue,
-              ...flashQueue.filter((fj) => !state.queue.some((q) => q.job_id === fj.job_id)),
-            ]}
+            queue={displayQueue}
             recentPlacements={recentJobIds}
           />
         </div>

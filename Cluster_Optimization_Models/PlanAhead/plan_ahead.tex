@@ -27,7 +27,7 @@
 \newcommand{\M}{\mathcal{M}}
 \newcommand{\Ma}{\mathcal{M}_a}
 \newcommand{\Mb}{\mathcal{M}_b}
-\newcommand{\H}{\mathcal{H}}
+\newcommand{\PH}{\mathcal{H}}
 \newcommand{\Ceff}{C^{\mathrm{eff}}}
 \newcommand{\ufb}{u^{\mathrm{fb}}}
 \newcommand{\umax}{u^{\max}}
@@ -96,7 +96,7 @@ $\Tl$ & Light-demand shared tenants: $\Ts \setminus \Th$ \\
 $\M$ & All machines: $\M = \Ma \cup \Mb$ \\
 $\Ma$ & Always-available machines ($|\Ma|=A$). Always active, no activation cost. \\
 $\Mb$ & Additional machines ($\M \setminus \Ma$). Model decides activation. \\
-$\H$ & Planning periods (slots): $\H = \{0,\,1,\,\ldots,\,|\H|-1\}$. Each period spans \texttt{period\_steps} intervals. \\
+$\PH$ & Planning periods (slots): $\PH = \{0,\,1,\,\ldots,\,|\PH|-1\}$. Each period spans \texttt{period\_steps} intervals. \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -124,7 +124,7 @@ $\Ceff_n$ & Effective capacity after feedback: $\Ceff_n = C_n(1-\alpha\bar{v}_n)
 Symbol & Description \\
 \midrule
 $u_{ih}$ & Expected demand of tenant $i$ in period $h$ \\
-$\umax_i$ & Peak demand of exclusive tenant $i$: $\max_{h\in\H}\,u_{ih}$ \\
+$\umax_i$ & Peak demand of exclusive tenant $i$: $\max_{h\in\PH}\,u_{ih}$ \\
 $\ufb_{ih}$ & Feedback-adjusted demand: $\ufb_{ih} = u_{ih}(1+\beta\bar{W}_i/\bar{W}_{\mathrm{ref}})$ \\
 $\sigma^2_{ih}$ & Demand variance: $\sigma^2_{ih} = (\sigma_{\mathrm{frac}}\cdot u_{ih})^2$ \\
 \bottomrule
@@ -212,19 +212,19 @@ $\mathrm{mix}_{nh}$ & $\{0,1\}$ &
 \paragraph{C\textsubscript{aa} --- Always Available.}
 Always-available machines are always active:
 \begin{equation}\tag{C$_{\mathrm{aa}}$}
-  z_{nh} = 1 \qquad \forall\; n \in \Ma,\ h \in \H
+  z_{nh} = 1 \qquad \forall\; n \in \Ma,\ h \in \PH
 \end{equation}
 
 \paragraph{C\textsubscript{act} --- Additional Machine Activation.}
 Additional machines are active only if switched on:
 \begin{equation}\tag{C$_{\mathrm{act}}$}
-  z_{nh} \leq z^{\mathrm{on}}_n \qquad \forall\; n \in \Mb,\ h \in \H
+  z_{nh} \leq z^{\mathrm{on}}_n \qquad \forall\; n \in \Mb,\ h \in \PH
 \end{equation}
 
 \paragraph{C\textsubscript{zact} --- Machine Active if Assigned.}
 A machine must be active if any shared tenant is assigned to it:
 \begin{equation}\tag{C$_{\mathrm{zact}}$}
-  z_{nh} \geq y_{inh} \qquad \forall\; i \in \Ts,\ n \in \M,\ h \in \H
+  z_{nh} \geq y_{inh} \qquad \forall\; i \in \Ts,\ n \in \M,\ h \in \PH
 \end{equation}
 
 \subsection{Exclusive Tenant Constraints}
@@ -249,7 +249,7 @@ Machines assigned exclusively to tenant $i$ must together cover its peak demand:
 A machine assigned exclusively to any exclusive tenant cannot be used by shared tenants:
 \begin{equation}\tag{C$_{\mathrm{sep}}$}
   \sum_{i \in \Te} e_{in} + y_{jnh} \leq 1
-  \qquad \forall\; j \in \Ts,\ n \in \M,\ h \in \H
+  \qquad \forall\; j \in \Ts,\ n \in \M,\ h \in \PH
 \end{equation}
 
 \subsection{Shared Tenant Constraints}
@@ -258,7 +258,7 @@ A machine assigned exclusively to any exclusive tenant cannot be used by shared 
 Each shared tenant must receive at least $m_{\min}$ machines per period
 (default $m_{\min}=2$; configurable via \texttt{min\_machines\_per\_tenant}):
 \begin{equation}\tag{C$_{\mathrm{share}}$}
-  \sum_{n \in \M} y_{inh} \geq m_{\min} \qquad \forall\; i \in \Ts,\ h \in \H
+  \sum_{n \in \M} y_{inh} \geq m_{\min} \qquad \forall\; i \in \Ts,\ h \in \PH
 \end{equation}
 Setting $m_{\min}\geq 2$ guarantees resilience: tenants stay scheduled even when one machine fails or spikes.
 
@@ -266,7 +266,7 @@ Setting $m_{\min}\geq 2$ guarantees resilience: tenants stay scheduled even when
 \begin{equation}\tag{C$_{1a}$}
   \sum_{i \in \Ts} f_{inh} + \kappa\cdot t_{nh}
   \;\leq\; \Ceff_n \cdot z_{nh}
-  \qquad \forall\; n \in \M,\ h \in \H
+  \qquad \forall\; n \in \M,\ h \in \PH
 \end{equation}
 In MILP mode: same constraint without the $\kappa\cdot t_{nh}$ term (and $t_{nh}$ is absent).
 
@@ -274,7 +274,7 @@ In MILP mode: same constraint without the $\kappa\cdot t_{nh}$ term (and $t_{nh}
 \begin{equation}\tag{C$_{1b}$}
   \sum_{i \in \Ts} \sigma^2_{ih}\cdot y_{inh}
   \;\leq\; t_{nh}^{2}
-  \qquad \forall\; n \in \M,\ h \in \H
+  \qquad \forall\; n \in \M,\ h \in \PH
 \end{equation}
 This is a second-order cone (SOC) constraint. Together, C$_{1a}$ + C$_{1b}$ guarantee:
 \[
@@ -286,22 +286,22 @@ This is a second-order cone (SOC) constraint. Together, C$_{1a}$ + C$_{1b}$ guar
 A shared tenant can receive allocation only on machines it is assigned to:
 \begin{equation}\tag{C$_2$}
   f_{inh} \leq C_n \cdot y_{inh}
-  \qquad \forall\; i \in \Ts,\ n \in \M,\ h \in \H
+  \qquad \forall\; i \in \Ts,\ n \in \M,\ h \in \PH
 \end{equation}
 
 \paragraph{C\textsubscript{3} --- Demand Satisfaction.}
 Every shared tenant must receive at least its feedback-adjusted demand every period:
 \begin{equation}\tag{C$_3$}
   \sum_{n \in \M} f_{inh} \geq \ufb_{ih}
-  \qquad \forall\; i \in \Ts,\ h \in \H
+  \qquad \forall\; i \in \Ts,\ h \in \PH
 \end{equation}
 
 \paragraph{C\textsubscript{4} --- Fairness.}
 $\sigma$ is the minimum demand-satisfaction fraction across all shared tenants:
 \begin{equation}\tag{C$_4$}
   \sigma \;\leq\;
-  \frac{\displaystyle\sum_{n \in \M,\,h \in \H} f_{inh}}
-       {\displaystyle\sum_{h \in \H} \ufb_{ih}}
+  \frac{\displaystyle\sum_{n \in \M,\,h \in \PH} f_{inh}}
+       {\displaystyle\sum_{h \in \PH} \ufb_{ih}}
   \qquad \forall\; i \in \Ts
 \end{equation}
 
@@ -311,15 +311,15 @@ $\mathrm{mix}_{nh}=1$ iff machine $n$ has at least one heavy \emph{and} one ligh
 This is a linearized AND gate:
 
 \begin{align}
-  \mathrm{hH}_{nh} &\geq y_{inh} & &\forall\; i\in\Th,\; n\in\M,\; h\in\H
+  \mathrm{hH}_{nh} &\geq y_{inh} & &\forall\; i\in\Th,\; n\in\M,\; h\in\PH
     \tag{Mix$_{\mathrm{H}}$}\\[2pt]
-  \mathrm{hL}_{nh} &\geq y_{jnh} & &\forall\; j\in\Tl,\; n\in\M,\; h\in\H
+  \mathrm{hL}_{nh} &\geq y_{jnh} & &\forall\; j\in\Tl,\; n\in\M,\; h\in\PH
     \tag{Mix$_{\mathrm{L}}$}\\[2pt]
-  \mathrm{mix}_{nh} &\leq \mathrm{hH}_{nh} & &\forall\; n\in\M,\; h\in\H
+  \mathrm{mix}_{nh} &\leq \mathrm{hH}_{nh} & &\forall\; n\in\M,\; h\in\PH
     \tag{Mix$_1$}\\[2pt]
-  \mathrm{mix}_{nh} &\leq \mathrm{hL}_{nh} & &\forall\; n\in\M,\; h\in\H
+  \mathrm{mix}_{nh} &\leq \mathrm{hL}_{nh} & &\forall\; n\in\M,\; h\in\PH
     \tag{Mix$_2$}\\[2pt]
-  \mathrm{mix}_{nh} &\geq \mathrm{hH}_{nh}+\mathrm{hL}_{nh}-1 & &\forall\; n\in\M,\; h\in\H
+  \mathrm{mix}_{nh} &\geq \mathrm{hH}_{nh}+\mathrm{hL}_{nh}-1 & &\forall\; n\in\M,\; h\in\PH
     \tag{Mix$_3$}
 \end{align}
 
@@ -333,7 +333,7 @@ This is a linearized AND gate:
   \;-\;
   \lambda_1\,\sigma
   \;-\;
-  \lambda_2\!\underbrace{\sum_{n\in\M,\,h\in\H}\!\mathrm{mix}_{nh}}_{\text{MixTotal}}
+  \lambda_2\!\underbrace{\sum_{n\in\M,\,h\in\PH}\!\mathrm{mix}_{nh}}_{\text{MixTotal}}
 }
 \end{equation}
 
@@ -390,7 +390,7 @@ Default: $\alpha=0.5$,\ $\beta=0.3$,\ $\bar{W}_{\mathrm{ref}}=10$ intervals
 
 The Cluster Manager uses the plan output as follows each simulation interval:
 \begin{enumerate}
-  \item Resolve $h = (\text{sim\_interval} \;\mathbin{/\!/}\; \texttt{period\_steps}) \bmod |\H|$.
+  \item Resolve $h = (\text{sim\_interval} \;\mathbin{/\!/}\; \texttt{period\_steps}) \bmod |\PH|$.
   \item Get the group list for period $h$.
   \item For each group $g$:
     \begin{enumerate}[label=(\alph*)]
