@@ -53,7 +53,7 @@ export function PlanAheadOverlay({ result, numNodes, onClose }: Props) {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <CalendarCheck size={17} className="text-amber-400" />
-            <span className="text-sm font-bold text-white">Node Access Priority Schedule</span>
+            <span className="text-sm font-bold text-white">Tenant &ndash; Machine Plan</span>
             <span className="text-xs text-slate-500">
               Week #{result.summary.week_number} · Interval {result.interval}
             </span>
@@ -69,7 +69,7 @@ export function PlanAheadOverlay({ result, numNodes, onClose }: Props) {
             Horizon: <span className="text-white font-bold">{result.planning_horizon}i</span>
           </span>
           <span>
-            Access period: <span className="text-white font-bold">{result.access_period}i / slot</span>
+            Period width: <span className="text-white font-bold">{result.period_steps}i / period</span>
           </span>
           <span>
             Slots: <span className="text-white font-bold">{result.num_slots}</span>
@@ -77,6 +77,12 @@ export function PlanAheadOverlay({ result, numNodes, onClose }: Props) {
           <span>
             Avg nodes/tenant: <span className="text-white font-bold">{result.summary.avg_nodes_per_tenant.toFixed(1)}</span>
           </span>
+          {result.exclusive_tenant_count != null && result.exclusive_tenant_count > 0 && (
+            <span>
+              Exclusive: <span className="text-amber-400 font-bold">{result.exclusive_tenant_count}</span>
+              <span className="text-slate-600"> / {result.total_tenant_count ?? tenants.length} tenants</span>
+            </span>
+          )}
         </div>
 
         {/* Gantt table: rows = nodes, cols = time slots */}

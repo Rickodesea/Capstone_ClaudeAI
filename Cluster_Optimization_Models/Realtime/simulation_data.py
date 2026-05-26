@@ -120,8 +120,8 @@ DIST_FLAG: str = "normal"   # "normal" | "uniform"
 # uniformly from [MIN_LIFETIME_SEC, MAX_LIFETIME_SEC].  Once that many
 # simulated seconds pass, the job is considered complete and its memory is
 # released back to the node.
-MIN_LIFETIME_SEC: float = 60.0    # 60 seconds (shortest possible job)
-MAX_LIFETIME_SEC: float = 600.0   # 10 minutes (longest possible job)
+MIN_LIFETIME_SEC: float = 20.0    # 20 seconds (shortest possible job)
+MAX_LIFETIME_SEC: float = 180.0   # 3 minutes (longest possible job)
 
 # ── Spike simulation ───────────────────────────────────────────────────────────
 # In the simulation we assume:  act_mem = pred_mem  (most of the time)

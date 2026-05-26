@@ -59,7 +59,7 @@ DEFAULT_OUTPUT:      str = "sensitivity_results.csv"
 PLOT_DIR:            str = "sensitivity_plots"
 
 CSV_FIELDS = [
-    "k_window", "jobs_per_round",
+    "k_window", "jobs_per_round", "num_nodes",
     "placement_rate",
     "total_generated", "total_placed", "final_queue",
     "total_violations", "total_spikes", "total_overflows",
@@ -89,6 +89,7 @@ def run_one(
         jobs_per_round = jobs_per_round,
     )
     r = cm.run(num_batches)
+    num_nodes = len(cm.nodes)
 
     elapsed = time.perf_counter() - t0
 
@@ -100,6 +101,7 @@ def run_one(
     return {
         "k_window":      k_window,
         "jobs_per_round": jobs_per_round,
+        "num_nodes":     num_nodes,
         "placement_rate": round(r.placement_rate(), 4),
         "total_generated":    r.total_generated,
         "total_placed":       r.total_placed,
@@ -130,8 +132,8 @@ def run_sweep(
     total   = len(configs)
     results: list[dict[str, Any]] = []
 
-    print(f"{'#':>4}  {'K':>4} {'jobs':>5}  {'place%':>7}  {'viols':>5}  {'t(s)':>6}")
-    print("─" * 46)
+    print(f"{'#':>4}  {'K':>4} {'jobs':>5} {'nodes':>5}  {'place%':>7}  {'viols':>5}  {'t(s)':>6}")
+    print("─" * 52)
 
     with open(output, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
@@ -144,13 +146,43 @@ def run_sweep(
             results.append(row)
 
             print(
-                f"{i:>4}  {k:>4} {jobs:>5}  "
+                f"{i:>4}  {k:>4} {jobs:>5} {row['num_nodes']:>5}  "
                 f"{row['placement_rate']:>6.1%}  {row['total_violations']:>5}  "
                 f"{row['run_time_sec']:>6.2f}"
             )
 
-    print("─" * 46)
+    print("─" * 52)
     print(f"\n{total} configurations written to {output}\n")
+
+    # ── Inline insights ───────────────────────────────────────────────────────
+    if results:
+        best_place = max(results, key=lambda r: r["placement_rate"])
+        worst_viols = max(results, key=lambda r: r["total_violations"])
+        high_load   = [r for r in results if r["jobs_per_round"] >= 50]
+        low_k       = [r for r in results if r["k_window"] <= 5]
+
+        print("INSIGHTS")
+        print("─" * 52)
+        print(f"  Best placement : K={best_place['k_window']}, "
+              f"jobs={best_place['jobs_per_round']}, "
+              f"rate={best_place['placement_rate']:.1%}, "
+              f"nodes={int(best_place['num_nodes'])}")
+        print(f"  Most violations: K={worst_viols['k_window']}, "
+              f"jobs={worst_viols['jobs_per_round']}, "
+              f"viols={worst_viols['total_violations']}")
+
+        if high_load:
+            avg_place_high = sum(r["placement_rate"] for r in high_load) / len(high_load)
+            print(f"  At high load (jobs≥50): avg placement {avg_place_high:.1%}  "
+                  f"— pipeline is capacity-limited above this threshold.")
+        if low_k:
+            avg_viols_low_k = sum(r["total_violations"] for r in low_k) / len(low_k)
+            print(f"  Small K (≤5): avg violations {avg_viols_low_k:.0f}  "
+                  f"— short window reacts fast but over-penalises capacity.")
+        print(f"  Node count is fixed at {int(results[0]['num_nodes'])} in this sweep. "
+              f"Vary total_nodes in the sim config to test scaling.")
+        print("─" * 52 + "\n")
+
     return results
 
 

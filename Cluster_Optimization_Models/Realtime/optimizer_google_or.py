@@ -131,8 +131,8 @@ def solve(
         for n in nodes
     }
     w_node: dict[int, float] = {
-        n.node_id: compute_node_weight(n.node_id, len(nodes))
-        for n in nodes
+        n.node_id: compute_node_weight(i, len(nodes))
+        for i, n in enumerate(nodes)
     }
 
     # ── Tenant delay weights ───────────────────────────────────────────────

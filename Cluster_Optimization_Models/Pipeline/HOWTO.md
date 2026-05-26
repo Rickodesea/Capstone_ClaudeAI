@@ -35,9 +35,11 @@ Saves CSVs to `Pipeline/sensitivity_data/` and plots to `Pipeline/sensitivity_pl
 
 | Sample | Tenants | Nodes | Intervals | Always-On | Excl% | Jobs/Group | Solver |
 |--------|---------|-------|-----------|-----------|-------|-----------|--------|
-| 1 — Simple | 4 | 5 | 2 | 3 | 25% | 8 | CBC / MILP |
+| 1 — Simple | 4 | 5 | 2 | 3 | 25% | 8 | CBC / **MISOCP** |
 | 2 — Medium | 5 | 7 | 3 | 4 | 20% | 12 | CBC / MISOCP |
 | 3 — High | 8 | 10 | 4 | 6 | 25% | 20 | GLOP / MISOCP |
+
+> **SOCP is the default for all samples.** Pass `use_socp=False` in `PipelineConfig` only to run plain MILP for comparison.
 
 See `pipeline_configs.py` for all tunable parameters.
 
@@ -52,7 +54,7 @@ LAYER 1  Synthesis  [Simple]
     Additional       M_b: [3, 4]  (model decides which to activate)
   Intervals (horizon): [0, 1]
 
-LAYER 2  Plan-Ahead MILP  (Gurobi)
+LAYER 2  Plan-Ahead MISOCP  (Gurobi)
   Status:          OPTIMAL
   Objective:       0.3842
   Fairness sigma:  0.8210

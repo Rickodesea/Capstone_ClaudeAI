@@ -120,7 +120,7 @@ def run_pipeline(cfg: PipelineConfig) -> None:
         n_intervals         = cfg.n_intervals,
         node_capacity       = cfg.node_capacity,
         n_always_available  = cfg.n_always_available,
-        exclusive_frac      = cfg.exclusive_frac,
+        n_exclusive         = cfg.n_exclusive,
         tenant_usage_min    = cfg.tenant_usage_min,
         tenant_usage_max    = cfg.tenant_usage_max,
     )
@@ -178,7 +178,7 @@ def run_pipeline(cfg: PipelineConfig) -> None:
         print(f"  Interval {h}:")
         for g in interval_dict["groups"]:
             tag = "EXCL" if g["exclusive"] else "SHRD"
-            print(f"    [{tag}] tenants={g['tenant_ids']:20}  machines={g['machine_ids']}")
+            print(f"    [{tag}] tenants={str(g['tenant_ids']):<20}  machines={g['machine_ids']}")
 
     # ── Layer 4+5: Real-Time scheduling per interval ────────────────────────
     for interval_dict in plan_out["intervals"]:

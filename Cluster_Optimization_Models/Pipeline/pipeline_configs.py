@@ -11,7 +11,7 @@ Select a sample when running interface.py:
 New in this version
 ────────────────────
   • n_always_available  : number of always-on machines (rest are additional)
-  • exclusive_frac      : fraction of tenants randomly tagged exclusive
+  • n_exclusive         : exact number of tenants tagged exclusive (validated ≤ n_tenants)
   • n_intervals         : planning horizon length (replaces n_time_slots)
   • use_socp            : True = MISOCP (Cantelli cone); False = MILP
 """
@@ -28,7 +28,7 @@ class PipelineConfig:
     n_nodes:             int
     n_intervals:         int     # planning horizon length (number of intervals)
     n_always_available:  int     # |M_a| — always-on machines; rest are additional
-    exclusive_frac:      float   # X% of tenants tagged exclusive
+    n_exclusive:         int     # number of exclusive tenants (must be ≤ n_tenants)
     n_jobs_per_slot:     int     # real-time jobs generated per interval
     plan_time_limit:     int     # Gurobi wall-clock limit (seconds)
     plan_mip_gap:        float   # Gurobi relative optimality gap
@@ -46,12 +46,12 @@ SAMPLE_1 = PipelineConfig(
     n_nodes             = 5,
     n_intervals         = 2,
     n_always_available  = 3,
-    exclusive_frac      = 0.25,
+    n_exclusive         = 1,    # 1 of 4 tenants exclusive
     n_jobs_per_slot     = 8,
     plan_time_limit     = 120,
     plan_mip_gap        = 0.01,
     realtime_solver     = "CBC",
-    use_socp            = False,
+    use_socp            = True,
     seed                = 42,
     node_capacity       = 10.0,
     tenant_usage_min    = 0.8,
@@ -64,7 +64,7 @@ SAMPLE_2 = PipelineConfig(
     n_nodes             = 7,
     n_intervals         = 3,
     n_always_available  = 4,
-    exclusive_frac      = 0.20,
+    n_exclusive         = 1,    # 1 of 5 tenants exclusive
     n_jobs_per_slot     = 12,
     plan_time_limit     = 120,
     plan_mip_gap        = 0.01,
@@ -82,7 +82,7 @@ SAMPLE_3 = PipelineConfig(
     n_nodes             = 10,
     n_intervals         = 4,
     n_always_available  = 6,
-    exclusive_frac      = 0.25,
+    n_exclusive         = 2,    # 2 of 8 tenants exclusive
     n_jobs_per_slot     = 20,
     plan_time_limit     = 120,
     plan_mip_gap        = 0.01,

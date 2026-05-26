@@ -50,7 +50,7 @@ The plan-ahead model is a \textbf{Mixed-Integer Second-Order Cone Program (MISOC
 once per planning horizon. It answers:
 
 \begin{quote}
-\emph{Which machines should each tenant be assigned to for each planning interval,
+\emph{Which machines should each tenant be assigned to for each planning period,
 given their estimated resource demand, machine pool, and feedback from the previous horizon?}
 \end{quote}
 
@@ -58,15 +58,15 @@ given their estimated resource demand, machine pool, and feedback from the previ
 \begin{enumerate}[label=(\arabic*)]
   \item Which additional machines (beyond the always-available pool) to activate.
   \item Which machines to assign \emph{exclusively} to exclusive tenants (fixed for the full horizon).
-  \item Which machines to assign to \emph{shared} tenants per interval (can change each interval).
+  \item Which machines to assign to \emph{shared} tenants per period (can change each period).
   \item How to mix high-usage and low-usage shared tenants on the same machines.
 \end{enumerate}
 
 \subsection*{Output}
-An ordered list of planning intervals. Each interval has a list of \textbf{tenant groups}.
-Each group specifies the tenant IDs and their assigned machine IDs for that interval.
-All tenants appear in every interval. The Cluster Manager calls the Real-Time model
-once per group per interval, passing only the pre-filtered jobs and machines.
+An ordered list of planning periods. Each period has a list of \textbf{tenant groups}.
+Each group specifies the tenant IDs and their assigned machine IDs for that period.
+All tenants appear in every period. The Cluster Manager calls the Real-Time model
+once per group per interval (multiple times per period), passing only the pre-filtered jobs and machines.
 
 \subsection*{Two Solver Modes}
 \begin{center}
@@ -89,15 +89,14 @@ MISOCP & \texttt{True} & Cantelli probabilistic bound (distribution-free) \\
 Symbol & Description \\
 \midrule
 $\T$ & All tenants: $\T = \Te \cup \Ts$ \\
-$\Te$ & Exclusive tenants (randomly tagged; fraction = \texttt{exclusive\_frac}).
-        Do not share machines with others. \\
+$\Te$ & Exclusive tenants. Do not share machines with others. \\
 $\Ts$ & Shared tenants: $\Ts = \T \setminus \Te$. May share machines. \\
 $\Th$ & Heavy-demand shared tenants (avg demand $\geq$ median over $\Ts$) \\
 $\Tl$ & Light-demand shared tenants: $\Ts \setminus \Th$ \\
 $\M$ & All machines: $\M = \Ma \cup \Mb$ \\
 $\Ma$ & Always-available machines ($|\Ma|=A$). Always active, no activation cost. \\
 $\Mb$ & Additional machines ($\M \setminus \Ma$). Model decides activation. \\
-$\H$ & Planning intervals: $\H = \{0,\,1,\,\ldots,\,|\H|-1\}$ \\
+$\H$ & Planning periods (slots): $\H = \{0,\,1,\,\ldots,\,|\H|-1\}$. Each period spans \texttt{period\_steps} intervals. \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -124,7 +123,7 @@ $\Ceff_n$ & Effective capacity after feedback: $\Ceff_n = C_n(1-\alpha\bar{v}_n)
 \toprule
 Symbol & Description \\
 \midrule
-$u_{ih}$ & Expected demand of tenant $i$ in interval $h$ \\
+$u_{ih}$ & Expected demand of tenant $i$ in period $h$ \\
 $\umax_i$ & Peak demand of exclusive tenant $i$: $\max_{h\in\H}\,u_{ih}$ \\
 $\ufb_{ih}$ & Feedback-adjusted demand: $\ufb_{ih} = u_{ih}(1+\beta\bar{W}_i/\bar{W}_{\mathrm{ref}})$ \\
 $\sigma^2_{ih}$ & Demand variance: $\sigma^2_{ih} = (\sigma_{\mathrm{frac}}\cdot u_{ih})^2$ \\
@@ -186,21 +185,21 @@ $e_{in}$ & $\{0,1\}$ &
 $z^{\mathrm{on}}_n$ & $\{0,1\}$ &
   1 iff additional machine $n\in\Mb$ is activated \\
 $z_{nh}$ & $\{0,1\}$ &
-  1 iff machine $n$ is active in interval $h$ \\
+  1 iff machine $n$ is active in period $h$ \\
 $y_{inh}$ & $\{0,1\}$ &
-  1 iff shared tenant $i\in\Ts$ is assigned to machine $n$ in interval $h$ \\
+  1 iff shared tenant $i\in\Ts$ is assigned to machine $n$ in period $h$ \\
 $f_{inh}$ & $\geq 0$ &
-  Capacity of machine $n$ allocated to shared tenant $i$ in interval $h$ \\
+  Capacity of machine $n$ allocated to shared tenant $i$ in period $h$ \\
 $\sigma$ & $[0,1]$ &
   Min demand-satisfaction ratio across all shared tenants (fairness measure) \\
 $t_{nh}$ & $\geq 0$ &
   Cantelli slack — upper bound on weighted demand std.\ dev.\ (MISOCP only) \\
 $\mathrm{hH}_{nh}$ & $\{0,1\}$ &
-  1 iff machine $n$ has $\geq 1$ heavy-demand tenant in interval $h$ \\
+  1 iff machine $n$ has $\geq 1$ heavy-demand tenant in period $h$ \\
 $\mathrm{hL}_{nh}$ & $\{0,1\}$ &
-  1 iff machine $n$ has $\geq 1$ light-demand tenant in interval $h$ \\
+  1 iff machine $n$ has $\geq 1$ light-demand tenant in period $h$ \\
 $\mathrm{mix}_{nh}$ & $\{0,1\}$ &
-  1 iff machine $n$ has both heavy and light tenants in interval $h$ \\
+  1 iff machine $n$ has both heavy and light tenants in period $h$ \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -255,10 +254,13 @@ A machine assigned exclusively to any exclusive tenant cannot be used by shared 
 
 \subsection{Shared Tenant Constraints}
 
-\paragraph{C\textsubscript{share} --- Every Shared Tenant Assigned Every Interval.}
+\paragraph{C\textsubscript{share} --- Every Shared Tenant Assigned Minimum Machines Every Period.}
+Each shared tenant must receive at least $m_{\min}$ machines per period
+(default $m_{\min}=2$; configurable via \texttt{min\_machines\_per\_tenant}):
 \begin{equation}\tag{C$_{\mathrm{share}}$}
-  \sum_{n \in \M} y_{inh} \geq 1 \qquad \forall\; i \in \Ts,\ h \in \H
+  \sum_{n \in \M} y_{inh} \geq m_{\min} \qquad \forall\; i \in \Ts,\ h \in \H
 \end{equation}
+Setting $m_{\min}\geq 2$ guarantees resilience: tenants stay scheduled even when one machine fails or spikes.
 
 \paragraph{C\textsubscript{1a} --- Capacity with Cantelli Safety Buffer.}
 \begin{equation}\tag{C$_{1a}$}
@@ -276,7 +278,7 @@ In MILP mode: same constraint without the $\kappa\cdot t_{nh}$ term (and $t_{nh}
 \end{equation}
 This is a second-order cone (SOC) constraint. Together, C$_{1a}$ + C$_{1b}$ guarantee:
 \[
-  P\!\bigl[\text{total demand on machine }n\text{ in interval }h \leq \Ceff_n\bigr]
+  P\!\bigl[\text{total demand on machine }n\text{ in period }h \leq \Ceff_n\bigr]
   \;\geq\; 1-\varepsilon.
 \]
 
@@ -288,7 +290,7 @@ A shared tenant can receive allocation only on machines it is assigned to:
 \end{equation}
 
 \paragraph{C\textsubscript{3} --- Demand Satisfaction.}
-Every shared tenant must receive at least its feedback-adjusted demand every interval:
+Every shared tenant must receive at least its feedback-adjusted demand every period:
 \begin{equation}\tag{C$_3$}
   \sum_{n \in \M} f_{inh} \geq \ufb_{ih}
   \qquad \forall\; i \in \Ts,\ h \in \H
@@ -305,7 +307,7 @@ $\sigma$ is the minimum demand-satisfaction fraction across all shared tenants:
 
 \subsection{Mix Bonus Constraints}
 
-$\mathrm{mix}_{nh}=1$ iff machine $n$ has at least one heavy \emph{and} one light tenant in interval $h$.
+$\mathrm{mix}_{nh}=1$ iff machine $n$ has at least one heavy \emph{and} one light tenant in period $h$.
 This is a linearized AND gate:
 
 \begin{align}
@@ -350,7 +352,7 @@ Cantelli's inequality is \emph{distribution-free}: it bounds the one-sided tail 
 mean and variance.
 
 \subsection*{Applied to the Capacity Constraint}
-Let $D_{nh}=\sum_{i\in\Ts}D_{inh}$ be the total random demand on machine $n$ in interval $h$, where $D_{inh}$ has mean $f_{inh}$ and variance $\sigma^2_{ih}y_{inh}$.
+Let $D_{nh}=\sum_{i\in\Ts}D_{inh}$ be the total random demand on machine $n$ in period $h$, where $D_{inh}$ has mean $f_{inh}$ and variance $\sigma^2_{ih}y_{inh}$.
 
 By Cantelli's inequality:
 \[
@@ -375,19 +377,21 @@ and $\bar{W}_i$ (average wait time per tenant), which update the plan parameters
 \begin{align}
   \Ceff_n &= C_n(1-\alpha\bar{v}_n)
     & &\text{(shrink capacity of overloaded machines)} \\[4pt]
-  \ufb_{ih} &= u_{ih}\!\left(1+\beta\frac{\bar{W}_i}{\bar{W}_{\mathrm{ref}}}\right)
-    & &\text{(inflate demand for tenants with long waits)}
+  \ufb_{ih} &= u_{ih}\!\left(1+\beta\min\!\left(2,\,\frac{\bar{W}_i}{\bar{W}_{\mathrm{ref}}}\right)\right)
+    & &\text{(inflate demand for tenants with long waits, capped at }2\times\text{)}
 \end{align}
 
-Default: $\alpha=0.5$,\ $\beta=0.3$,\ $\bar{W}_{\mathrm{ref}}=60\text{ s}$.
+The cap at 2 prevents extreme demand inflation from making the MISOCP infeasible.
+Default: $\alpha=0.5$,\ $\beta=0.3$,\ $\bar{W}_{\mathrm{ref}}=10$ intervals
+(calibrated to the simulated time-step, not wall-clock seconds).
 
 % ─────────────────────────────────────────────────────────────
 \section{Connection to Real-Time Model}
 
-The Cluster Manager uses the plan output as follows each interval:
+The Cluster Manager uses the plan output as follows each simulation interval:
 \begin{enumerate}
-  \item Resolve $h = \text{sim\_interval} \bmod |\H|$.
-  \item Get the group list for interval $h$.
+  \item Resolve $h = (\text{sim\_interval} \;\mathbin{/\!/}\; \texttt{period\_steps}) \bmod |\H|$.
+  \item Get the group list for period $h$.
   \item For each group $g$:
     \begin{enumerate}[label=(\alph*)]
       \item Filter job queue: jobs with $\text{tenant\_id}\in g.\text{tenant\_ids}$.

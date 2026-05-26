@@ -17,13 +17,13 @@ Sets
 ────
   T        all tenants
   T_e      exclusive tenants (randomly tagged X%)
-  T_s      shared tenants (T \ T_e)
+  T_s      shared tenants (T minus T_e)
   T_heavy  shared tenants with above-median average demand
   T_light  shared tenants with below-median average demand
   M        all machines (M = M_a ∪ M_b)
   M_a      always-available machines (always active)
   M_b      additional machines (model activates z_on[n])
-  H        intervals (planning horizon)
+  H        planning periods (slots in the horizon)
 
 Variables
 ─────────
@@ -105,6 +105,9 @@ def build_model(P: dict, env: gp.Env, use_socp: bool = True) -> tuple[gp.Model, 
     kappa   = P.get('kappa', 0.0)
     pi_n    = P.get('pi_n', {n: 1.0 for n in M_b})
     lam     = P['lam']
+    # Fraction of C_eff available to plan-ahead (MILP only); remainder is reserved for realtime.
+    # SOCP mode uses the Cantelli cone buffer instead, so cap_frac is ignored there.
+    cap_frac = float(P.get('cap_frac', 1.0))
 
     m = gp.Model("PlanAhead", env=env)
 
@@ -210,10 +213,11 @@ def build_model(P: dict, env: gp.Env, use_socp: bool = True) -> tuple[gp.Model, 
                     )
 
     # ── C_share: Each shared tenant must have ≥1 machine per interval ───────
+    min_mach = int(P.get('min_machines_per_tenant', 1))
     for i in T_s:
         for h in H:
             m.addConstr(
-                gp.quicksum(y[i, n, h] for n in M) >= 1,
+                gp.quicksum(y[i, n, h] for n in M) >= min_mach,
                 name=f"C_share_{i}_{h}"
             )
 
@@ -236,9 +240,9 @@ def build_model(P: dict, env: gp.Env, use_socp: bool = True) -> tuple[gp.Model, 
                         name=f"C1b_{n}_{h}"
                     )
             else:
-                # MILP mode: plain linear capacity constraint
+                # MILP mode: cap at cap_frac × C_eff to reserve headroom for realtime
                 m.addConstr(
-                    shared_alloc <= C_eff.get(n, C[n]) * z[n, h],
+                    shared_alloc <= cap_frac * C_eff.get(n, C[n]) * z[n, h],
                     name=f"C1_{n}_{h}"
                 )
 
@@ -356,6 +360,35 @@ def solve_and_report(model: gp.Model, vars_: dict, P: dict) -> None:
             print(f"    mixed machines (heavy+light): {mixed_machines}")
 
     print(f"\nFairness sigma (min demand-satisfaction ratio, shared tenants): {sigma.X:.4f}")
+
+
+# ── Output: Tenant Access Schedule (flat dict for tests / frontend) ───────
+
+def extract_tenant_access_schedule(
+    vars_: dict, P: dict
+) -> dict[tuple[int, int], list[int]]:
+    """
+    Return {(tenant_id, period): [machine_ids]} for all tenants and periods.
+
+    Exclusive tenants have the same machines in every period.
+    Shared tenants reflect per-period y[i,n,h] assignments.
+    """
+    T_e, T_s = P['T_e'], P['T_s']
+    M, H     = P['M'],   P['H']
+    e, y     = vars_['e'], vars_['y']
+
+    schedule: dict[tuple[int, int], list[int]] = {}
+
+    for i in T_e:
+        machines = [n for n in M if e[i, n].X > 0.5]
+        for h in H:
+            schedule[(i, h)] = machines
+
+    for i in T_s:
+        for h in H:
+            schedule[(i, h)] = [n for n in M if y[i, n, h].X > 0.5]
+
+    return schedule
 
 
 # ── Output: Plan Ahead Interval Schedule ─────────────────────────────────

@@ -10,13 +10,12 @@ Each simulation interval:
   2. Expire running jobs whose lifetime has elapsed; free their memory.
   3. Recompute U_n from running jobs; record SLA violation history (once per interval).
   4. Generate new jobs and add to queue (stamps arrival_timestamp).
-  5. Per-group scheduling loop (from plan-ahead output):
+  5. Per-group scheduling loop (one pass through all groups):
        For each tenant group (tenant_ids, machine_ids):
-         a. Filter queue to jobs belonging to this tenant group.
+         a. Filter queue to jobs belonging to this tenant group (not yet placed).
          b. Filter nodes to machines assigned to this group.
-         c. Call MILP solver → placement dict.
-         d. Place placed jobs; for unplaced jobs, bump their W_t by one interval.
-     Repeat until no more progress or MAX_PLACEMENT_RETRIES consecutive failures.
+         c. Call MILP solver -> placement dict.
+         d. Place placed jobs; bump W_t by one interval for each unplaced job's tenant.
   6. Update W_t (per-tenant average wait time for fairness).
 
 Key concepts
@@ -60,7 +59,6 @@ from simulation_data import (
     compute_utilization_weight, compute_node_weight,
     sample_spike_fraction,
     JOBS_PER_ROUND, K_WINDOW,
-    MAX_PLACEMENT_RETRIES,
     MIN_LIFETIME_SEC, MAX_LIFETIME_SEC, BATCH_DURATION_SEC,
     NODE_MEM_MB, OS_TAX_MB, NODE_CPU_CORES, NUM_NODES, NUM_TENANTS,
     SPIKE_PROB, SPIKE_MAX_FRAC, NUM_BATCHES,
@@ -311,114 +309,95 @@ class ClusterManager:
         new_jobs = self._make_jobs(batch_id)
         self.job_queue.extend(new_jobs)
 
-        # Step 5: Per-group scheduling loop
+        # Step 5: Per-group scheduling (one pass — unplaced jobs stay in queue)
         solver_calls         = 0
-        placed_this_batch    = 0
         spikes_this_batch    = 0
         overflows_this_batch = 0
-        consecutive_failures = 0
         nodes_assigned_set   = set()
+        placed_ids: set[str] = set()
 
         groups = self._get_groups(plan_output, batch_id)
 
-        while True:
-            if consecutive_failures >= MAX_PLACEMENT_RETRIES:
-                break
+        for group in groups:
+            tenant_ids  = set(group["tenant_ids"])
+            machine_ids = set(group["machine_ids"])
 
-            made_progress_this_pass = False
+            # Oldest jobs first so the solver can prioritise long-waiting jobs
+            group_jobs = sorted(
+                (
+                    j for j in self.job_queue
+                    if j.job_id not in placed_ids
+                    and (not tenant_ids or j.tenant_id in tenant_ids)
+                ),
+                key=lambda j: j.arrival_round,
+            )
+            group_nodes = [
+                n for n in self.nodes
+                if not machine_ids or n.node_id in machine_ids
+            ]
 
-            for group in groups:
-                tenant_ids  = set(group["tenant_ids"])
-                machine_ids = set(group["machine_ids"])
+            if not group_jobs or not group_nodes:
+                continue
 
-                group_jobs  = [j for j in self.job_queue if j.tenant_id in tenant_ids]
-                group_nodes = [n for n in self.nodes if n.node_id in machine_ids]
+            self._refresh_node_states(record_history=False)
 
-                if not group_jobs or not group_nodes:
-                    continue
+            placements = solve(
+                jobs          = group_jobs,
+                nodes         = group_nodes,
+                W_t           = self.W_t,
+                K             = self._k_window,
+                time_limit_ms = 10_000,
+            )
+            solver_calls += 1
 
-                self._refresh_node_states(record_history=False)
+            placed_jobs: list[Job] = [
+                j for j in group_jobs if placements.get(j.job_id) is not None
+            ]
+            unplaced_jobs: list[Job] = [
+                j for j in group_jobs if placements.get(j.job_id) is None
+            ]
 
-                placements = solve(
-                    jobs          = group_jobs,
-                    nodes         = group_nodes,
-                    W_t           = self.W_t,
-                    K             = self._k_window,
-                    time_limit_ms = 10_000,
-                )
-                solver_calls += 1
+            self._bump_wait_for_unplaced(unplaced_jobs)
 
-                placed_jobs: list[Job] = [
-                    j for j in group_jobs if placements.get(j.job_id) is not None
-                ]
-                unplaced_jobs: list[Job] = [
-                    j for j in group_jobs if placements.get(j.job_id) is None
-                ]
+            for j in placed_jobs:
+                nid = placements[j.job_id]
+                placed_ids.add(j.job_id)
+                nodes_assigned_set.add(nid)
+                rj = self._start_job(j, nid)
 
-                if not placed_jobs and unplaced_jobs:
-                    # Record synthetic wait event for unplaced tenants (bump W_t)
-                    self._bump_wait_for_unplaced(unplaced_jobs)
-                    continue
+                wait_sec = (j.scheduling_timestamp - j.arrival_timestamp).total_seconds()
+                self.scheduling_log[j.job_id] = {
+                    "tenant_id":            j.tenant_id,
+                    "job_id":               j.job_id,
+                    "arrival_batch":        j.arrival_round,
+                    "scheduled_batch":      batch_id,
+                    "arrival_timestamp":    j.arrival_timestamp.isoformat(),
+                    "scheduling_timestamp": j.scheduling_timestamp.isoformat(),
+                    "wait_sec":             wait_sec,
+                    "req_mem_mb":           j.req_mem_mb,
+                    "pred_mem_mb":          j.pred_mem_mb,
+                    "act_mem_mb":           rj.act_mem_mb,
+                    "req_cpu":              j.req_cpu,
+                    "is_spike":             rj.is_spike,
+                    "lifetime_sec":         rj.lifetime_sec,
+                    "node_id":              nid,
+                }
+                if rj.is_spike:
+                    spikes_this_batch += 1
+                if j.tenant_id not in self._tenant_wait_times:
+                    self._tenant_wait_times[j.tenant_id] = deque(maxlen=self._k_window)
+                self._tenant_wait_times[j.tenant_id].append(wait_sec)
 
-                if placed_jobs:
-                    made_progress_this_pass = True
+        # Remove all placed jobs from queue after the full group pass
+        self.job_queue = [j for j in self.job_queue if j.job_id not in placed_ids]
+        placed_this_batch = len(placed_ids)
+        self._update_W_t()
 
-                # Process placed jobs
-                for j in placed_jobs:
-                    nid = placements[j.job_id]
-                    nodes_assigned_set.add(nid)
-                    rj = self._start_job(j, nid)
-
-                    wait_sec = (
-                        j.scheduling_timestamp - j.arrival_timestamp
-                    ).total_seconds()
-
-                    self.scheduling_log[j.job_id] = {
-                        "tenant_id":            j.tenant_id,
-                        "job_id":               j.job_id,
-                        "arrival_batch":        j.arrival_round,
-                        "scheduled_batch":      batch_id,
-                        "arrival_timestamp":    j.arrival_timestamp.isoformat(),
-                        "scheduling_timestamp": j.scheduling_timestamp.isoformat(),
-                        "wait_sec":             wait_sec,
-                        "req_mem_mb":           j.req_mem_mb,
-                        "pred_mem_mb":          j.pred_mem_mb,
-                        "act_mem_mb":           rj.act_mem_mb,
-                        "req_cpu":              j.req_cpu,
-                        "is_spike":             rj.is_spike,
-                        "lifetime_sec":         rj.lifetime_sec,
-                        "node_id":              nid,
-                    }
-
-                    if rj.is_spike:
-                        spikes_this_batch += 1
-
-                    if j.tenant_id not in self._tenant_wait_times:
-                        self._tenant_wait_times[j.tenant_id] = deque(maxlen=self._k_window)
-                    self._tenant_wait_times[j.tenant_id].append(wait_sec)
-
-                # Remove placed jobs from queue
-                placed_ids = {j.job_id for j in placed_jobs}
-                self.job_queue = [j for j in self.job_queue if j.job_id not in placed_ids]
-                placed_this_batch += len(placed_jobs)
-
-                self._update_W_t()
-
-                # Check for physical overflow
-                self._refresh_node_states(record_history=False)
-                for n in self.nodes:
-                    if n.used_mb + n.os_tax_mb > n.capacity_mb:
-                        overflows_this_batch += 1
-
-            # After a full pass through all groups
-            if not made_progress_this_pass:
-                consecutive_failures += 1
-            else:
-                consecutive_failures = 0
-
-            # Stop if no more queued jobs
-            if not self.job_queue:
-                break
+        # Check for physical overflow
+        self._refresh_node_states(record_history=False)
+        for n in self.nodes:
+            if n.used_mb + n.os_tax_mb > n.capacity_mb:
+                overflows_this_batch += 1
 
         # Compute batch statistics
         active_node_ids  = {rj.node_id for rj in self._running_jobs}
@@ -441,7 +420,7 @@ class ClusterManager:
             jobs_placed             = placed_this_batch,
             queue_size_after        = len(self.job_queue),
             solver_calls            = solver_calls,
-            consecutive_failures    = consecutive_failures,
+            consecutive_failures    = 0,
             node_violations         = node_violations_start,
             spike_count             = spikes_this_batch,
             physical_overflow_count = overflows_this_batch,
@@ -570,7 +549,6 @@ class ClusterManager:
         print(f"  Job lifetime       : {MIN_LIFETIME_SEC:.0f}-{MAX_LIFETIME_SEC:.0f} s")
         print(f"  Interval duration  : {BATCH_DURATION_SEC} s")
         print(f"  Spike prob/max     : {SPIKE_PROB:.0%} / {SPIKE_MAX_FRAC:.0%}")
-        print(f"  Max retries/group  : {MAX_PLACEMENT_RETRIES}")
         print()
 
     @staticmethod

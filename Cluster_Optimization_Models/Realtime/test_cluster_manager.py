@@ -571,17 +571,13 @@ class TestClusterManager:
     def test_max_retries_when_nodes_saturated(self):
         """
         When all nodes have zero remaining capacity, the solver returns zero
-        placements every call and the batch should exit with consecutive_failures
-        ≥ MAX_PLACEMENT_RETRIES.
+        placements for the batch.
         """
         cm  = ClusterManager(seed=20, verbose=False)
         now = cm.sim_time + timedelta(seconds=BATCH_DURATION_SEC)
 
         # Fill every node with a fake RunningJob whose lifetime is very long
         for n in cm.nodes:
-            # act_mem_mb = capacity - os_tax fills the node completely:
-            # U_n = capacity - tax  →  R_n = M_eff - (capacity - tax)
-            # M_eff (with v_bar=0) = capacity - tax  →  R_n = 0
             fill_job = Job(
                 job_id="fill",  tenant_id=0,
                 req_mem_mb=n.capacity_mb, req_cpu=1.0,
@@ -591,10 +587,10 @@ class TestClusterManager:
             cm._running_jobs.append(RunningJob(
                 job          = fill_job,
                 node_id      = n.node_id,
-                act_mem_mb   = n.capacity_mb - n.os_tax_mb,   # fills usable space
+                act_mem_mb   = n.capacity_mb - n.os_tax_mb,
                 is_spike     = False,
                 start_time   = now,
-                lifetime_sec = 999_999,   # will not expire during test
+                lifetime_sec = 999_999,
             ))
 
         result = cm.run(1)
@@ -603,7 +599,6 @@ class TestClusterManager:
         assert br.jobs_placed == 0, (
             f"Expected 0 placements with saturated nodes, got {br.jobs_placed}"
         )
-        assert br.consecutive_failures >= MAX_PLACEMENT_RETRIES
 
     def test_solver_called_at_least_once_per_batch(self):
         """The optimizer is invoked at least once per batch."""

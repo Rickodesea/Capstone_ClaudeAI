@@ -3,16 +3,16 @@
 ## 1. Overview
 
 The plan-ahead model is a **Mixed-Integer Second-Order Cone Program (MISOCP)** solved
-once per planning horizon (every `plan_ahead_interval` simulation intervals). It answers:
+once per planning horizon (every `horizon_steps` simulation intervals). It answers:
 
-> *Which machines should each tenant be assigned to for each planning interval,
+> *Which machines should each tenant be assigned to for each planning period,
 > given their estimated resource demand, machine pool, and feedback from the previous horizon?*
 
 ### What the model decides
 
 1. Which additional machines (beyond the always-available pool) to activate.
 2. Which machines to assign **exclusively** to exclusive tenants (fixed for the entire horizon).
-3. Which machines to assign to **shared** tenants per interval (can change each interval).
+3. Which machines to assign to **shared** tenants per period (can change each period).
 4. How to **mix** high-usage and low-usage shared tenants on the same machines.
 
 ### Output
@@ -26,10 +26,13 @@ All tenants appear in every interval's group list. The Cluster Manager uses this
 
 ### Two solver modes
 
-| Mode | When used | Capacity constraint |
-|------|-----------|---------------------|
-| MILP (use_socp=False) | Simulation (speed) | Hard linear bound |
-| MISOCP (use_socp=True) | Standalone / capstone demo | Cantelli probabilistic bound |
+| Mode | `use_socp` | When used | Capacity constraint |
+|------|-----------|-----------|---------------------|
+| MISOCP | `True` (**default everywhere**) | All contexts | Cantelli probabilistic bound |
+| MILP | `False` (opt-in only) | Simulation toggle | Hard linear bound |
+
+MISOCP is the default in simulation, pipeline, sensitivity analysis, and all tests.
+MILP is available as an option but never enabled by default.
 
 ---
 
@@ -38,12 +41,12 @@ All tenants appear in every interval's group list. The Cluster Manager uses this
 | Symbol | Description |
 |--------|-------------|
 | **T** | All tenants: T = T_e ∪ T_s |
-| **T_e** | Exclusive tenants — randomly tagged (X% of T). Do not share machines with others. |
+| **T_e** | Exclusive tenants — dedicated machine assignment, fixed for the entire horizon. Do not share machines with others. |
 | **T_s** | Shared tenants — T \ T_e. May share machines with other shared tenants. |
 | **M** | All machines in the cluster pool: M = M_a ∪ M_b |
 | **M_a** | Always-available machines (|M_a| = A). Always active; no activation cost. |
 | **M_b** | Additional machines (M \ M_a). The model decides whether to turn these on. |
-| **H** | Planning intervals: H = {0, 1, …, |H|−1}. "Interval" replaces "time slot" — no wall-clock concept. |
+| **H** | Planning periods (slots): H = {0, 1, …, |H|−1}. Each period spans `period_steps` intervals. |
 
 ---
 
@@ -60,7 +63,7 @@ All tenants appear in every interval's group list. The Cluster Manager uses this
 
 | Symbol | Description |
 |--------|-------------|
-| u[i,h] | Expected resource demand of tenant i in interval h |
+| u[i,h] | Expected resource demand of tenant i in period h |
 | u_max[i] | Peak demand of exclusive tenant i: max_h u[i,h] |
 | σ²[i,h] | Demand variance: σ²[i,h] = (σ_frac × u[i,h])² |
 | σ_frac | Uncertainty fraction — std dev is this fraction of mean demand (default 0.20) |
@@ -77,9 +80,18 @@ All tenants appear in every interval's group list. The Cluster Manager uses this
 | Symbol | Description |
 |--------|-------------|
 | v̄_n | Rolling SLA violation rate on machine n from realtime (0 on first run) |
-| W̄_i | Average scheduling wait time of tenant i from realtime (0 on first run) |
+| W̄_i | Average scheduling wait time of tenant i (in intervals) from realtime |
 | C_eff[n] | Effective capacity after SLA feedback: C_eff[n] = C[n] × (1 − α·v̄_n) |
-| u_fb[i,h] | Feedback-adjusted demand: u_fb[i,h] = u[i,h] × (1 + β·W̄_i/W̄_ref) |
+| u_fb[i,h] | Feedback-adjusted demand: u_fb[i,h] = u[i,h] × (1 + β·min(2, W̄_i/W̄_ref)) |
+| α | Capacity shrinkage coefficient (default 0.5) |
+| β | Demand inflation coefficient (default 0.3) |
+| W̄_ref | Reference wait time in intervals (default 10 intervals) |
+
+### Scheduling policy parameters
+
+| Symbol | Description |
+|--------|-------------|
+| m_min | Minimum machines per shared tenant per period (default 2; set via `min_machines_per_tenant`) |
 
 ### Objective weights
 
@@ -97,14 +109,14 @@ All tenants appear in every interval's group list. The Cluster Manager uses this
 |----------|--------|-------------|
 | **e[i,n]** | {0,1} | 1 iff exclusive tenant i ∈ T_e is assigned to machine n. Fixed for entire horizon. |
 | **z_on[n]** | {0,1} | 1 iff additional machine n ∈ M_b is activated at all. |
-| **z[n,h]** | {0,1} | 1 iff machine n is active in interval h. |
-| **y[i,n,h]** | {0,1} | 1 iff shared tenant i ∈ T_s is assigned to machine n in interval h. |
-| **f[i,n,h]** | ≥ 0 | Capacity allocation of machine n to shared tenant i in interval h. |
+| **z[n,h]** | {0,1} | 1 iff machine n is active in period h. |
+| **y[i,n,h]** | {0,1} | 1 iff shared tenant i ∈ T_s is assigned to machine n in period h. |
+| **f[i,n,h]** | ≥ 0 | Capacity allocation of machine n to shared tenant i in period h. |
 | **σ** | [0,1] | Minimum demand-satisfaction ratio across all shared tenants (fairness). |
 | **t[n,h]** | ≥ 0 | Cantelli slack — upper bound on weighted demand std dev (SOCP mode only). |
-| **has_heavy[n,h]** | {0,1} | 1 iff machine n has ≥1 heavy-demand shared tenant in interval h. |
-| **has_light[n,h]** | {0,1} | 1 iff machine n has ≥1 light-demand shared tenant in interval h. |
-| **mix[n,h]** | {0,1} | 1 iff machine n has both heavy and light shared tenants in interval h. |
+| **has_heavy[n,h]** | {0,1} | 1 iff machine n has ≥1 heavy-demand shared tenant in period h. |
+| **has_light[n,h]** | {0,1} | 1 iff machine n has ≥1 light-demand shared tenant in period h. |
+| **mix[n,h]** | {0,1} | 1 iff machine n has both heavy and light shared tenants in period h. |
 
 ---
 
@@ -124,7 +136,7 @@ Additional machines are active in interval h only if switched on:
 z[n,h] ≤ z_on[n]    ∀ n ∈ M_b, h ∈ H
 ```
 
-**C_zact (Node Active if Assigned)**
+**C_zact (Machine Active if Assigned)**
 A machine must be active if any shared tenant is assigned to it:
 ```
 z[n,h] ≥ y[i,n,h]    ∀ i ∈ T_s, n ∈ M, h ∈ H
@@ -163,10 +175,12 @@ A machine assigned exclusively to any exclusive tenant cannot be used by shared 
 
 ### Shared Tenant Constraints
 
-**C_share (Each Shared Tenant Must Be Assigned Per Interval)**
-Every shared tenant must have at least one machine in every interval:
+**C_share (Each Shared Tenant Must Be Assigned Minimum Machines Per Period)**
+Every shared tenant must receive at least `m_min` machines every period.
+Default `m_min = 2` (configurable via `min_machines_per_tenant`).
+Setting m_min ≥ 2 provides resilience when one assigned machine spikes or fails:
 ```
-Σ_{n ∈ M} y[i,n,h] ≥ 1    ∀ i ∈ T_s, h ∈ H
+Σ_{n ∈ M} y[i,n,h] ≥ m_min    ∀ i ∈ T_s, h ∈ H
 ```
 
 **C1a (Capacity with Safety Buffer)**
@@ -215,7 +229,7 @@ mix[n,h] ≤ has_heavy[n,h]    ∀ n, h
 mix[n,h] ≤ has_light[n,h]    ∀ n, h
 mix[n,h] ≥ has_heavy[n,h] + has_light[n,h] − 1    ∀ n, h
 ```
-mix[n,h] = 1 iff machine n has at least one heavy AND at least one light shared tenant in interval h.
+mix[n,h] = 1 iff machine n has at least one heavy AND at least one light shared tenant in period h.
 
 ---
 
@@ -275,14 +289,16 @@ After the first planning horizon, the Real-Time model reports:
 These feed back into the plan-ahead parameters:
 
 ```
-C_eff[n] = C[n] × (1 − α · v̄_n)        # shrink capacity of stressed machines
-u_fb[i,h] = u[i,h] × (1 + β · W̄_i/W̄_ref)  # inflate demand estimate for slow tenants
+C_eff[n] = C[n] × (1 − α · v̄_n)
+u_fb[i,h] = u[i,h] × (1 + β · min(2, W̄_i / W̄_ref))
 ```
 
-High violation rate → conservative capacity estimate → fewer tenants packed onto that machine.
-High wait time → inflated demand → model allocates more machines for that tenant.
+- High violation rate → conservative capacity → fewer tenants packed per machine.
+- High wait time → inflated demand → model assigns more machines for that tenant.
+- The `min(2, …)` cap prevents extreme demand inflation from making the MISOCP infeasible.
 
-Default: α = 0.5, β = 0.3, W̄_ref = 60 seconds.
+Default: **α = 0.5, β = 0.3, W̄_ref = 10 intervals** (calibrated to simulated time-steps,
+not wall-clock seconds; at W̄_i = 10 intervals the scale factor is 1.30×).
 
 ---
 
@@ -290,29 +306,29 @@ Default: α = 0.5, β = 0.3, W̄_ref = 60 seconds.
 
 ```
 PlanAheadOutput = {
-    "intervals": [
+    "periods": [
         {
-            "interval": 0,
+            "period": 0,
             "groups": [
                 {
                     "tenant_ids": [2],           # exclusive tenant (single-tenant group)
-                    "machine_ids": [0, 1],        # their machines (same every interval)
+                    "machine_ids": [0, 1],        # their machines (same every period)
                     "exclusive": True
                 },
                 {
                     "tenant_ids": [0],            # shared tenant
-                    "machine_ids": [2, 4],        # their machines this interval
+                    "machine_ids": [2, 4],        # their machines this period
                     "exclusive": False
                 },
                 {
-                    "tenant_ids": [1, 3],         # another shared tenant
+                    "tenant_ids": [1, 3],         # shared tenants grouped together
                     "machine_ids": [3],
                     "exclusive": False
                 },
             ]
         },
         {
-            "interval": 1,
+            "period": 1,
             "groups": [...]      # exclusive tenant groups unchanged; shared may differ
         },
         ...
@@ -321,24 +337,24 @@ PlanAheadOutput = {
 ```
 
 **Rules:**
-- All tenants appear in every interval.
-- Exclusive tenant groups have the same machine_ids across all intervals.
-- Shared tenant groups may change machine_ids between intervals.
-- The Cluster Manager loops through groups in order and calls the Real-Time model once per group.
+- All tenants appear in every period.
+- Exclusive tenant groups have the same machine_ids across all periods (entire horizon).
+- Shared tenant groups may change machine_ids between periods.
+- The Cluster Manager loops through groups in order and calls the Real-Time model once per group per interval within that period.
 
 ---
 
 ## 10. Connection to Real-Time Model
 
-The Cluster Manager uses the plan-ahead output as follows each interval:
+The Cluster Manager uses the plan-ahead output as follows each scheduling interval:
 
-1. Determine the current interval index `h = simulation_interval % |H|`.
-2. Get the group list for interval h.
-3. For each group in order:
+1. Determine the current period index `h = (simulation_interval // period_steps) % |H|`.
+2. Get the group list for period h.
+3. For each group in order (the Real-Time model is called **multiple times per interval** — once per group):
    - Filter the job queue to jobs whose `tenant_id ∈ group.tenant_ids`.
-   - Filter the node list to nodes whose `node_id ∈ group.machine_ids`.
+   - Filter the machine list to machines whose `node_id ∈ group.machine_ids`.
    - Call the Real-Time model: `placements = solve(group_jobs, group_machines, W_t, K)`.
-   - Place returned assignments; unplaced jobs return to the queue with wait time += 1 interval.
+   - Place returned assignments; unplaced jobs return to the queue with wait bumped by 1 interval.
 4. Advance to the next interval.
 
 The Real-Time model has **no knowledge** of tenants, plan-ahead, or machine assignments.

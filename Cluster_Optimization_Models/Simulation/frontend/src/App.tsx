@@ -23,7 +23,7 @@ async function fetchWithRetry(fn: () => Promise<SimState>, retries = 5, delay = 
 }
 
 const BATCH_INFO_ROWS: { key: keyof BatchStats; label: string; desc: string }[] = [
-  { key: 'batch_id',                label: 'Batch',   desc: 'Scheduling epoch index (each batch = 60 s simulated time)' },
+  { key: 'batch_id',                label: 'Batch',   desc: 'Scheduling epoch index — each batch corresponds to one simulation interval' },
   { key: 'jobs_generated',          label: 'New',     desc: 'New jobs generated and added to the queue this batch' },
   { key: 'jobs_placed',             label: 'Placed',  desc: 'Jobs successfully assigned to a node this batch' },
   { key: 'queue_size_after',        label: 'Queue',   desc: 'Jobs still waiting in the queue after this batch ends' },
@@ -55,6 +55,80 @@ type CfgRow = {
   isFloat?: boolean
 }
 
+// ── Stable numeric input (module-level so React never remounts it) ─────────────
+// Holds a local string while the user is typing; commits only on blur or Enter.
+// This prevents the "first digit only" bug caused by CfgSection being defined
+// inside App (which treats it as a new component on every re-render).
+function NumericCfgInput({
+  val, set, cfgKey, min, step, isFloat, postConfig,
+}: {
+  val: number
+  set: (v: number) => void
+  cfgKey: string
+  min: number
+  step?: number
+  isFloat?: boolean
+  postConfig: (patch: Record<string, number>) => void
+}) {
+  const [local, setLocal] = useState(String(val))
+  const focused = useRef(false)
+
+  // Sync external value changes only when not focused (e.g., after Reset)
+  useEffect(() => {
+    if (!focused.current) setLocal(String(val))
+  }, [val])
+
+  const commit = () => {
+    const v = isFloat ? parseFloat(local) : parseInt(local, 10)
+    if (!isNaN(v) && v >= min) {
+      set(v)
+      postConfig({ [cfgKey]: v })
+    } else {
+      setLocal(String(val)) // revert bad input
+    }
+  }
+
+  return (
+    <input
+      type="number"
+      min={min}
+      step={step ?? (isFloat ? 0.01 : 1)}
+      value={local}
+      onChange={(e) => setLocal(e.target.value)}
+      onFocus={() => { focused.current = true }}
+      onBlur={() => { focused.current = false; commit() }}
+      onKeyDown={(e) => { if (e.key === 'Enter') { e.currentTarget.blur() } }}
+      className="w-16 bg-slate-700 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-white tabular-nums text-right focus:outline-none focus:border-blue-500"
+    />
+  )
+}
+
+// ── Stable section header (module-level for same reason) ──────────────────────
+function CfgSection({
+  title, rows, postConfig,
+}: {
+  title: string
+  rows: CfgRow[]
+  postConfig: (patch: Record<string, number>) => void
+}) {
+  return (
+    <>
+      <div className="text-[10px] text-slate-500 mb-1 mt-3">{title}</div>
+      <div className="space-y-1.5">
+        {rows.map(({ label, val, set, key, min, step, isFloat }) => (
+          <div key={key} className="flex items-center justify-between gap-2 text-[11px]">
+            <span className="text-slate-400 shrink-0">{label}</span>
+            <NumericCfgInput
+              val={val} set={set} cfgKey={key} min={min}
+              step={step} isFloat={isFloat} postConfig={postConfig}
+            />
+          </div>
+        ))}
+      </div>
+    </>
+  )
+}
+
 export default function App() {
   const [state,         setState]         = useState<SimState | null>(null)
   const [isRunning,     setIsRunning]     = useState(false)
@@ -75,45 +149,51 @@ export default function App() {
 
   // ── Backend sim config (applied on next Reset) ─────────────────────────────
   // Topology
-  const [cfgNumNodes,           setCfgNumNodes]           = useState(5)
+  const [cfgTotalNodes,         setCfgTotalNodes]         = useState(8)
   const [cfgNumTenants,         setCfgNumTenants]         = useState(3)
+  const [cfgAlwaysOnNodes,      setCfgAlwaysOnNodes]      = useState(3)
   const [cfgNodeMemMinGb,       setCfgNodeMemMinGb]       = useState(16)
   const [cfgNodeMemMaxGb,       setCfgNodeMemMaxGb]       = useState(64)
-  const [cfgNodeCpuMin,         setCfgNodeCpuMin]         = useState(8)
-  const [cfgNodeCpuMax,         setCfgNodeCpuMax]         = useState(64)
+  const [cfgNodeCpuMin,         setCfgNodeCpuMin]         = useState(2)
+  const [cfgNodeCpuMax,         setCfgNodeCpuMax]         = useState(4)
   // Workload
-  const [cfgJobsMinPerRound,    setCfgJobsMinPerRound]    = useState(5)
+  const [cfgJobArrivalInterval, setCfgJobArrivalInterval] = useState(3)
+  const [cfgJobsMinPerRound,    setCfgJobsMinPerRound]    = useState(3)
   const [cfgJobsMaxPerRound,    setCfgJobsMaxPerRound]    = useState(20)
   const [cfgReqMemMinMb,        setCfgReqMemMinMb]        = useState(512)
   const [cfgReqMemMaxMb,        setCfgReqMemMaxMb]        = useState(1024)
   const [cfgReqCpuMin,          setCfgReqCpuMin]          = useState(0.25)
-  const [cfgReqCpuMax,          setCfgReqCpuMax]          = useState(4.0)
+  const [cfgReqCpuMax,          setCfgReqCpuMax]          = useState(1.0)
   const [cfgSpikeProb,          setCfgSpikeProb]          = useState(10)
-  const [cfgMinLifetimeSec,     setCfgMinLifetimeSec]     = useState(60)
-  const [cfgMaxLifetimeSec,     setCfgMaxLifetimeSec]     = useState(600)
+  const [cfgMinLifetimeSec,     setCfgMinLifetimeSec]     = useState(4)
+  const [cfgMaxLifetimeSec,     setCfgMaxLifetimeSec]     = useState(180)
   // Scheduler
-  const [cfgBatchDurationSec,   setCfgBatchDurationSec]   = useState(60)
   const [cfgKWindow,            setCfgKWindow]            = useState(10)
   const [cfgMemThresholdFrac,   setCfgMemThresholdFrac]   = useState(0.10)
   // Plan-Ahead
-  const [cfgPlanAheadInterval,  setCfgPlanAheadInterval]  = useState(50)
-  const [cfgAccessPeriod,       setCfgAccessPeriod]       = useState(4)
-  const [cfgTenantUsageMin,     setCfgTenantUsageMin]     = useState(0.8)
-  const [cfgTenantUsageMax,     setCfgTenantUsageMax]     = useState(6.0)
+  const [cfgHorizonSteps,       setCfgHorizonSteps]       = useState(50)
+  const [cfgPeriodSteps,        setCfgPeriodSteps]        = useState(4)
+  const [cfgNumExclusiveTenants, setCfgNumExclusiveTenants] = useState(1)
   const [cfgPlanTimeLimit,      setCfgPlanTimeLimit]      = useState(30)
   const [cfgPlanMipGap,         setCfgPlanMipGap]         = useState(0.05)
-  const [cfgUseSocp,            setCfgUseSocp]            = useState(0)   // 0=MILP, 1=SOCP
+  const [cfgMinMachinesPerTenant, setCfgMinMachinesPerTenant] = useState(2)
+  const [cfgUseSocp,            setCfgUseSocp]            = useState(1)   // 0=MILP, 1=SOCP
   const [cfgSigmaFrac,          setCfgSigmaFrac]          = useState(0.20)
   const [cfgCantelliEpsilon,    setCfgCantelliEpsilon]    = useState(0.10)
+  const [cfgFeedbackWaitRef,    setCfgFeedbackWaitRef]    = useState(10)
+  const [cfgPlanCapacityBuffer, setCfgPlanCapacityBuffer] = useState(0.25) // MILP only
+  const [cfgEnableLogging,      setCfgEnableLogging]      = useState(0)
 
   // Frontend-only color thresholds
   const [actGreenThreshold, setActGreenThreshold] = useState(99)
   const [effGreenThreshold, setEffGreenThreshold] = useState(95)
   const [capGreenThreshold, setCapGreenThreshold] = useState(85)
 
-  const timerRef   = useRef<ReturnType<typeof setInterval> | null>(null)
-  const paTimer    = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const isStepping = useRef(false)
+  const timerRef           = useRef<ReturnType<typeof setInterval> | null>(null)
+  const paTimer            = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isStepping         = useRef(false)
+  const paWasRunning       = useRef(false)   // play state before plan-ahead pause
+  const paTriggeredManually = useRef(false)  // true = user clicked Plan Ahead button
   const moreRef    = useRef<HTMLDivElement>(null)
   const configRef  = useRef<HTMLDivElement>(null)
   const tenantsRef = useRef<HTMLDivElement>(null)
@@ -130,13 +210,15 @@ export default function App() {
           if (s.sim_config) {
             const c = s.sim_config
             // Topology
-            if (c.num_nodes            != null) setCfgNumNodes(c.num_nodes)
+            if (c.total_nodes          != null) setCfgTotalNodes(c.total_nodes)
             if (c.num_tenants          != null) setCfgNumTenants(c.num_tenants)
+            if (c.always_on_nodes      != null) setCfgAlwaysOnNodes(c.always_on_nodes)
             if (c.node_mem_min_gb      != null) setCfgNodeMemMinGb(c.node_mem_min_gb)
             if (c.node_mem_max_gb      != null) setCfgNodeMemMaxGb(c.node_mem_max_gb)
             if (c.node_cpu_min         != null) setCfgNodeCpuMin(c.node_cpu_min)
             if (c.node_cpu_max         != null) setCfgNodeCpuMax(c.node_cpu_max)
             // Workload
+            if (c.job_arrival_interval != null) setCfgJobArrivalInterval(c.job_arrival_interval)
             if (c.jobs_min_per_round   != null) setCfgJobsMinPerRound(c.jobs_min_per_round)
             if (c.jobs_max_per_round   != null) setCfgJobsMaxPerRound(c.jobs_max_per_round)
             if (c.req_mem_min_mb       != null) setCfgReqMemMinMb(c.req_mem_min_mb)
@@ -147,19 +229,21 @@ export default function App() {
             if (c.min_lifetime_sec     != null) setCfgMinLifetimeSec(c.min_lifetime_sec)
             if (c.max_lifetime_sec     != null) setCfgMaxLifetimeSec(c.max_lifetime_sec)
             // Scheduler
-            if (c.batch_duration_sec   != null) setCfgBatchDurationSec(c.batch_duration_sec)
             if (c.k_window             != null) setCfgKWindow(c.k_window)
             if (c.mem_threshold_frac   != null) setCfgMemThresholdFrac(c.mem_threshold_frac)
             // Plan-Ahead
-            if (c.plan_ahead_interval  != null) setCfgPlanAheadInterval(c.plan_ahead_interval)
-            if (c.access_period        != null) setCfgAccessPeriod(c.access_period)
-            if (c.tenant_usage_min     != null) setCfgTenantUsageMin(c.tenant_usage_min)
-            if (c.tenant_usage_max     != null) setCfgTenantUsageMax(c.tenant_usage_max)
+            if (c.horizon_steps        != null) setCfgHorizonSteps(c.horizon_steps)
+            if (c.period_steps         != null) setCfgPeriodSteps(c.period_steps)
+            if (c.num_exclusive_tenants != null) setCfgNumExclusiveTenants(c.num_exclusive_tenants)
             if (c.plan_time_limit      != null) setCfgPlanTimeLimit(c.plan_time_limit)
             if (c.plan_mip_gap         != null) setCfgPlanMipGap(c.plan_mip_gap)
             if (c.use_socp             != null) setCfgUseSocp(c.use_socp)
             if (c.sigma_frac           != null) setCfgSigmaFrac(c.sigma_frac)
             if (c.cantelli_epsilon     != null) setCfgCantelliEpsilon(c.cantelli_epsilon)
+            if (c.plan_capacity_buffer    != null) setCfgPlanCapacityBuffer(c.plan_capacity_buffer)
+            if (c.min_machines_per_tenant != null) setCfgMinMachinesPerTenant(c.min_machines_per_tenant)
+            if (c.feedback_wait_ref       != null) setCfgFeedbackWaitRef(c.feedback_wait_ref)
+            if (c.enable_logging          != null) setCfgEnableLogging(c.enable_logging)
           }
           if (s.plan_ahead) {
             setPlanAheadData(s.plan_ahead)
@@ -218,10 +302,16 @@ export default function App() {
       }
 
       if (next.plan_ahead) {
+        paWasRunning.current = true  // was running since advance() was called
+        paTriggeredManually.current = false
         setPlanAheadData(next.plan_ahead)
         setShowPlanAhead(true)
+        setIsRunning(false)
         if (paTimer.current) clearTimeout(paTimer.current)
-        paTimer.current = setTimeout(() => setShowPlanAhead(false), 8000)
+        paTimer.current = setTimeout(() => {
+          setShowPlanAhead(false)
+          setIsRunning(true)  // auto-resume after 10 s
+        }, 10000)
       }
     } catch {
       setError('Step failed — is the backend running?')
@@ -261,38 +351,10 @@ export default function App() {
       setPlanAheadData(pa)
       setShowPlanAhead(true)
       if (paTimer.current) clearTimeout(paTimer.current)
-      paTimer.current = setTimeout(() => setShowPlanAhead(false), 8000)
     } catch { /* plan-ahead is optional — ignore failures */ }
   }
 
   const handleStep = () => { setIsRunning(false); advance() }
-
-  // ── Config section renderer ─────────────────────────────────────────────────
-  function CfgSection({ title, rows }: { title: string; rows: CfgRow[] }) {
-    return (
-      <>
-        <div className="text-[10px] text-slate-500 mb-1 mt-3">{title}</div>
-        <div className="space-y-1.5">
-          {rows.map(({ label, val, set, key, min, step, isFloat }) => (
-            <div key={key} className="flex items-center justify-between gap-2 text-[11px]">
-              <span className="text-slate-400 shrink-0">{label}</span>
-              <input
-                type="number"
-                min={min}
-                step={step ?? (isFloat ? 0.01 : 1)}
-                value={val}
-                onChange={(e) => {
-                  const v = isFloat ? parseFloat(e.target.value) : parseInt(e.target.value)
-                  if (!isNaN(v) && v >= min) { set(v); postConfig({ [key]: v }) }
-                }}
-                className="w-16 bg-slate-700 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-white tabular-nums text-right focus:outline-none"
-              />
-            </div>
-          ))}
-        </div>
-      </>
-    )
-  }
 
   // ── Loading / error screens ─────────────────────────────────────────────────
   if (loading) {
@@ -372,7 +434,7 @@ export default function App() {
           <HUD
             hud={state.hud}
             interval={state.interval}
-            planAheadInterval={state.plan_ahead_interval}
+            planAheadInterval={state.horizon_steps}
             utilMode={utilMode}
             simTotals={simTotals}
           />
@@ -405,7 +467,7 @@ export default function App() {
             onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0) setBaseSeconds(v) }}
             className="w-14 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-xs text-white tabular-nums text-right focus:outline-none focus:border-slate-500"
           />
-          <span className="text-[11px] text-slate-500">s delay</span>
+          <span className="text-[11px] text-slate-500">s / interval</span>
         </div>
 
         <div className="w-px h-4 bg-slate-700" />
@@ -430,10 +492,12 @@ export default function App() {
             setPlanAheadLoading(true)
             try {
               const result = await api.triggerPlanAhead()
+              paTriggeredManually.current = true
+              paWasRunning.current = false
+              if (paTimer.current) clearTimeout(paTimer.current)  // cancel any auto-dismiss
               setPlanAheadData(result)
               setShowPlanAhead(true)
-              if (paTimer.current) clearTimeout(paTimer.current)
-              paTimer.current = setTimeout(() => setShowPlanAhead(false), 8000)
+              setIsRunning(false)
             } catch {
               setError('Plan-ahead failed — is the backend running?')
             } finally {
@@ -582,6 +646,7 @@ export default function App() {
                     { term: 'SOCP (Cantelli)',   def: 'Second-order cone capacity constraint in MISOCP mode. Ensures actual usage stays within node capacity with at least (1−ε) probability, accounting for prediction uncertainty.' },
                     { term: 'sigma_frac',        def: 'Uncertainty fraction for SOCP mode. Demand std dev is modelled as sigma_frac × u[i,h]. Higher value = larger safety buffer.' },
                     { term: 'Cantelli ε',        def: 'Tail probability for SOCP capacity constraint. ε = 0.10 means the capacity guarantee holds 90% of the time.' },
+                    { term: 'Realtime Headroom', def: 'MILP only. Fraction of each node\'s schedulable capacity (C_eff) withheld from plan-ahead allocations. E.g. 0.25 means plan-ahead uses at most 75% of C_eff, leaving 25% headroom for the realtime scheduler. In SOCP mode this is handled automatically by the Cantelli cone buffer.' },
                     { term: 'Batch / Epoch',     def: 'One scheduling round. New jobs arrive, the real-time optimizer runs once per tenant group, jobs are placed or return to queue. Unplaced jobs get a wait bump each batch.' },
                   ] as { term: string; def: string }[]).map(({ term, def }) => (
                     <div key={term}>
@@ -610,40 +675,41 @@ export default function App() {
               <div className="text-[11px] font-bold text-slate-300 mb-0.5 uppercase tracking-widest">Sim Config</div>
               <div className="text-[10px] text-slate-600 mb-1">Changes apply after Reset</div>
 
-              <CfgSection title="Topology" rows={[
-                { label: 'Num Nodes',            val: cfgNumNodes,         set: setCfgNumNodes,         key: 'num_nodes',         min: 1  },
-                { label: 'Num Tenants',           val: cfgNumTenants,       set: setCfgNumTenants,       key: 'num_tenants',       min: 1  },
-                { label: 'Node RAM Min (GB)',      val: cfgNodeMemMinGb,     set: setCfgNodeMemMinGb,     key: 'node_mem_min_gb',   min: 1  },
-                { label: 'Node RAM Max (GB)',      val: cfgNodeMemMaxGb,     set: setCfgNodeMemMaxGb,     key: 'node_mem_max_gb',   min: 1  },
-                { label: 'Node CPU Min (cores)',   val: cfgNodeCpuMin,       set: setCfgNodeCpuMin,       key: 'node_cpu_min',      min: 1  },
-                { label: 'Node CPU Max (cores)',   val: cfgNodeCpuMax,       set: setCfgNodeCpuMax,       key: 'node_cpu_max',      min: 1  },
+              <CfgSection postConfig={postConfig} title="Topology" rows={[
+                { label: 'Total Nodes',             val: cfgTotalNodes,       set: setCfgTotalNodes,       key: 'total_nodes',        min: 1  },
+                { label: 'Always-On Nodes',         val: cfgAlwaysOnNodes,    set: setCfgAlwaysOnNodes,    key: 'always_on_nodes',    min: 1  },
+                { label: 'Num Tenants',             val: cfgNumTenants,       set: setCfgNumTenants,       key: 'num_tenants',        min: 1  },
+                { label: 'Exclusive Tenants',       val: cfgNumExclusiveTenants, set: setCfgNumExclusiveTenants, key: 'num_exclusive_tenants', min: 0 },
+                { label: 'Node RAM Min (GB)',        val: cfgNodeMemMinGb,     set: setCfgNodeMemMinGb,     key: 'node_mem_min_gb',    min: 1  },
+                { label: 'Node RAM Max (GB)',        val: cfgNodeMemMaxGb,     set: setCfgNodeMemMaxGb,     key: 'node_mem_max_gb',    min: 1  },
+                { label: 'Node CPU Min (cores)',     val: cfgNodeCpuMin,       set: setCfgNodeCpuMin,       key: 'node_cpu_min',       min: 1  },
+                { label: 'Node CPU Max (cores)',     val: cfgNodeCpuMax,       set: setCfgNodeCpuMax,       key: 'node_cpu_max',       min: 1  },
               ]} />
 
-              <CfgSection title="Workload" rows={[
-                { label: 'Jobs Min / Round',       val: cfgJobsMinPerRound,  set: setCfgJobsMinPerRound,  key: 'jobs_min_per_round', min: 1  },
-                { label: 'Jobs Max / Round',       val: cfgJobsMaxPerRound,  set: setCfgJobsMaxPerRound,  key: 'jobs_max_per_round', min: 1  },
-                { label: 'Job RAM Min (MB)',        val: cfgReqMemMinMb,      set: setCfgReqMemMinMb,      key: 'req_mem_min_mb',    min: 1  },
-                { label: 'Job RAM Max (MB)',        val: cfgReqMemMaxMb,      set: setCfgReqMemMaxMb,      key: 'req_mem_max_mb',    min: 1  },
-                { label: 'Job CPU Min (cores)',     val: cfgReqCpuMin,        set: setCfgReqCpuMin,        key: 'req_cpu_min',       min: 0.1, step: 0.1, isFloat: true },
-                { label: 'Job CPU Max (cores)',     val: cfgReqCpuMax,        set: setCfgReqCpuMax,        key: 'req_cpu_max',       min: 0.1, step: 0.1, isFloat: true },
-                { label: 'Spike Prob %',            val: cfgSpikeProb,        set: setCfgSpikeProb,        key: 'spike_prob_pct',    min: 0  },
-                { label: 'Min Lifetime (s)',         val: cfgMinLifetimeSec,   set: setCfgMinLifetimeSec,   key: 'min_lifetime_sec',  min: 1  },
-                { label: 'Max Lifetime (s)',         val: cfgMaxLifetimeSec,   set: setCfgMaxLifetimeSec,   key: 'max_lifetime_sec',  min: 1  },
+              <CfgSection postConfig={postConfig} title="Workload" rows={[
+                { label: 'Job Arrival Every (N)',   val: cfgJobArrivalInterval, set: setCfgJobArrivalInterval, key: 'job_arrival_interval', min: 1 },
+                { label: 'Jobs Min / Arrival',     val: cfgJobsMinPerRound,  set: setCfgJobsMinPerRound,  key: 'jobs_min_per_round', min: 1  },
+                { label: 'Jobs Max / Arrival',     val: cfgJobsMaxPerRound,  set: setCfgJobsMaxPerRound,  key: 'jobs_max_per_round', min: 1  },
+                { label: 'Job RAM Min (MB)',        val: cfgReqMemMinMb,      set: setCfgReqMemMinMb,      key: 'req_mem_min_mb',     min: 1  },
+                { label: 'Job RAM Max (MB)',        val: cfgReqMemMaxMb,      set: setCfgReqMemMaxMb,      key: 'req_mem_max_mb',     min: 1  },
+                { label: 'Job CPU Min (cores)',     val: cfgReqCpuMin,        set: setCfgReqCpuMin,        key: 'req_cpu_min',        min: 0.1, step: 0.1, isFloat: true },
+                { label: 'Job CPU Max (cores)',     val: cfgReqCpuMax,        set: setCfgReqCpuMax,        key: 'req_cpu_max',        min: 0.1, step: 0.1, isFloat: true },
+                { label: 'Spike Prob %',            val: cfgSpikeProb,        set: setCfgSpikeProb,        key: 'spike_prob_pct',     min: 0  },
+                { label: 'Min Lifetime (s)',        val: cfgMinLifetimeSec,   set: setCfgMinLifetimeSec,   key: 'min_lifetime_sec',   min: 1  },
+                { label: 'Max Lifetime (s)',        val: cfgMaxLifetimeSec,   set: setCfgMaxLifetimeSec,   key: 'max_lifetime_sec',   min: 1  },
               ]} />
 
-              <CfgSection title="Scheduler" rows={[
-                { label: 'Batch Duration (s)',      val: cfgBatchDurationSec, set: setCfgBatchDurationSec, key: 'batch_duration_sec', min: 1  },
-                { label: 'K Window',                val: cfgKWindow,          set: setCfgKWindow,          key: 'k_window',           min: 1  },
-                { label: 'Safety Buffer',           val: cfgMemThresholdFrac, set: setCfgMemThresholdFrac, key: 'mem_threshold_frac', min: 0.01, step: 0.01, isFloat: true },
+              <CfgSection postConfig={postConfig} title="Scheduler" rows={[
+                { label: 'K Window',               val: cfgKWindow,          set: setCfgKWindow,          key: 'k_window',           min: 1  },
+                { label: 'Safety Buffer',          val: cfgMemThresholdFrac, set: setCfgMemThresholdFrac, key: 'mem_threshold_frac', min: 0.01, step: 0.01, isFloat: true },
               ]} />
 
-              <CfgSection title="Plan-Ahead" rows={[
-                { label: 'Horizon (intervals)',     val: cfgPlanAheadInterval, set: setCfgPlanAheadInterval, key: 'plan_ahead_interval', min: 1                          },
-                { label: 'Period Width (intervals)',val: cfgAccessPeriod,      set: setCfgAccessPeriod,      key: 'access_period',       min: 1                          },
-                { label: 'Usage Min (cap units)',   val: cfgTenantUsageMin,    set: setCfgTenantUsageMin,    key: 'tenant_usage_min',    min: 0.1, step: 0.1, isFloat: true },
-                { label: 'Usage Max (cap units)',   val: cfgTenantUsageMax,    set: setCfgTenantUsageMax,    key: 'tenant_usage_max',    min: 0.1, step: 0.1, isFloat: true },
-                { label: 'Gurobi Time Limit (s)',   val: cfgPlanTimeLimit,     set: setCfgPlanTimeLimit,     key: 'plan_time_limit',     min: 1                          },
-                { label: 'Gurobi MIP Gap',          val: cfgPlanMipGap,        set: setCfgPlanMipGap,        key: 'plan_mip_gap',        min: 0.001, step: 0.001, isFloat: true },
+              <CfgSection postConfig={postConfig} title="Plan-Ahead" rows={[
+                { label: 'Horizon (steps)',         val: cfgHorizonSteps,     set: setCfgHorizonSteps,     key: 'horizon_steps',      min: 1                          },
+                { label: 'Period Width (steps)',    val: cfgPeriodSteps,      set: setCfgPeriodSteps,      key: 'period_steps',       min: 1                          },
+                { label: 'Min Machines / Tenant',  val: cfgMinMachinesPerTenant, set: setCfgMinMachinesPerTenant, key: 'min_machines_per_tenant', min: 1            },
+                { label: 'Gurobi Time Limit (s)',  val: cfgPlanTimeLimit,    set: setCfgPlanTimeLimit,    key: 'plan_time_limit',    min: 1                          },
+                { label: 'Gurobi MIP Gap',         val: cfgPlanMipGap,       set: setCfgPlanMipGap,       key: 'plan_mip_gap',       min: 0.001, step: 0.001, isFloat: true },
               ]} />
 
               {/* SOCP toggle — lives outside CfgSection since it's boolean */}
@@ -660,15 +726,39 @@ export default function App() {
                       ? 'border-purple-600 text-purple-300 bg-purple-950'
                       : 'border-slate-600 text-slate-400 hover:border-slate-500'}`}
                 >
-                  {cfgUseSocp === 1 ? 'SOCP' : 'MILP'}
+                  {cfgUseSocp === 1 ? 'SOCP (default)' : 'MILP'}
                 </button>
               </div>
               {cfgUseSocp === 1 && (
-                <CfgSection title="SOCP Parameters" rows={[
+                <CfgSection postConfig={postConfig} title="SOCP Parameters" rows={[
                   { label: 'Demand Sigma Frac', val: cfgSigmaFrac,       set: setCfgSigmaFrac,       key: 'sigma_frac',       min: 0.0,  step: 0.05, isFloat: true },
                   { label: 'Cantelli ε',        val: cfgCantelliEpsilon, set: setCfgCantelliEpsilon, key: 'cantelli_epsilon', min: 0.01, step: 0.01, isFloat: true },
+                  { label: 'Feedback Wait Ref', val: cfgFeedbackWaitRef, set: setCfgFeedbackWaitRef, key: 'feedback_wait_ref', min: 1, step: 1 },
                 ]} />
               )}
+              {cfgUseSocp === 0 && (
+                <CfgSection postConfig={postConfig} title="MILP Parameters" rows={[
+                  { label: 'Realtime Headroom', val: cfgPlanCapacityBuffer, set: setCfgPlanCapacityBuffer, key: 'plan_capacity_buffer', min: 0.0, step: 0.05, isFloat: true },
+                ]} />
+              )}
+
+              {/* Logging toggle */}
+              <div className="flex items-center justify-between gap-2 text-[11px] mt-1.5">
+                <span className="text-slate-400 shrink-0">Interval Logging</span>
+                <button
+                  onClick={() => {
+                    const next = cfgEnableLogging === 0 ? 1 : 0
+                    setCfgEnableLogging(next)
+                    postConfig({ enable_logging: next })
+                  }}
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors
+                    ${cfgEnableLogging === 1
+                      ? 'border-emerald-600 text-emerald-300 bg-emerald-950'
+                      : 'border-slate-600 text-slate-400 hover:border-slate-500'}`}
+                >
+                  {cfgEnableLogging === 1 ? 'ON → sim_log.jsonl' : 'OFF'}
+                </button>
+              </div>
 
               {/* Frontend-only thresholds */}
               <div className="mt-3 pt-2 border-t border-slate-700">
@@ -716,7 +806,13 @@ export default function App() {
           <PlanAheadOverlay
             result={planAheadData}
             numNodes={state.nodes.length}
-            onClose={() => setShowPlanAhead(false)}
+            onClose={() => {
+              if (paTimer.current) clearTimeout(paTimer.current)
+              setShowPlanAhead(false)
+              if (!paTriggeredManually.current && paWasRunning.current) {
+                setIsRunning(true)
+              }
+            }}
           />
         )}
       </AnimatePresence>

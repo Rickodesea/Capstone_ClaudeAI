@@ -67,7 +67,7 @@ def build_synthetic_data(
     n_intervals:          int   = 3,
     node_capacity:        float = 10.0,
     n_always_available:   int   = 3,       # |M_a| — always-on machines
-    exclusive_frac:       float = 0.25,    # X% of tenants tagged exclusive
+    n_exclusive:          int   = 1,       # number of exclusive tenants (clamped to [0, n_tenants])
     tenant_usage_min:     float = 0.8,
     tenant_usage_max:     float = 6.0,
     sigma_frac:           float = 0.20,
@@ -77,6 +77,8 @@ def build_synthetic_data(
     feedback_alpha:       float = 0.5,     # SLA feedback capacity scaling
     feedback_beta:        float = 0.3,     # wait-time demand scaling
     feedback_wait_ref:    float = 60.0,    # W̄_ref (seconds) for normalisation
+    capacity_buffer_frac:    float = 0.0,  # fraction of C_eff withheld for realtime (MILP only)
+    min_machines_per_tenant: int   = 1,   # minimum machines each shared tenant must receive per period
     **_ignored,
 ) -> dict:
     """
@@ -90,7 +92,7 @@ def build_synthetic_data(
     n_intervals         : planning horizon length |H|
     node_capacity       : C[n] — resource capacity per machine (uniform)
     n_always_available  : |M_a| — machines always on; rest are additional (M_b)
-    exclusive_frac      : fraction of tenants tagged as exclusive (randomly)
+    n_exclusive         : exact number of tenants tagged as exclusive; clamped to [0, n_tenants]
     tenant_usage_min    : lower bound for u[i,h]
     tenant_usage_max    : upper bound for u[i,h]
     sigma_frac          : demand uncertainty fraction — std dev = sigma_frac × u[i,h]
@@ -106,9 +108,9 @@ def build_synthetic_data(
     # --- Sets ----------------------------------------------------------------
     T = list(range(n_tenants))
 
-    # Tag exclusive tenants randomly
-    n_exclusive = max(1, int(round(n_tenants * exclusive_frac)))
-    exclusive_ids = sorted(rng.choice(T, size=n_exclusive, replace=False).tolist())
+    # Validate and tag exclusive tenants
+    n_exclusive = int(min(max(0, n_exclusive), n_tenants))
+    exclusive_ids = sorted(rng.choice(T, size=n_exclusive, replace=False).tolist()) if n_exclusive > 0 else []
     T_e = exclusive_ids
     T_s = [i for i in T if i not in exclusive_ids]
 
@@ -175,6 +177,13 @@ def build_synthetic_data(
     # --- Objective weights ---------------------------------------------------
     lam = {0: 1.0, 1: 5.0, 2: 2.0}   # [infra_cost, fairness σ, mix bonus]
 
+    # cap_frac: fraction of C_eff the plan-ahead model may allocate (MILP only).
+    # Remaining fraction (capacity_buffer_frac) is reserved as headroom for realtime.
+    cap_frac = max(0.0, min(1.0, 1.0 - capacity_buffer_frac))
+
+    # min_machines: clamp to [1, len(M)] to stay feasible
+    min_machines_per_tenant = int(min(max(1, min_machines_per_tenant), max(1, len(M) // max(1, len(T_s)))))
+
     return dict(
         # Sets
         T=T, T_e=T_e, T_s=T_s, T_s_heavy=T_s_heavy, T_s_light=T_s_light,
@@ -186,9 +195,13 @@ def build_synthetic_data(
         u=u, u_max=u_max,
         # Uncertainty
         sigma2=sigma2, kappa=kappa,
+        # Capacity headroom (MILP only)
+        cap_frac=cap_frac,
+        # Minimum machines per shared tenant per period
+        min_machines_per_tenant=min_machines_per_tenant,
         # Objective
         lam=lam,
         # Metadata
         n_tenants=n_tenants, n_nodes=n_nodes, n_intervals=n_intervals,
-        exclusive_frac=exclusive_frac,
+        n_exclusive=n_exclusive,
     )

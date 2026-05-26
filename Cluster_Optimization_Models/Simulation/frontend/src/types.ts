@@ -41,11 +41,13 @@ export interface PlacedJob {
 export interface PlanAheadResult {
   interval: number
   num_slots: number
-  access_period: number
+  period_steps: number
   planning_horizon: number
   slot_labels: string[]
   tenant_schedule: Record<string, Record<string, number[]>>
   current_slot: number
+  exclusive_tenant_count?: number
+  total_tenant_count?: number
   summary: {
     avg_nodes_per_tenant: number
     isolation_score: number
@@ -113,7 +115,7 @@ export interface SimTotals {
 
 export interface SimState {
   interval: number
-  plan_ahead_interval: number
+  horizon_steps: number
   sim_time: string
   queue: QueuedJob[]
   nodes: NodeInfo[]

@@ -12,8 +12,9 @@ Load order (enforced by main.py):
        c. imports MILP solver and dataclasses from Realtime/
 
 Architecture mirrors Pipeline/interface.py but with:
+  • SimulationManager subclasses ClusterManager (Realtime) — delegates the
+    full scheduling loop (_run_batch, _expire_jobs, etc.) to it directly
   • Per-group solver calls per step (one call per tenant group from plan-ahead)
-  • Staged queue: new jobs show wait=0, accumulate wait from the next step
   • Unplaced jobs get a wait bump of batch_duration_sec per step they wait
   • Plan-ahead: tries PlanAhead/plan_ahead_optimizer (Gurobi); falls back
     to a numpy mock that produces the same output shape
@@ -25,9 +26,8 @@ from __future__ import annotations
 import sys
 import os
 from pathlib import Path
-from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Optional
 
 import numpy as np
@@ -56,12 +56,11 @@ from simulation_config import (
     generate_nodes, generate_jobs,
     compute_available_capacity, compute_violation_rate,
     sample_spike_fraction,
-    JOBS_PER_ROUND, K_WINDOW,
-    MIN_LIFETIME_SEC, MAX_LIFETIME_SEC, BATCH_DURATION_SEC,
+    JOBS_PER_ROUND, K_WINDOW, BATCH_DURATION_SEC,
+    MIN_LIFETIME_SEC, MAX_LIFETIME_SEC,
     NUM_NODES, NUM_TENANTS, SPIKE_PROB, DEFAULT_CONFIG,
 )
-from optimizer_google_or import solve
-from cluster_manager import RunningJob, BatchResult
+from cluster_manager import ClusterManager, RunningJob, BatchResult
 
 # ── Plan-ahead availability ───────────────────────────────────────────────────
 _HAS_GUROBI = False
@@ -88,10 +87,10 @@ def _mock_plan_ahead(cfg: dict, interval: int) -> dict:
     Tenants panel.
     """
     num_tenants   = int(cfg.get('num_tenants',         NUM_TENANTS))
-    num_nodes     = int(cfg.get('num_nodes',           NUM_NODES))
-    horizon       = int(cfg.get('plan_ahead_interval', 50))
-    access_period = int(cfg.get('access_period',        4))
-    n_periods     = max(1, horizon // access_period)
+    num_nodes     = int(cfg.get('total_nodes', cfg.get('num_nodes', NUM_NODES)))
+    horizon       = int(cfg.get('horizon_steps', 50))
+    period_steps = int(cfg.get('period_steps',        4))
+    n_periods     = max(1, horizon // period_steps)
     week_number   = interval // horizon if horizon > 0 else 0
 
     all_tenant_ids  = list(range(num_tenants))
@@ -118,17 +117,17 @@ def _mock_plan_ahead(cfg: dict, interval: int) -> dict:
     }
 
     slot_labels = [
-        f"{h * access_period}–{h * access_period + access_period - 1}i"
+        f"{h * period_steps}–{h * period_steps + period_steps - 1}i"
         for h in range(n_periods)
     ]
     pos_in_period = interval % horizon if horizon > 0 else 0
-    current_slot  = min(pos_in_period // access_period, n_periods - 1)
+    current_slot  = min(pos_in_period // period_steps, n_periods - 1)
 
     return {
         "intervals":        intervals_out,
         "interval":         interval,
         "num_slots":        n_periods,
-        "access_period":    access_period,
+        "period_steps":    period_steps,
         "planning_horizon": horizon,
         "slot_labels":      slot_labels,
         "tenant_schedule":  tenant_schedule,
@@ -141,45 +140,86 @@ def _mock_plan_ahead(cfg: dict, interval: int) -> dict:
     }
 
 
-def run_plan_ahead(cfg: dict, interval: int) -> dict:
+def run_plan_ahead(
+    cfg:           dict,
+    interval:      int,
+    feedback_wait: dict | None = None,  # {tenant_id: avg_wait_sec} from realtime
+    feedback_vbar: dict | None = None,  # {node_id: violation_rate} from realtime
+) -> dict:
     """
-    Run plan-ahead.  Attempts Gurobi; falls back to numpy mock on any error.
-    Returns dict with both "intervals" (for cluster manager) and
-    "tenant_schedule" (for frontend display).
+    Run plan-ahead MISOCP (SOCP default).  Attempts Gurobi; falls back to numpy mock.
+
+    Feedback parameters are passed from the live SimulationManager so the
+    plan-ahead inflates demand for tenants with high wait times and reduces
+    capacity for nodes with high SLA violation rates.
+
+    Returns dict with "intervals" (for ClusterManager) and "tenant_schedule"
+    (for frontend display).
     """
     if not _HAS_GUROBI:
         return _mock_plan_ahead(cfg, interval)
 
+    import math
+
     try:
         num_tenants    = int(cfg.get('num_tenants',          NUM_TENANTS))
-        num_nodes      = int(cfg.get('num_nodes',            NUM_NODES))
-        n_always_avail = int(cfg.get('num_always_available', 3))
-        exclusive_frac = float(cfg.get('exclusive_frac',     0.0))
-        access_period  = int(cfg.get('access_period',        4))
-        horizon        = int(cfg.get('plan_ahead_interval',  50))
-        n_periods      = max(1, horizon // access_period)
-        node_cap       = float(cfg.get('node_capacity',      10.0))
-        usage_min      = float(cfg.get('tenant_usage_min',   0.8))
-        usage_max      = float(cfg.get('tenant_usage_max',   6.0))
-        time_limit     = int(cfg.get('plan_time_limit',      30))
-        mip_gap        = float(cfg.get('plan_mip_gap',       0.05))
-        use_socp       = bool(int(cfg.get('use_socp',        0)))
-        sigma_frac     = float(cfg.get('sigma_frac',         0.20))
-        epsilon        = float(cfg.get('cantelli_epsilon',   0.10))
+        num_nodes      = int(cfg.get('total_nodes', cfg.get('num_nodes', NUM_NODES)))
+        n_always_avail = int(cfg.get('always_on_nodes', cfg.get('num_always_available', 3)))
+        num_exclusive  = int(cfg.get('num_exclusive_tenants', 1))
+        period_steps   = int(cfg.get('period_steps',   4))
+        horizon        = int(cfg.get('horizon_steps', 50))
+        n_periods      = max(1, horizon // period_steps)
+        time_limit     = int(cfg.get('plan_time_limit',    30))
+        mip_gap        = float(cfg.get('plan_mip_gap',     0.05))
+        use_socp       = bool(int(cfg.get('use_socp',       1)))   # SOCP is default
+        sigma_frac     = float(cfg.get('sigma_frac',        0.20))
+        epsilon        = float(cfg.get('cantelli_epsilon',  0.10))
+        min_mach       = int(cfg.get('min_machines_per_tenant', 2))
+
+        feedback_alpha    = float(cfg.get('feedback_alpha',    0.5))
+        feedback_beta     = float(cfg.get('feedback_beta',     0.3))
+        feedback_wait_ref = float(cfg.get('feedback_wait_ref', 10.0))
+
+        plan_capacity_buffer = float(cfg.get('plan_capacity_buffer', 0.0))
+
+        # ── Node capacity (average node GB) ──────────────────────────────────
+        mem_min_gb  = float(cfg.get('node_mem_min_gb', 16))
+        mem_max_gb  = float(cfg.get('node_mem_max_gb', 64))
+        node_cap    = (mem_min_gb + mem_max_gb) / 2.0  # GB
+
+        # ── Demand calibration: force 2+ machines per tenant ─────────────────
+        # The SOCP Cantelli buffer consumes kappa*sigma_frac*u per node.
+        # A single node can satisfy: u < node_cap / (1 + kappa*sigma_frac).
+        # We set usage_min just above that threshold so 2 nodes are always required,
+        # and usage_max at 1.35× to firmly land in the 2-node region.
+        kappa_val    = math.sqrt((1.0 - epsilon) / epsilon)
+        one_node_max = node_cap / (1.0 + kappa_val * sigma_frac)
+        usage_min    = round(max(1.0, one_node_max * 1.05), 2)
+        usage_max    = round(max(2.0, one_node_max * 1.40), 2)
 
         P = build_synthetic_data(
-            seed               = 42,
-            n_tenants          = num_tenants,
-            n_nodes            = num_nodes,
-            n_intervals        = n_periods,
-            node_capacity      = node_cap,
-            n_always_available = n_always_avail,
-            exclusive_frac     = exclusive_frac,
-            tenant_usage_min   = usage_min,
-            tenant_usage_max   = usage_max,
-            sigma_frac         = sigma_frac,
-            epsilon            = epsilon,
+            seed                    = 42,
+            n_tenants               = num_tenants,
+            n_nodes                 = num_nodes,
+            n_intervals             = n_periods,
+            node_capacity           = node_cap,
+            n_always_available      = n_always_avail,
+            n_exclusive             = num_exclusive,
+            tenant_usage_min        = usage_min,
+            tenant_usage_max        = usage_max,
+            sigma_frac              = sigma_frac,
+            epsilon                 = epsilon,
+            feedback_vbar           = feedback_vbar or {},
+            feedback_wait           = feedback_wait or {},
+            feedback_alpha          = feedback_alpha,
+            feedback_beta           = feedback_beta,
+            feedback_wait_ref       = feedback_wait_ref,
+            capacity_buffer_frac    = plan_capacity_buffer,
+            min_machines_per_tenant = min_mach,
         )
+        # Zero infra cost: always-on machines are pre-paid; model should
+        # distribute tenants freely rather than packing into the minimum.
+        P['lam'][0] = 0.0
         env = make_gurobi_env()
         model, vars_ = build_model(P, env, use_socp=use_socp)
         model.Params.TimeLimit    = time_limit
@@ -201,11 +241,11 @@ def run_plan_ahead(cfg: dict, interval: int) -> dict:
                     tenant_schedule[str(tid)][str(h)] = g["machine_ids"]
 
         slot_labels = [
-            f"{h * access_period}–{h * access_period + access_period - 1}i"
+            f"{h * period_steps}–{h * period_steps + period_steps - 1}i"
             for h in range(n_periods)
         ]
         pos_in_period = interval % horizon if horizon > 0 else 0
-        current_slot  = min(pos_in_period // access_period, n_periods - 1)
+        current_slot  = min(pos_in_period // period_steps, n_periods - 1)
 
         sigma_val = (vars_['sigma'].X
                      if 'sigma' in vars_ and hasattr(vars_['sigma'], 'X')
@@ -216,14 +256,16 @@ def run_plan_ahead(cfg: dict, interval: int) -> dict:
         )
 
         return {
-            "intervals":        plan_out["intervals"],
-            "interval":         interval,
-            "num_slots":        n_periods,
-            "access_period":    access_period,
-            "planning_horizon": horizon,
-            "slot_labels":      slot_labels,
-            "tenant_schedule":  tenant_schedule,
-            "current_slot":     current_slot,
+            "intervals":              plan_out["intervals"],
+            "interval":               interval,
+            "num_slots":              n_periods,
+            "period_steps":           period_steps,
+            "planning_horizon":       horizon,
+            "slot_labels":            slot_labels,
+            "tenant_schedule":        tenant_schedule,
+            "current_slot":           current_slot,
+            "exclusive_tenant_count": len(P["T_e"]),
+            "total_tenant_count":     num_tenants,
             "summary": {
                 "avg_nodes_per_tenant": round(avg_nodes, 2),
                 "isolation_score":      round(sigma_val, 4),
@@ -235,232 +277,53 @@ def run_plan_ahead(cfg: dict, interval: int) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# § SIMULATION MANAGER  (per-group solver calls, staged queue, config-aware)
+# § SIMULATION MANAGER  (config-aware subclass of Realtime's ClusterManager)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class SimulationManager:
+class SimulationManager(ClusterManager):
     """
-    Drives the cluster simulation for the interactive API.
+    Thin, config-aware subclass of Realtime's ClusterManager.
 
-    Differences from Realtime/ClusterManager:
-      • One solver call per tenant group per step (mirrors Pipeline architecture)
-      • Staged queue: new jobs land in _staged_queue; promoted to job_queue
-        next step so they display with wait_intervals = 0 this step
-      • Unplaced jobs get a wait bump of batch_duration_sec per step skipped
-      • sim_config dict controls all topology and workload parameters
-      • plan_output (new format) drives per-group scheduling each step
+    The full scheduling loop (_run_batch, _expire_jobs, _refresh_node_states,
+    _get_groups, _bump_wait_for_unplaced, _update_W_t) is inherited directly
+    from ClusterManager — no duplication.  Only three methods are overridden
+    because they need to read from the runtime sim_config dict:
+
+      __init__   — builds config-aware node topology
+      _make_jobs — respects job_arrival_interval; reads job-count range from config
+      _start_job — reads spike_prob and lifetime bounds from config
+
+    The sys.modules trick (simulation_config registered as "simulation_data")
+    ensures ClusterManager's module-level imports (BATCH_DURATION_SEC = 1,
+    generate_nodes, generate_jobs) come from simulation_config automatically.
     """
 
-    def __init__(
-        self,
-        seed:       int            = 42,
-        sim_config: Optional[dict] = None,
-    ) -> None:
-        self._sim_config = dict(sim_config or DEFAULT_CONFIG)
-        self.rng         = np.random.default_rng(seed)
-
-        k  = int(self._sim_config.get('k_window',       K_WINDOW))
-        self._jobs_per_round = int(self._sim_config.get('jobs_per_round', JOBS_PER_ROUND))
-        self._k_window       = k
-        self._num_tenants    = int(self._sim_config.get('num_tenants', NUM_TENANTS))
-
-        self.nodes: list[NodeState] = generate_nodes(self.rng, config=self._sim_config)
-
-        self.job_queue:     list[Job]        = []
-        self._staged_queue: list[Job]        = []
-        self._running_jobs: list[RunningJob] = []
-        self.scheduling_log: dict[str, dict] = {}
-
-        self.W_t: dict[int, float]           = {}
-        self._tenant_wait_times: dict[int, deque] = {}
-
-        self.sim_time: datetime = datetime.now(timezone.utc)
+    def __init__(self, seed: int = 42, sim_config: Optional[dict] = None) -> None:
+        cfg = dict(sim_config or DEFAULT_CONFIG)
+        self._sim_config  = cfg
+        self._num_tenants = int(cfg.get('num_tenants', NUM_TENANTS))
+        # Initialise parent with config-aware k_window; no verbose output, no log file.
+        super().__init__(
+            seed      = seed,
+            verbose   = False,
+            k_window  = int(cfg.get('k_window', K_WINDOW)),
+            log_file  = None,
+        )
+        # Replace the default-topology nodes created by ClusterManager.__init__
+        # with config-aware nodes (total_nodes, mem ranges, cpu ranges).
+        self.nodes = generate_nodes(self.rng, config=cfg)
         self._refresh_node_states(record_history=False)
 
-    # ─────────────────────────────────────────────────────────────────────────
-
-    def run_step(
-        self,
-        batch_id:    int,
-        plan_output: Optional[dict] = None,
-    ) -> BatchResult:
-        """
-        Execute one scheduling epoch.
-
-        Parameters
-        ----------
-        batch_id    : current simulation interval (0-indexed)
-        plan_output : plan-ahead output dict (new format with "intervals" key),
-                      or None to schedule all tenants on all nodes as one group
-        """
-        cfg = self._sim_config
-
-        batch_sec     = int(cfg.get('batch_duration_sec',     BATCH_DURATION_SEC))
-        time_limit_ms = int(cfg.get('realtime_time_limit_ms', 2000))
-
-        self.sim_time += timedelta(seconds=batch_sec)
-
-        expired_count = self._expire_jobs()
-        node_violations_start = self._refresh_node_states(record_history=True)
-
-        self.job_queue.extend(self._staged_queue)
-        self._staged_queue = []
-        new_jobs = self._make_jobs(batch_id)
-        self._staged_queue = new_jobs
-
-        placed_ids:      set[str] = set()
-        placed_this_batch    = 0
-        spikes_this_batch    = 0
-        overflows_this_batch = 0
-        nodes_assigned_set: set[int] = set()
-        solver_calls         = 0
-        consecutive_failures = 0
-        made_progress        = False
-
-        if self.job_queue:
-            groups = self._get_groups_for_interval(plan_output, batch_id)
-
-            for group in groups:
-                tenant_ids  = set(group.get("tenant_ids",  []))
-                machine_ids = set(group.get("machine_ids", []))
-
-                group_jobs = [
-                    j for j in self.job_queue
-                    if j.job_id not in placed_ids
-                    and (not tenant_ids or j.tenant_id in tenant_ids)
-                ]
-                self._refresh_node_states(record_history=False)
-                group_nodes = [
-                    n for n in self.nodes
-                    if not machine_ids or n.node_id in machine_ids
-                ]
-
-                if not group_jobs or not group_nodes:
-                    continue
-
-                placements = solve(
-                    jobs          = group_jobs,
-                    nodes         = group_nodes,
-                    W_t           = self.W_t,
-                    K             = self._k_window,
-                    time_limit_ms = time_limit_ms,
-                )
-                solver_calls += 1
-
-                g_placed   = [j for j in group_jobs if placements.get(j.job_id) is not None]
-                g_unplaced = [j for j in group_jobs if placements.get(j.job_id) is None]
-
-                self._bump_wait_for_unplaced(g_unplaced, batch_sec)
-
-                if g_placed:
-                    made_progress = True
-
-                for j in g_placed:
-                    nid = placements[j.job_id]
-                    placed_ids.add(j.job_id)
-                    nodes_assigned_set.add(nid)
-                    rj = self._start_job(j, nid)
-
-                    wait_sec = (j.scheduling_timestamp - j.arrival_timestamp).total_seconds()
-                    self.scheduling_log[j.job_id] = {
-                        "tenant_id":            j.tenant_id,
-                        "job_id":               j.job_id,
-                        "arrival_batch":        j.arrival_round,
-                        "scheduled_batch":      batch_id,
-                        "arrival_timestamp":    j.arrival_timestamp.isoformat(),
-                        "scheduling_timestamp": j.scheduling_timestamp.isoformat(),
-                        "wait_sec":             wait_sec,
-                        "req_mem_mb":           j.req_mem_mb,
-                        "pred_mem_mb":          j.pred_mem_mb,
-                        "act_mem_mb":           rj.act_mem_mb,
-                        "req_cpu":              j.req_cpu,
-                        "is_spike":             rj.is_spike,
-                        "lifetime_sec":         rj.lifetime_sec,
-                        "node_id":              nid,
-                    }
-                    if rj.is_spike:
-                        spikes_this_batch += 1
-                    if j.tenant_id not in self._tenant_wait_times:
-                        self._tenant_wait_times[j.tenant_id] = deque(maxlen=self._k_window)
-                    self._tenant_wait_times[j.tenant_id].append(wait_sec)
-
-            if not made_progress:
-                consecutive_failures = 1
-
-            self.job_queue = [j for j in self.job_queue if j.job_id not in placed_ids]
-            placed_this_batch = len(placed_ids)
-
-            if placed_this_batch > 0:
-                self._update_W_t()
-
-            self._refresh_node_states(record_history=False)
-            for n in self.nodes:
-                if n.used_mb + n.os_tax_mb > n.capacity_mb:
-                    overflows_this_batch += 1
-
-        active_node_ids  = {rj.node_id for rj in self._running_jobs}
-        total_nodes_used = len(active_node_ids)
-
-        eff_pcts  = []
-        phys_pcts = []
-        for n in self.nodes:
-            phys_pcts.append((n.used_mb / n.capacity_mb) * 100)
-            m_cap = compute_available_capacity(n)
-            eff_pcts.append((n.used_mb / max(1.0, m_cap)) * 100)
-
-        active_eff_pcts = [p for n, p in zip(self.nodes, eff_pcts) if n.used_mb > 0]
-        avg_eff_active  = (sum(active_eff_pcts) / len(active_eff_pcts)
-                           if active_eff_pcts else 0.0)
-
-        return BatchResult(
-            batch_id                = batch_id,
-            jobs_generated          = len(new_jobs),
-            jobs_placed             = placed_this_batch,
-            queue_size_after        = len(self.job_queue),
-            solver_calls            = solver_calls,
-            consecutive_failures    = consecutive_failures,
-            node_violations         = node_violations_start,
-            spike_count             = spikes_this_batch,
-            physical_overflow_count = overflows_this_batch,
-            jobs_expired            = expired_count,
-            nodes_assigned          = len(nodes_assigned_set),
-            total_nodes_used        = total_nodes_used,
-            avg_eff_mem_pct         = sum(eff_pcts)  / len(eff_pcts),
-            avg_phys_mem_pct        = sum(phys_pcts) / len(phys_pcts),
-            avg_eff_active_pct      = avg_eff_active,
-        )
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # Private helpers
-    # ─────────────────────────────────────────────────────────────────────────
-
-    def _get_groups_for_interval(
-        self, plan_output: Optional[dict], batch_id: int
-    ) -> list[dict]:
-        """Return tenant groups for this simulation step from the plan output."""
-        fallback = [{"tenant_ids": [], "machine_ids": [], "exclusive": False}]
-        if plan_output is None:
-            return fallback
-        intervals = plan_output.get("intervals", [])
-        if not intervals:
-            return fallback
-        h = batch_id % len(intervals)
-        return intervals[h].get("groups", fallback)
-
-    def _bump_wait_for_unplaced(self, unplaced_jobs: list[Job], batch_sec: int) -> None:
-        """Record a synthetic wait event for each unplaced job so W_t rises."""
-        for j in unplaced_jobs:
-            tid = j.tenant_id
-            if tid not in self._tenant_wait_times:
-                self._tenant_wait_times[tid] = deque(maxlen=self._k_window)
-            self._tenant_wait_times[tid].append(float(batch_sec))
-        if unplaced_jobs:
-            self._update_W_t()
+    # ── Config-aware overrides ─────────────────────────────────────────────────
 
     def _make_jobs(self, batch_id: int) -> list[Job]:
-        cfg          = self._sim_config
-        jobs_min     = int(cfg.get('jobs_min_per_round', self._jobs_per_round))
-        jobs_max     = int(cfg.get('jobs_max_per_round', jobs_min))
+        """Generate jobs only on arrival-interval boundaries; uses config ranges."""
+        cfg              = self._sim_config
+        arrival_interval = max(1, int(cfg.get('job_arrival_interval', 1)))
+        if batch_id % arrival_interval != 0:
+            return []
+        jobs_min = int(cfg.get('jobs_min_per_round', self._jobs_per_round))
+        jobs_max = int(cfg.get('jobs_max_per_round', jobs_min))
         if jobs_min < jobs_max:
             mean     = (jobs_min + jobs_max) / 2.0
             std      = (jobs_max - jobs_min) / 6.0
@@ -468,16 +331,14 @@ class SimulationManager:
         else:
             num_jobs = max(1, jobs_min)
         num_tenants = int(cfg.get('num_tenants', NUM_TENANTS))
-        jobs        = generate_jobs(batch_id, num_jobs=num_jobs,
-                                    num_tenants=num_tenants,
-                                    rng=self.rng, config=cfg)
+        jobs = generate_jobs(batch_id, num_jobs=num_jobs,
+                             num_tenants=num_tenants, rng=self.rng, config=cfg)
         for j in jobs:
             j.arrival_timestamp = self.sim_time
-            # arrival_round = batch_id + 1 so wait_intervals = 0 this step
-            j.arrival_round     = batch_id + 1
         return jobs
 
     def _start_job(self, job: Job, node_id: int) -> RunningJob:
+        """Place job; reads spike probability and lifetime bounds from config."""
         job.scheduling_timestamp = self.sim_time
         cfg        = self._sim_config
         spike_prob = float(cfg.get('spike_prob_pct', SPIKE_PROB * 100)) / 100.0
@@ -487,42 +348,19 @@ class SimulationManager:
         max_life   = float(cfg.get('max_lifetime_sec', MAX_LIFETIME_SEC))
         lifetime   = float(self.rng.uniform(min_life, max_life))
         rj = RunningJob(
-            job=job, node_id=node_id, act_mem_mb=act_mem_mb,
-            is_spike=spike_frac > 0.0, start_time=self.sim_time,
-            lifetime_sec=lifetime,
+            job          = job,
+            node_id      = node_id,
+            act_mem_mb   = act_mem_mb,
+            is_spike     = spike_frac > 0.0,
+            start_time   = self.sim_time,
+            lifetime_sec = lifetime,
         )
         self._running_jobs.append(rj)
         return rj
 
-    def _expire_jobs(self) -> int:
-        active, expired = [], []
-        for rj in self._running_jobs:
-            (expired if rj.has_expired(self.sim_time) else active).append(rj)
-        self._running_jobs = active
-        return len(expired)
-
-    def _refresh_node_states(self, record_history: bool) -> int:
-        used = {n.node_id: 0.0 for n in self.nodes}
-        for rj in self._running_jobs:
-            used[rj.node_id] += rj.act_mem_mb
-        violations = 0
-        for n in self.nodes:
-            n.used_mb    = used[n.node_id]
-            m_cap        = compute_available_capacity(n)
-            in_overflow  = n.used_mb > m_cap
-            in_violation = n.used_mb > n.capacity_mb
-            if record_history:
-                n.overflow_history.append(in_overflow)
-                n.violation_history.append(in_violation)
-            if in_overflow:
-                violations += 1
-        return violations
-
-    def _update_W_t(self) -> None:
-        self.W_t = {
-            t: sum(ws) / len(ws)
-            for t, ws in self._tenant_wait_times.items()
-        }
+    def run_step(self, batch_id: int, plan_output: Optional[dict] = None) -> BatchResult:
+        """Single scheduling epoch — delegates to ClusterManager._run_batch()."""
+        return self._run_batch(batch_id, plan_output)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -551,6 +389,12 @@ class SimulationState:
         self.recent_placements: list = []
         self.last_plan_ahead: dict | None = None
         self.last_batch_result: BatchResult | None = None
+        self._log_file = None
+        if int(cfg.get('enable_logging', 0)):
+            import json as _json, pathlib as _pl
+            log_path = _pl.Path(__file__).parent / 'sim_log.jsonl'
+            self._log_file = open(log_path, 'w', encoding='utf-8')
+            self._json = _json
 
         # Running cumulative totals
         self._total_generated:  int   = 0
@@ -567,7 +411,7 @@ class SimulationState:
 
     def step(self) -> None:
         """Advance one scheduling epoch."""
-        plan_ahead_i = int(self.cfg.get('plan_ahead_interval', 50))
+        plan_ahead_i = int(self.cfg.get('horizon_steps', 50))
 
         cm          = self.manager
         before_keys = set(cm.scheduling_log.keys())
@@ -603,28 +447,66 @@ class SimulationState:
         self._sum_solver_calls += result.solver_calls
         self._num_steps        += 1
 
-        # Fire plan-ahead at configured interval
+        # Structured log entry (when enable_logging=1)
+        if self._log_file is not None:
+            log_entry = {
+                "interval":           self.interval,
+                "jobs_generated":     result.jobs_generated,
+                "jobs_placed":        result.jobs_placed,
+                "queue_size":         result.queue_size_after,
+                "node_violations":    result.node_violations,
+                "spike_count":        result.spike_count,
+                "overflow_count":     result.physical_overflow_count,
+                "jobs_expired":       result.jobs_expired,
+                "solver_calls":       result.solver_calls,
+                "avg_eff_mem_pct":    round(result.avg_eff_mem_pct,  2),
+                "avg_phys_mem_pct":   round(result.avg_phys_mem_pct, 2),
+                "avg_act_pct":        round(result.avg_eff_active_pct, 2),
+                "nodes_assigned":     result.nodes_assigned,
+                "total_nodes_used":   result.total_nodes_used,
+                "W_t":                {str(k): round(v, 2) for k, v in self.manager.W_t.items()},
+                "running_jobs":       len(self.manager._running_jobs),
+            }
+            self._log_file.write(self._json.dumps(log_entry) + "\n")
+            self._log_file.flush()
+
+        # Fire plan-ahead at configured interval (with live feedback from manager)
         if self.interval > 0 and self.interval % plan_ahead_i == 0:
-            self.last_plan_ahead = run_plan_ahead(self.cfg, self.interval)
+            self.last_plan_ahead = run_plan_ahead(
+                self.cfg, self.interval,
+                feedback_wait = dict(cm.W_t),
+                feedback_vbar = {
+                    n.node_id: compute_violation_rate(n.overflow_history, cm._k_window)
+                    for n in cm.nodes
+                },
+            )
         elif self.last_plan_ahead is not None:
             # Advance current_slot pointer so the frontend highlights correctly
             horizon       = int(self.last_plan_ahead.get("planning_horizon", plan_ahead_i))
-            access_period = int(self.last_plan_ahead.get("access_period", 4))
+            period_steps = int(self.last_plan_ahead.get("period_steps", 4))
             num_slots     = int(self.last_plan_ahead.get("num_slots", 1))
             pos           = self.interval % horizon if horizon > 0 else 0
             self.last_plan_ahead["current_slot"] = min(
-                pos // access_period, num_slots - 1
+                pos // period_steps, num_slots - 1
             )
 
     def trigger_plan_ahead(self) -> dict:
-        """Run plan-ahead immediately (on-demand from the frontend button)."""
-        self.last_plan_ahead = run_plan_ahead(self.cfg, self.interval)
+        """Run plan-ahead immediately (on-demand from frontend) with live feedback."""
+        cm = self.manager
+        self.last_plan_ahead = run_plan_ahead(
+            self.cfg, self.interval,
+            feedback_wait = dict(cm.W_t),
+            feedback_vbar = {
+                n.node_id: compute_violation_rate(n.overflow_history, cm._k_window)
+                for n in cm.nodes
+            },
+        )
         return self.last_plan_ahead
 
     @property
     def sim_totals(self) -> dict:
         n = max(1, self._num_steps)
-        q = len(self.manager.job_queue) + len(self.manager._staged_queue)
+        q = len(self.manager.job_queue)
         return {
             "num_batches":          self._num_steps,
             "k_window":             self.manager._k_window,

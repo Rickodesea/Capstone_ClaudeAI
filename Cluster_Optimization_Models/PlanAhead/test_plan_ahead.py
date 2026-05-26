@@ -1,10 +1,12 @@
 """
 test_plan_ahead.py
 ───────────────────
-Behavioral tests for the plan-ahead MISOCP.
+Behavioral tests for the plan-ahead MISOCP / MILP model.
 
-Each test verifies one mathematical property of the optimal solution.
-The model is solved once at module load and shared across all tests.
+Tests are grouped into:
+  - Core correctness (small default instance, solved once)
+  - Structural / format tests
+  - Large-scale test (25 nodes, 8 tenants) verifying good distribution
 
 Run:
     python test_plan_ahead.py
@@ -18,14 +20,17 @@ import gurobipy as gp
 from gurobipy import GRB
 
 from plan_ahead_data import build_synthetic_data, make_gurobi_env
-from plan_ahead_optimizer import build_model, extract_tenant_access_schedule
+from plan_ahead_optimizer import build_model, extract_plan_output, extract_tenant_access_schedule
 
-# ── Solve once, share across all tests ────────────────────────────────────
 
-_P    = build_synthetic_data()
+# ── Shared model (default config — solved once) ───────────────────────────
+
+_P    = build_synthetic_data(seed=42, n_tenants=4, n_nodes=6,
+                              n_intervals=3, n_exclusive=1,
+                              min_machines_per_tenant=2)
 _env  = make_gurobi_env()
-_m, _vars = build_model(_P, _env)
-_m.Params.TimeLimit    = 120
+_m, _vars = build_model(_P, _env, use_socp=True)   # SOCP (Cantelli cone) — default mode
+_m.Params.TimeLimit    = 60
 _m.Params.MIPGap       = 0.01
 _m.Params.LogToConsole = 0
 _m.optimize()
@@ -33,7 +38,7 @@ _m.optimize()
 SOLVED = _m.Status in (GRB.OPTIMAL, GRB.TIME_LIMIT, GRB.SUBOPTIMAL)
 
 
-# ── Test helpers ───────────────────────────────────────────────────────────
+# ── Test helpers ──────────────────────────────────────────────────────────
 
 _passed = 0
 _failed = 0
@@ -51,304 +56,341 @@ def _assert(condition: bool, msg: str) -> None:
 
 def _require_solved() -> bool:
     if not SOLVED:
-        print("  SKIP  (model not solved — Gurobi status "
-              f"{_m.Status})")
+        print(f"  SKIP  (model not solved — status {_m.Status})")
         return False
     return True
 
 
-# ── Test 1: model solves to feasibility ───────────────────────────────────
+# ── Test 1: model solves to feasibility ──────────────────────────────────
 
 def test_model_solves():
-    """The default synthetic instance must yield a feasible solution."""
+    """Default synthetic instance must reach a feasible solution."""
     _assert(SOLVED, f"model solved (status={_m.Status})")
 
 
-# ── Test 2: admission — at least one tenant admitted ──────────────────────
+# ── Test 2: shared tenants assigned per period ────────────────────────────
 
-def test_at_least_one_tenant_admitted():
-    """With profitable tenants and sufficient capacity, someone gets admitted."""
+def test_shared_tenants_assigned():
+    """C_share: every shared tenant has >= 1 machine in every period."""
     if not _require_solved():
         return
-    a = _vars['a']
-    admitted = sum(1 for i in _P['T'] if a[i].X > 0.5)
-    _assert(admitted >= 1,
-            f"at least one tenant admitted (got {admitted}/{len(_P['T'])})")
-
-
-# ── Test 3: admitted tenant has a placement ────────────────────────────────
-
-def test_admitted_tenant_has_placement():
-    """Every admitted tenant must have at least one workload placed."""
-    if not _require_solved():
-        return
-    a, x = _vars['a'], _vars['x']
-    T, Wi, N, H = _P['T'], _P['Wi'], _P['N'], _P['H']
-
-    all_ok = True
-    for i in T:
-        if a[i].X > 0.5:
-            placed = sum(x[i, j, n, t].X
-                         for j in Wi[i] for n in N for t in H)
-            if placed < 0.5:
-                all_ok = False
-                _assert(False,
-                        f"admitted tenant {i} has no placement (placed={placed:.1f})")
-    _assert(all_ok, "all admitted tenants have at least one workload placed")
-
-
-# ── Test 4: placement integrity — at most one node per workload ────────────
-
-def test_placement_integrity():
-    """C1: sum_n x[i,j,n,t] <= 1 for every (i,j,t)."""
-    if not _require_solved():
-        return
-    x = _vars['x']
-    T, Wi, N, H = _P['T'], _P['Wi'], _P['N'], _P['H']
+    T_s, M, H = _P['T_s'], _P['M'], _P['H']
+    y = _vars['y']
 
     violations = []
-    for i in T:
-        for j in Wi[i]:
-            for t in H:
-                total = sum(x[i, j, n, t].X for n in N)
-                if total > 1.5:
-                    violations.append((i, j, t, total))
+    for i in T_s:
+        for h in H:
+            count = sum(1 for n in M if y[i, n, h].X > 0.5)
+            if count < 1:
+                violations.append((i, h))
     _assert(len(violations) == 0,
-            f"C1 placement integrity (violations={violations})")
+            f"C_share: all shared tenants assigned every period (violations={violations})")
 
 
-# ── Test 5: isolation primitive floor for tenant 2 ────────────────────────
+# ── Test 3: exclusive tenants assigned ───────────────────────────────────
 
-def test_isolation_primitive_floor():
-    """C3b: tenant 2 has k_min=1, so primitive 0 (none) must never be selected."""
+def test_exclusive_tenants_assigned():
+    """C_excl2: every exclusive tenant has >= 1 machine."""
     if not _require_solved():
         return
-    w = _vars['w']
-    Wi, H = _P['Wi'], _P['H']
+    T_e, M = _P['T_e'], _P['M']
+    e = _vars['e']
 
-    bad = [(2, j, t) for j in Wi[2] for t in H if w[2, j, 0, t].X > 0.5]
-    _assert(len(bad) == 0,
-            f"tenant 2 never uses primitive 0 (violations={bad})")
+    violations = [i for i in T_e if sum(1 for n in M if e[i, n].X > 0.5) < 1]
+    _assert(len(violations) == 0,
+            f"C_excl2: all exclusive tenants assigned (violations={violations})")
 
 
-# ── Test 6: admitted tenant selects exactly one primitive ─────────────────
+# ── Test 4: exclusive assignments are horizon-stable ─────────────────────
 
-def test_exactly_one_primitive_per_admitted_workload():
-    """C3a: admitted workloads have sum_k w[i,j,k,t] == 1."""
+def test_exclusive_assignments_stable():
+    """Exclusive tenants must have the same machines in every period."""
     if not _require_solved():
         return
-    a, w = _vars['a'], _vars['w']
-    T, Wi, K, H = _P['T'], _P['Wi'], _P['K'], _P['H']
+    schedule = extract_tenant_access_schedule(_vars, _P)
+    T_e, H = _P['T_e'], _P['H']
+
+    for i in T_e:
+        machines_by_period = [frozenset(schedule[(i, h)]) for h in H]
+        all_same = all(m == machines_by_period[0] for m in machines_by_period)
+        _assert(all_same,
+                f"exclusive tenant {i}: same machines every period "
+                f"({[list(s) for s in machines_by_period]})")
+
+
+# ── Test 5: exclusive-shared separation ──────────────────────────────────
+
+def test_exclusive_shared_separation():
+    """C_sep: no machine is used exclusively AND by a shared tenant in the same period."""
+    if not _require_solved():
+        return
+    T_e, T_s, M, H = _P['T_e'], _P['T_s'], _P['M'], _P['H']
+    e, y = _vars['e'], _vars['y']
 
     violations = []
-    for i in T:
-        if a[i].X > 0.5:
-            for j in Wi[i]:
-                for t in H:
-                    total_w = sum(w[i, j, k, t].X for k in K)
-                    if abs(total_w - 1.0) > 0.1:
-                        violations.append((i, j, t, total_w))
+    for n in M:
+        excl_sum = sum(e[i, n].X for i in T_e)
+        if excl_sum > 0.5:
+            for j in T_s:
+                for h in H:
+                    if y[j, n, h].X > 0.5:
+                        violations.append((j, n, h))
     _assert(len(violations) == 0,
-            f"C3a exactly one primitive per admitted workload (violations={violations})")
+            f"C_sep: exclusive machines not shared (violations={violations})")
 
 
-# ── Test 7: compliance / data-residency ───────────────────────────────────
+# ── Test 6: capacity + Cantelli buffer constraint (SOCP mode) ────────────
 
-def test_compliance_residency():
-    """C1c: workload (2,1) may only be placed on nodes 2 or 3."""
+def test_capacity_constraint():
+    """C1a (SOCP): alloc + kappa*t <= C_eff*z for each machine per period."""
     if not _require_solved():
         return
-    x = _vars['x']
-    H = _P['H']
-    allowed = {2, 3}
-
-    bad = [(n, t) for n in _P['N'] for t in H
-           if n not in allowed and x[2, 1, n, t].X > 0.5]
-    _assert(len(bad) == 0,
-            f"wl(2,1) only on nodes {{2,3}} (bad placements={bad})")
-
-
-# ── Test 8: migration budget per tenant ───────────────────────────────────
-
-def test_migration_budget():
-    """C6c: migrations per tenant per slot must not exceed Delta_i."""
-    if not _require_solved():
-        return
-    m_mig = _vars['m_mig']
-    T, Wi, N, H = _P['T'], _P['Wi'], _P['N'], _P['H']
+    T_s, M, H = _P['T_s'], _P['M'], _P['H']
+    f, z, t   = _vars['f'], _vars['z'], _vars['t']
+    C_eff     = _P['C_eff']
+    kappa     = _P['kappa']
 
     violations = []
-    for i in T:
-        for t in H:
-            total_mig = sum(m_mig[i, j, n, t].X for j in Wi[i] for n in N)
-            if total_mig > _P['Delta_i'][i] + 0.5:
-                violations.append((i, t, total_mig))
+    for n in M:
+        for h in H:
+            alloc  = sum(f[i, n, h].X for i in T_s)
+            t_val  = t[n, h].X if t is not None else 0.0
+            rhs    = C_eff[n] * z[n, h].X
+            if alloc + kappa * t_val > rhs + 1e-3:
+                violations.append((n, h, round(alloc + kappa*t_val, 4), round(rhs, 4)))
     _assert(len(violations) == 0,
-            f"C6c migration budget respected (violations={violations})")
+            f"C1a SOCP capacity respected (violations={violations})")
 
 
-# ── Test 9: no migrations at t=0 ──────────────────────────────────────────
+# ── Test 7: fairness sigma in [0, 1] ─────────────────────────────────────
 
-def test_no_migration_at_t0():
-    """C6a: m_mig[i,j,n,0] == 0 for all i,j,n (no prior period)."""
-    if not _require_solved():
-        return
-    m_mig = _vars['m_mig']
-    T, Wi, N = _P['T'], _P['Wi'], _P['N']
-
-    bad = [(i, j, n) for i in T for j in Wi[i] for n in N
-           if m_mig[i, j, n, 0].X > 0.5]
-    _assert(len(bad) == 0,
-            f"C6a no migrations at t=0 (violations={bad})")
-
-
-# ── Test 10: DRF fairness — sigma nonneg and bounded ─────────────────────
-
-def test_drf_sigma_range():
-    """C7: sigma (min DRF satisfaction) in [0, 1]."""
+def test_fairness_sigma_range():
+    """sigma (fairness ratio) must be in [0, 1]."""
     if not _require_solved():
         return
     sig = _vars['sigma'].X
     _assert(0.0 - 1e-6 <= sig <= 1.0 + 1e-6,
-            f"sigma in [0,1] (sigma={sig:.4f})")
+            f"sigma in [0,1]  (sigma={sig:.4f})")
 
 
-# ── Test 11: rejected tenant has no placement ─────────────────────────────
+# ── Test 8: always-available machines always active ──────────────────────
 
-def test_rejected_tenant_has_no_placement():
-    """Rejected tenants (a[i]=0) must have all x[i,j,n,t]=0."""
+def test_always_available_active():
+    """C_aa: always-available machines (M_a) have z[n,h]=1 in every period."""
     if not _require_solved():
         return
-    a, x = _vars['a'], _vars['x']
-    T, Wi, N, H = _P['T'], _P['Wi'], _P['N'], _P['H']
+    M_a, H = _P['M_a'], _P['H']
+    z = _vars['z']
 
-    violations = []
-    for i in T:
-        if a[i].X < 0.5:
-            for j in Wi[i]:
-                for n in N:
-                    for t in H:
-                        if x[i, j, n, t].X > 0.5:
-                            violations.append((i, j, n, t))
+    violations = [(n, h) for n in M_a for h in H if z[n, h].X < 0.5]
     _assert(len(violations) == 0,
-            f"rejected tenants have no placements (violations={violations})")
+            f"C_aa: all M_a machines always active (violations={violations})")
 
 
-# ── Test 12: TenantAccessSchedule format ──────────────────────────────────
+# ── Test 9: additional machines gated by z_on ────────────────────────────
 
-def test_tenant_access_schedule_format():
-    """extract_tenant_access_schedule returns dict[(int,int) -> list[int]]."""
+def test_additional_machine_gate():
+    """C_act: additional machine n active in period h only if z_on[n]=1."""
+    if not _require_solved():
+        return
+    M_b, H = _P['M_b'], _P['H']
+    z, z_on = _vars['z'], _vars['z_on']
+
+    violations = [
+        (n, h) for n in M_b for h in H
+        if z[n, h].X > 0.5 and z_on[n].X < 0.5
+    ]
+    _assert(len(violations) == 0,
+            f"C_act: additional machines gated by z_on (violations={violations})")
+
+
+# ── Test 10: at most one exclusive tenant per machine ─────────────────────
+
+def test_at_most_one_exclusive_per_machine():
+    """C_excl1: each machine holds at most one exclusive tenant."""
+    if not _require_solved():
+        return
+    T_e, M = _P['T_e'], _P['M']
+    e = _vars['e']
+
+    violations = [
+        n for n in M
+        if sum(e[i, n].X for i in T_e) > 1.5
+    ]
+    _assert(len(violations) == 0,
+            f"C_excl1: at most one exclusive per machine (violations={violations})")
+
+
+# ── Test 11: extract_plan_output format ──────────────────────────────────
+
+def test_extract_plan_output_format():
+    """extract_plan_output returns dict with 'intervals' key of correct length."""
+    if not _require_solved():
+        return
+    out = extract_plan_output(_vars, _P)
+
+    has_intervals = 'intervals' in out
+    _assert(has_intervals, "extract_plan_output has 'intervals' key")
+    if not has_intervals:
+        return
+
+    n_intervals = len(out['intervals'])
+    _assert(n_intervals == len(_P['H']),
+            f"correct number of intervals (expected {len(_P['H'])}, got {n_intervals})")
+
+    all_tenants_present = True
+    T_all = set(_P['T'])
+    for idict in out['intervals']:
+        tenants_in_interval = set(
+            tid for g in idict['groups'] for tid in g['tenant_ids']
+        )
+        if tenants_in_interval != T_all:
+            all_tenants_present = False
+            _assert(False, f"all tenants in interval {idict['interval']} "
+                           f"(missing={T_all - tenants_in_interval})")
+    _assert(all_tenants_present, "all tenants appear in every interval")
+
+
+# ── Test 12: extract_tenant_access_schedule format ───────────────────────
+
+def test_extract_tenant_access_schedule_format():
+    """extract_tenant_access_schedule returns {(tenant, period): [machines]}."""
     if not _require_solved():
         return
     schedule = extract_tenant_access_schedule(_vars, _P)
 
-    T, H, N = _P['T'], _P['H'], _P['N']
-    expected_keys = {(i, t) for i in T for t in H}
+    T, H = _P['T'], _P['H']
+    expected_keys = {(i, h) for i in T for h in H}
 
     keys_ok  = set(schedule.keys()) == expected_keys
     types_ok = all(isinstance(v, list) for v in schedule.values())
-    range_ok = all(
-        all(0 <= n < len(N) for n in nodes)
-        for nodes in schedule.values()
-    )
 
-    _assert(keys_ok,  f"schedule has all (tenant, slot) keys (got {len(schedule)})")
+    _assert(keys_ok,  f"schedule has all (tenant, period) keys (got {len(schedule)})")
     _assert(types_ok, "all schedule values are lists")
-    _assert(range_ok, "all node IDs in schedule are valid")
+
+    n_total = len(_P['M'])
+    range_ok = all(
+        all(0 <= n < n_total for n in machines)
+        for machines in schedule.values()
+    )
+    _assert(range_ok, "all machine IDs in schedule are valid")
 
 
-# ── Test 13: admitted tenant appears in access schedule ───────────────────
+# ── Test 13: admitted tenant appears in schedule ─────────────────────────
 
-def test_admitted_tenant_in_schedule():
-    """An admitted tenant with placements appears in TenantAccessSchedule."""
+def test_shared_tenant_in_schedule():
+    """Every shared tenant has >= 1 machine in every period in the schedule."""
     if not _require_solved():
         return
-    a = _vars['a']
     schedule = extract_tenant_access_schedule(_vars, _P)
-    H = _P['H']
+    T_s, H = _P['T_s'], _P['H']
 
-    for i in _P['T']:
-        if a[i].X > 0.5:
-            has_node = any(len(schedule[(i, t)]) > 0 for t in H)
-            _assert(has_node,
-                    f"admitted tenant {i} appears in schedule (nodes="
-                    f"{[schedule[(i,t)] for t in H]})")
+    for i in T_s:
+        has_node = all(len(schedule[(i, h)]) > 0 for h in H)
+        _assert(has_node,
+                f"shared tenant {i} in schedule every period "
+                f"(nodes={[schedule[(i,h)] for h in H]})")
 
 
-# ── Test 14: N_it present with correct keys ───────────────────────────────
+# ── Test 14: allocation covers demand per shared tenant ───────────────────
 
-def test_N_it_shape():
-    """N_it must be in the data dict with keys {(i, t) for i in T for t in H}."""
-    T, H = _P['T'], _P['H']
-    expected_keys = {(i, t) for i in T for t in H}
-
-    has_key = 'N_it' in _P
-    _assert(has_key, "N_it key present in data dict")
-    if not has_key:
+def test_demand_satisfaction():
+    """C3: total allocation per shared tenant per period >= feedback demand."""
+    if not _require_solved():
         return
+    T_s, M, H = _P['T_s'], _P['M'], _P['H']
+    f, u   = _vars['f'], _P['u']
 
-    actual_keys = set(_P['N_it'].keys())
-    keys_match = actual_keys == expected_keys
-    _assert(keys_match,
-            f"N_it has correct (tenant, slot) keys "
-            f"(expected {len(expected_keys)}, got {len(actual_keys)})")
+    violations = []
+    for i in T_s:
+        for h in H:
+            alloc  = sum(f[i, n, h].X for n in M)
+            demand = u[(i, h)]
+            if alloc < demand - 1e-3:
+                violations.append((i, h, alloc, demand))
+    _assert(len(violations) == 0,
+            f"C3 demand satisfied (violations={violations})")
 
-    all_positive = all(v > 0 for v in _P['N_it'].values())
-    _assert(all_positive, "all N_it values are positive integers")
 
+# ── Test 15: large config — 25 nodes, 8 tenants ──────────────────────────
 
-# ── Test 15: coll_id shape and range ──────────────────────────────────────
+def test_large_config_distribution():
+    """
+    With 25 nodes and 8 all-shared tenants (0% exclusive):
+      - Model solves
+      - Infra cost = 0 (always-on dominates) or model uses many nodes
+      - Each tenant gets assigned to >= 2 nodes per period on average
+        (distribution is better than packing into 3 nodes)
+    """
+    print("\n  [large config: 25 nodes, 8 tenants, 0% exclusive]")
 
-def test_coll_id_shape():
-    """coll_id must cover all (tenant, workload) pairs with values in [0, C_i[i])."""
-    T, Wi = _P['T'], _P['Wi']
-    expected_keys = {(i, j) for i in T for j in Wi[i]}
-
-    has_key = 'coll_id' in _P
-    _assert(has_key, "coll_id key present in data dict")
-    if not has_key:
-        return
-
-    actual_keys = set(_P['coll_id'].keys())
-    _assert(actual_keys == expected_keys,
-            f"coll_id has correct (tenant, workload) keys "
-            f"(expected {len(expected_keys)}, got {len(actual_keys)})")
-
-    in_range = all(
-        0 <= v < _P['C_i'][i]
-        for (i, _j), v in _P['coll_id'].items()
+    P_big = build_synthetic_data(
+        seed                    = 99,
+        n_tenants               = 8,
+        n_nodes                 = 25,
+        n_intervals             = 4,
+        n_always_available      = 10,
+        n_exclusive             = 0,
+        node_capacity           = 10.0,
+        min_machines_per_tenant = 2,
     )
-    _assert(in_range, "all coll_id values in [0, C_i[i])")
+    # Zero infra cost so model distributes tenants across many machines
+    P_big['lam'][0] = 0.0
 
-    has_c_i = 'C_i' in _P
-    _assert(has_c_i, "C_i key present in data dict")
-    if has_c_i:
-        all_pos = all(v > 0 for v in _P['C_i'].values())
-        _assert(all_pos, "all C_i values are positive")
+    env = make_gurobi_env()
+    m, v = build_model(P_big, env, use_socp=True)  # SOCP (default)
+    m.Params.TimeLimit    = 60
+    m.Params.MIPGap       = 0.05
+    m.Params.LogToConsole = 0
+    m.optimize()
+
+    big_solved = m.Status in (GRB.OPTIMAL, GRB.TIME_LIMIT, GRB.SUBOPTIMAL)
+    _assert(big_solved, f"large config solves (status={m.Status})")
+    if not big_solved:
+        return
+
+    T_s, M, H = P_big['T_s'], P_big['M'], P_big['H']
+    y = v['y']
+
+    # Count average machines per shared tenant per period
+    total_machines = sum(
+        1 for i in T_s for h in H for n in M if y[i, n, h].X > 0.5
+    )
+    avg_per_tenant_per_period = total_machines / max(1, len(T_s) * len(H))
+
+    _assert(avg_per_tenant_per_period >= 2.0,
+            f"large config: avg machines/tenant/period >= 2.0 "
+            f"(got {avg_per_tenant_per_period:.1f})")
+
+    sig = v['sigma'].X
+    _assert(sig > 0.5, f"large config: fairness sigma > 0.5 (got {sig:.3f})")
+
+    print(f"    avg machines/tenant/period = {avg_per_tenant_per_period:.1f}, "
+          f"sigma = {sig:.3f}")
 
 
-# ── Entry point ─────────────────────────────────────────────────────────────
+# ── Entry point ──────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    print("Plan-ahead MISOCP behavioral tests")
-    print("=" * 50)
+    print("Plan-ahead model behavioral tests")
+    print("=" * 55)
 
     test_model_solves()
-    test_at_least_one_tenant_admitted()
-    test_admitted_tenant_has_placement()
-    test_placement_integrity()
-    test_isolation_primitive_floor()
-    test_exactly_one_primitive_per_admitted_workload()
-    test_compliance_residency()
-    test_migration_budget()
-    test_no_migration_at_t0()
-    test_drf_sigma_range()
-    test_rejected_tenant_has_no_placement()
-    test_tenant_access_schedule_format()
-    test_admitted_tenant_in_schedule()
-    test_N_it_shape()
-    test_coll_id_shape()
+    test_shared_tenants_assigned()
+    test_exclusive_tenants_assigned()
+    test_exclusive_assignments_stable()
+    test_exclusive_shared_separation()
+    test_capacity_constraint()
+    test_fairness_sigma_range()
+    test_always_available_active()
+    test_additional_machine_gate()
+    test_at_most_one_exclusive_per_machine()
+    test_extract_plan_output_format()
+    test_extract_tenant_access_schedule_format()
+    test_shared_tenant_in_schedule()
+    test_demand_satisfaction()
+    test_large_config_distribution()
 
-    print("=" * 50)
+    print("=" * 55)
     print(f"Results: {_passed} passed, {_failed} failed")
     sys.exit(0 if _failed == 0 else 1)

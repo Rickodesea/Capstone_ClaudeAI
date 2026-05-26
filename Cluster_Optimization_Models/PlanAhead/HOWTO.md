@@ -64,7 +64,7 @@ The Cluster Manager receives this dict and schedules one real-time solver call p
 | n_nodes | 5 | Total machines (M = M_a ∪ M_b) |
 | n_intervals | 2 | Planning horizon length (number of intervals H) |
 | n_always_available | 3 | \|M_a\| — always-on machines; rest are additional (M_b) |
-| exclusive_frac | 0.25 | Fraction of tenants randomly tagged exclusive (T_e) |
+| n_exclusive | 1 | Number of tenants randomly tagged exclusive (T_e); clamped to [0, n_tenants] |
 | node_capacity | 10.0 | C[n] — resource capacity per machine (uniform) |
 | tenant_usage_min | 0.8 | Lower bound for u[i,h] (capacity units) |
 | tenant_usage_max | 6.0 | Upper bound for u[i,h] (capacity units) |

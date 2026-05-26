@@ -30,7 +30,7 @@ from optimizer_google_or import solve
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _node(node_id, capacity_mb=16_384, os_tax_mb=1_024,
-          used_mb=0.0, cpu_cores=32.0, violation_history=None):
+          used_mb=0.0, cpu_cores=32.0, overflow_history=None):
     n = NodeState(
         node_id=node_id,
         capacity_mb=capacity_mb,
@@ -38,8 +38,8 @@ def _node(node_id, capacity_mb=16_384, os_tax_mb=1_024,
         cpu_cores=cpu_cores,
         used_mb=used_mb,
     )
-    if violation_history is not None:
-        n.violation_history = list(violation_history)
+    if overflow_history is not None:
+        n.overflow_history = list(overflow_history)
     return n
 
 
@@ -102,8 +102,8 @@ def test_violated_node_blocked():
     """
     print("TEST 2: Fully-violated node receives no new jobs ...")
 
-    node0 = _node(0, violation_history=[True] * 10)   # v̄_0 = 1.0 -> R_eff = 0
-    node1 = _node(1, violation_history=[False] * 10)  # v̄_1 = 0.0 -> full capacity
+    node0 = _node(0, overflow_history=[True] * 10)    # v̄_0 = 1.0 -> R_eff = 0
+    node1 = _node(1, overflow_history=[False] * 10)   # v̄_1 = 0.0 -> full capacity
 
     jobs = [_job(f"j{i}") for i in range(8)]
 
@@ -296,7 +296,7 @@ def test_partial_vbar_limits_placement():
 
     # M_cap = 4096 - 512 - 0.10*4096 = 4096 - 512 - 409.6 = 3174.4 MB
     node0 = _node(0, capacity_mb=4_096, os_tax_mb=512,
-                  violation_history=[True, False] * 5)    # vbar = 0.5
+                  overflow_history=[True, False] * 5)     # vbar = 0.5
 
     from simulation_data import compute_available_capacity, compute_remaining_eff
     m_cap   = compute_available_capacity(node0)     # ≈ 3174 MB
@@ -457,42 +457,42 @@ def test_delayed_tenant_fills_capacity():
 
 def test_plan_ahead_access_blocks_node():
     """
-    C5: when tenant_node_access is provided, a job from tenant t can only
-    land on nodes in A_t.
+    C5: plan-ahead access control is enforced by the ClusterManager pre-filtering
+    group_nodes before each solve() call — the solver itself only sees its
+    authorised nodes. Two separate solve() calls simulate two tenant groups.
 
     Setup:
       - 3 nodes, all empty, all fit jobs easily
-      - 2 tenants: tenant 0 allowed only [node 0], tenant 1 allowed only [node 1]
-      - 3 jobs from tenant 0, 3 jobs from tenant 1
+      - Tenant 0 group: [node 0] only   → solve() called with [node 0]
+      - Tenant 1 group: [node 1] only   → solve() called with [node 1]
+      - Node 2 is never passed to either call
 
     Expected:
-      - All tenant 0 jobs land on node 0 (only authorised node)
-      - All tenant 1 jobs land on node 1 (only authorised node)
-      - Node 2 receives nothing (neither tenant is authorised there)
+      - All tenant 0 jobs land on node 0
+      - All tenant 1 jobs land on node 1
+      - Node 2 receives nothing
     """
-    print("TEST 13: C5 plan-ahead access control blocks unauthorised nodes ...")
+    print("TEST 13: C5 plan-ahead access control via pre-filtered groups ...")
 
-    nodes = [
+    all_nodes = [
         _node(0, capacity_mb=16_384, os_tax_mb=1_024, cpu_cores=32.0),
         _node(1, capacity_mb=16_384, os_tax_mb=1_024, cpu_cores=32.0),
         _node(2, capacity_mb=16_384, os_tax_mb=1_024, cpu_cores=32.0),
     ]
 
-    jobs = (
-        [_job(f"t0_j{i}", tenant_id=0, pred_mem_mb=500.0) for i in range(3)] +
-        [_job(f"t1_j{i}", tenant_id=1, pred_mem_mb=500.0) for i in range(3)]
-    )
+    t0_jobs = [_job(f"t0_j{i}", tenant_id=0, pred_mem_mb=500.0) for i in range(3)]
+    t1_jobs = [_job(f"t1_j{i}", tenant_id=1, pred_mem_mb=500.0) for i in range(3)]
 
-    # Tenant 0 -> node 0 only,  tenant 1 -> node 1 only
-    access = {0: [0], 1: [1]}
+    # ClusterManager pre-filters: group 0 gets node 0, group 1 gets node 1
+    p0 = solve(jobs=t0_jobs, nodes=[all_nodes[0]], W_t={})
+    p1 = solve(jobs=t1_jobs, nodes=[all_nodes[1]], W_t={})
+    placements = {**p0, **p1}
 
-    placements = solve(jobs=jobs, nodes=nodes, W_t={}, tenant_node_access=access)
-
-    t0_nodes = {placements[j.job_id] for j in jobs if j.tenant_id == 0 and placements.get(j.job_id) is not None}
-    t1_nodes = {placements[j.job_id] for j in jobs if j.tenant_id == 1 and placements.get(j.job_id) is not None}
-    t0_placed = sum(1 for j in jobs if j.tenant_id == 0 and placements.get(j.job_id) is not None)
-    t1_placed = sum(1 for j in jobs if j.tenant_id == 1 and placements.get(j.job_id) is not None)
-    node2_count = _placed_on(placements, 2)
+    t0_nodes  = {placements[j.job_id] for j in t0_jobs if placements.get(j.job_id) is not None}
+    t1_nodes  = {placements[j.job_id] for j in t1_jobs if placements.get(j.job_id) is not None}
+    t0_placed = sum(1 for j in t0_jobs if placements.get(j.job_id) is not None)
+    t1_placed = sum(1 for j in t1_jobs if placements.get(j.job_id) is not None)
+    node2_count = sum(1 for v in placements.values() if v == 2)
 
     print(f"  Tenant 0: {t0_placed}/3 placed, nodes used = {t0_nodes}")
     print(f"  Tenant 1: {t1_placed}/3 placed, nodes used = {t1_nodes}")
@@ -508,10 +508,10 @@ def test_plan_ahead_access_blocks_node():
 
 def test_plan_ahead_none_allows_all():
     """
-    C5 is inactive when tenant_node_access=None (default).
-    All jobs should be placed normally (consolidation onto node 0 first).
+    Without plan-ahead grouping, all nodes are passed to one solve() call
+    and all jobs compete freely (no access restriction).
     """
-    print("TEST 14: C5 disabled (None) allows all tenants on all nodes ...")
+    print("TEST 14: No plan-ahead grouping — all tenants compete on all nodes ...")
 
     nodes = [
         _node(0, capacity_mb=16_384, os_tax_mb=1_024, cpu_cores=32.0),
@@ -519,7 +519,7 @@ def test_plan_ahead_none_allows_all():
     ]
     jobs = [_job(f"j{i}", tenant_id=i % 2, pred_mem_mb=500.0) for i in range(4)]
 
-    placements = solve(jobs=jobs, nodes=nodes, W_t={}, tenant_node_access=None)
+    placements = solve(jobs=jobs, nodes=nodes, W_t={})
 
     placed = sum(1 for v in placements.values() if v is not None)
     print(f"  Placed: {placed}/4  (no access restriction)")

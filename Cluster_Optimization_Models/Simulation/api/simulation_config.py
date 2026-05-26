@@ -30,44 +30,47 @@ import numpy as np
 
 DEFAULT_CONFIG: dict = {
     # ── Cluster topology (sets) ───────────────────────────────────────────────
-    'num_nodes':              5,      # total machines in pool (M = M_a ∪ M_b)
+    'total_nodes':            8,      # total machines in pool (M = M_a ∪ M_b)
     'num_tenants':            3,      # total tenants (T = T_e ∪ T_s)
-    'num_always_available':   3,      # |M_a| — always-on machines; rest are additional
+    'always_on_nodes':        3,      # |M_a| — always-running machines; rest are additional
     'node_mem_min_gb':       16,      # GB — smallest machine RAM
     'node_mem_max_gb':       64,      # GB — largest machine RAM
-    'node_cpu_min':           8,      # cores — fewest CPU per machine
-    'node_cpu_max':          64,      # cores — most CPU per machine
+    'node_cpu_min':           2,      # cores — fewest CPU per machine
+    'node_cpu_max':           4,      # cores — most CPU per machine
     # ── Workload parameters ───────────────────────────────────────────────────
     'jobs_per_round':        20,      # new jobs per scheduling interval
+    'job_arrival_interval':   3,      # generate new jobs every N intervals (1 = every interval)
     'req_mem_min_mb':       512,      # MB — min declared memory per job
     'req_mem_max_mb':      1024,      # MB — max declared memory per job
     'req_cpu_min':          0.25,     # cores — min CPU request per job
-    'req_cpu_max':          4.0,      # cores — max CPU request per job
+    'req_cpu_max':          1.0,      # cores — max CPU request per job
     'spike_prob_pct':        10,      # % of placed jobs that spike above pred_mem
-    'min_lifetime_sec':      60,      # s — shortest job runtime
-    'max_lifetime_sec':     600,      # s — longest job runtime
+    'min_lifetime_sec':       4,      # s — shortest job runtime
+    'max_lifetime_sec':     180,      # s — longest job runtime
     # ── Model hyper-parameters ────────────────────────────────────────────────
     'k_window':              10,      # rolling window for v̄_n^SLA and W̄_t
     'mem_threshold_frac':  0.10,      # safety buffer = threshold_frac × M_n
     'request_per':          0.60,     # actual usage lower bound as fraction of request
     # ── Scheduler internals ───────────────────────────────────────────────────
-    'batch_duration_sec':    60,      # simulated seconds per interval
     'realtime_time_limit_ms': 2000,   # ms — solver time limit per realtime call (keep UI responsive)
     # ── Plan-ahead parameters ─────────────────────────────────────────────────
-    'plan_ahead_interval':   50,      # intervals between plan-ahead refreshes
-    'access_period':          4,      # intervals per planning interval in plan-ahead
-    'exclusive_frac':        0.00,    # fraction of tenants tagged exclusive (0 = none)
-    'node_capacity':         10.0,    # C[n] — resource capacity per machine (plan-ahead units)
-    'tenant_usage_min':       0.8,    # lower bound for u[i,h] (capacity units)
-    'tenant_usage_max':       6.0,    # upper bound for u[i,h] (capacity units)
-    'plan_time_limit':        30,     # s — Gurobi wall-clock limit per plan solve
-    'plan_mip_gap':           0.05,   # Gurobi relative optimality gap target
-    'use_socp':               0,      # 0 = MILP (fast); 1 = MISOCP (Cantelli cone)
-    'sigma_frac':             0.20,   # demand uncertainty fraction for Cantelli
-    'cantelli_epsilon':       0.10,   # Cantelli tail probability (ε=0.1 → κ=3.0)
+    'horizon_steps':              50,   # intervals in the planning horizon (plan-ahead refresh frequency)
+    'period_steps':                4,   # intervals per planning period (slot)
+    'num_exclusive_tenants':       1,   # how many tenants are exclusive (fixed machines, full horizon)
+    'plan_time_limit':            30,   # s — Gurobi wall-clock limit per plan solve
+    'plan_mip_gap':             0.05,   # Gurobi relative optimality gap target
+    'use_socp':                    1,   # 0 = MILP (fast, option only); 1 = MISOCP (Cantelli cone, default)
+    'sigma_frac':               0.20,   # demand uncertainty fraction for Cantelli
+    'cantelli_epsilon':         0.10,   # Cantelli tail probability (ε=0.1 → κ=3.0)
+    'plan_capacity_buffer':     0.25,   # fraction of C_eff reserved for realtime (MILP only)
+    'min_machines_per_tenant':     2,   # minimum machines each shared tenant receives per period
+    'feedback_alpha':            0.5,   # capacity reduction per unit SLA violation rate
+    'feedback_beta':             0.3,   # demand scale factor per unit normalised wait
+    'feedback_wait_ref':        10.0,   # reference wait (intervals) for normalising W̄_i
     # ── Workload range (Simulation-specific) ──────────────────────────────────
-    'jobs_min_per_round':     5,      # min jobs sampled per interval
+    'jobs_min_per_round':     3,      # min jobs sampled per interval
     'jobs_max_per_round':    20,      # max jobs sampled per interval
+    'enable_logging':         0,      # 1 = write detailed interval log to sim_log.jsonl
 }
 
 
@@ -86,7 +89,7 @@ def load_config(override: dict | None = None) -> dict:
 # § MODULE-LEVEL CONSTANTS  (kept for Realtime import compatibility)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-NUM_NODES:      int   = DEFAULT_CONFIG['num_nodes']
+NUM_NODES:      int   = DEFAULT_CONFIG['total_nodes']
 NUM_TENANTS:    int   = DEFAULT_CONFIG['num_tenants']
 NUM_BATCHES:    int   = 10
 JOBS_PER_ROUND: int   = DEFAULT_CONFIG['jobs_per_round']
@@ -115,7 +118,7 @@ MAX_LIFETIME_SEC:   float = DEFAULT_CONFIG['max_lifetime_sec']
 SPIKE_PROB:         float = DEFAULT_CONFIG['spike_prob_pct'] / 100.0
 SPIKE_MAX_FRAC:     float = 0.20
 
-BATCH_DURATION_SEC: int   = DEFAULT_CONFIG['batch_duration_sec']
+BATCH_DURATION_SEC: int   = 1   # 1 simulated second per interval (internal constant)
 MAX_PLACEMENT_RETRIES: int = 3
 
 
@@ -237,7 +240,7 @@ def generate_nodes(
     """Create initial NodeState list using config values (or module defaults)."""
     rng = rng or np.random.default_rng()
     cfg = config or {}
-    n        = int(cfg.get('num_nodes',       NUM_NODES))
+    n        = int(cfg.get('total_nodes', cfg.get('num_nodes', NUM_NODES)))
     mem_min  = float(cfg.get('node_mem_min_gb', NODE_MEM_MIN_MB / 1024)) * 1024.0
     mem_max  = float(cfg.get('node_mem_max_gb', NODE_MEM_MAX_MB / 1024)) * 1024.0
     cpu_min  = float(cfg.get('node_cpu_min',   NODE_CPU_MIN))

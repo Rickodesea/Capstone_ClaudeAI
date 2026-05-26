@@ -71,10 +71,10 @@ def _serialize(state: SimulationState, include_plan_ahead: bool = True) -> dict:
     cm          = state.manager
     cfg         = state.cfg
     num_tenants = int(cfg.get('num_tenants', 3))
-    plan_ahead_i = int(cfg.get('plan_ahead_interval', 50))
+    plan_ahead_i = int(cfg.get('horizon_steps', 50))
 
-    # ── Queue (active + staged) ─────────────────────────────────────────────
-    all_queued = cm.job_queue + cm._staged_queue
+    # ── Queue ───────────────────────────────────────────────────────────────
+    all_queued = cm.job_queue
     queue = sorted(
         [{
             "job_id":           j.job_id,
@@ -122,7 +122,7 @@ def _serialize(state: SimulationState, include_plan_ahead: bool = True) -> dict:
         })
 
     # ── HUD ──────────────────────────────────────────────────────────────────
-    total_jobs   = len(cm.job_queue) + len(cm._staged_queue) + len(cm._running_jobs)
+    total_jobs   = len(cm.job_queue) + len(cm._running_jobs)
     longest_wait = max(
         (state.interval - j.arrival_round for j in all_queued), default=0
     )
@@ -192,7 +192,7 @@ def _serialize(state: SimulationState, include_plan_ahead: bool = True) -> dict:
 
     return {
         "interval":            state.interval,
-        "plan_ahead_interval": plan_ahead_i,
+        "horizon_steps": plan_ahead_i,
         "sim_time":            cm.sim_time.isoformat(),
         "queue":               queue,
         "nodes":               nodes,
@@ -201,7 +201,7 @@ def _serialize(state: SimulationState, include_plan_ahead: bool = True) -> dict:
         "hud": {
             "total_jobs":              total_jobs,
             "total_tenants":           num_tenants,
-            "total_nodes":             int(cfg.get('num_nodes', 5)),
+            "total_nodes":             int(cfg.get('total_nodes', cfg.get('num_nodes', 5))),
             "mem_utilization_pct":        round(avg_cap_pct, 1),
             "eff_utilization_pct":        round(avg_eff_pct, 1),
             "eff_active_utilization_pct": round(avg_eff_act, 1),
@@ -240,7 +240,7 @@ def step() -> dict:
     _state.step()
 
     # On plan-ahead boundary, include the new plan in the response
-    plan_ahead_i = int(_state.cfg.get('plan_ahead_interval', 50))
+    plan_ahead_i = int(_state.cfg.get('horizon_steps', 50))
     fired_plan_ahead = (
         _state.interval > 0 and _state.interval % plan_ahead_i == 0
     )
