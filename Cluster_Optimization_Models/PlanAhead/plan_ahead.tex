@@ -57,7 +57,7 @@ given their estimated resource demand, machine pool, and feedback from the previ
 \subsection*{What the Model Decides}
 \begin{enumerate}[label=(\arabic*)]
   \item Which additional machines (beyond the always-available pool) to activate.
-  \item Which machines to assign \emph{exclusively} to exclusive tenants (fixed for the full horizon).
+  \item Which machines to assign \emph{exclusively} to exclusive tenants \emph{per period} (adapts each period via feedback).
   \item Which machines to assign to \emph{shared} tenants per period (can change each period).
   \item How to mix high-usage and low-usage shared tenants on the same machines.
 \end{enumerate}

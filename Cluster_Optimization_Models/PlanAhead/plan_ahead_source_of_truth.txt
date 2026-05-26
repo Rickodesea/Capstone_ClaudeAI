@@ -94,7 +94,7 @@ IMPORTANT: MISOCP (use_socp=True) is the DEFAULT mode in ALL contexts:
   NEVER enabled by default anywhere.
 
 Three-layer pipeline:
-  [Plan-Ahead MISOCP]  ---> runs once per horizon_steps intervals (e.g., 50)
+  [Plan-Ahead MISOCP]  ---> runs once per horizon_steps intervals (default 24)
                        ---> outputs: tenant groups + machine assignments per period
   [Cluster Manager]    ---> per-interval loop; reads plan output for current period
                        ---> filters jobs and machines per tenant group
@@ -448,7 +448,9 @@ Machine source when demand inflates:
 
 Default calibration (simulation DEFAULT_CONFIG):
   alpha=0.5, beta=0.3, gamma=0.3, W_bar_ref=1.0 sec, q_ref=10 jobs
-  job_arrival_interval=1 (jobs every interval, not every 3)
+  horizon_steps=24, period_steps=6 (4 planning periods per horizon)
+  total_nodes=20, always_on_nodes=7, node_mem [64 GB – 256 GB]
+  max_lifetime_sec=20, jobs per interval: 0–10 drawn from N(5, 1.7)
 
 First run (no history):
   v_bar_n = 0.0 for all n -> C_eff_n = C_n (no capacity shrinkage)

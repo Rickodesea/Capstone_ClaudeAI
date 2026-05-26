@@ -11,7 +11,7 @@ once per planning horizon (every `horizon_steps` simulation intervals). It answe
 ### What the model decides
 
 1. Which additional machines (beyond the always-available pool) to activate.
-2. Which machines to assign **exclusively** to exclusive tenants (fixed for the entire horizon).
+2. Which machines to assign **exclusively** to exclusive tenants **per period** (can change each period based on feedback).
 3. Which machines to assign to **shared** tenants per period (can change each period).
 4. How to **mix** high-usage and low-usage shared tenants on the same machines.
 

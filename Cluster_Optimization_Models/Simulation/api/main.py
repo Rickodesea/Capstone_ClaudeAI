@@ -262,4 +262,8 @@ def reset() -> dict:
     global _state
     cfg    = load_config(_SIM_CONFIG)
     _state = SimulationState(cfg)
+    try:
+        _state.trigger_plan_ahead()
+    except Exception:
+        pass  # plan-ahead is optional; fallback mock is used by ClusterManager
     return _serialize(_state)

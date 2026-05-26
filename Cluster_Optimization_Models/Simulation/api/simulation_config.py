@@ -30,32 +30,31 @@ import numpy as np
 
 DEFAULT_CONFIG: dict = {
     # ── Cluster topology (sets) ───────────────────────────────────────────────
-    'total_nodes':            8,      # total machines in pool (M = M_a ∪ M_b)
-    'num_tenants':            3,      # total tenants (T = T_e ∪ T_s)
-    'always_on_nodes':        3,      # |M_a| — always-running machines; rest are additional
-    'node_mem_min_gb':       16,      # GB — smallest machine RAM
-    'node_mem_max_gb':       64,      # GB — largest machine RAM
-    'node_cpu_min':           2,      # cores — fewest CPU per machine
-    'node_cpu_max':           4,      # cores — most CPU per machine
+    'total_nodes':            20,     # total machines in pool (M = M_a ∪ M_b)
+    'num_tenants':             3,     # total tenants (T = T_e ∪ T_s)
+    'always_on_nodes':         7,     # |M_a| — always-running machines; rest are additional
+    'node_mem_min_gb':        64,     # GB — smallest machine RAM
+    'node_mem_max_gb':       256,     # GB — largest machine RAM
+    'node_cpu_min':            4,     # cores — fewest CPU per machine
+    'node_cpu_max':           16,     # cores — most CPU per machine
     # ── Workload parameters ───────────────────────────────────────────────────
-    'jobs_per_round':        20,      # new jobs per scheduling interval
-    'job_arrival_interval':   1,      # generate new jobs every N intervals (1 = every interval)
-    'req_mem_min_mb':       512,      # MB — min declared memory per job
-    'req_mem_max_mb':      1024,      # MB — max declared memory per job
-    'req_cpu_min':          0.25,     # cores — min CPU request per job
-    'req_cpu_max':          1.0,      # cores — max CPU request per job
-    'spike_prob_pct':        10,      # % of placed jobs that spike above pred_mem
-    'min_lifetime_sec':       4,      # s — shortest job runtime
-    'max_lifetime_sec':     180,      # s — longest job runtime
+    'jobs_per_round':         10,     # new jobs per scheduling interval (fallback)
+    'req_mem_min_mb':        256,     # MB — min declared memory per job
+    'req_mem_max_mb':       1024,     # MB — max declared memory per job
+    'req_cpu_min':           0.25,    # cores — min CPU request per job
+    'req_cpu_max':            1.0,    # cores — max CPU request per job
+    'spike_prob_pct':           5,    # % of placed jobs that spike above pred_mem
+    'min_lifetime_sec':         4,    # s — shortest job runtime
+    'max_lifetime_sec':        20,    # s — longest job runtime
     # ── Model hyper-parameters ────────────────────────────────────────────────
-    'k_window':              10,      # rolling window for v̄_n^SLA and W̄_t
-    'mem_threshold_frac':  0.10,      # safety buffer = threshold_frac × M_n
-    'request_per':          0.60,     # actual usage lower bound as fraction of request
+    'k_window':               10,     # rolling window for v̄_n^SLA and W̄_t
+    'mem_threshold_frac':   0.10,     # safety buffer = threshold_frac × M_n
+    'request_per':           0.60,    # actual usage lower bound as fraction of request
     # ── Scheduler internals ───────────────────────────────────────────────────
     'realtime_time_limit_ms': 2000,   # ms — solver time limit per realtime call (keep UI responsive)
     # ── Plan-ahead parameters ─────────────────────────────────────────────────
-    'horizon_steps':              50,   # intervals in the planning horizon (plan-ahead refresh frequency)
-    'period_steps':                4,   # intervals per planning period (slot)
+    'horizon_steps':              24,   # intervals in the planning horizon (plan-ahead refresh frequency)
+    'period_steps':                6,   # intervals per planning period (slot)
     'num_exclusive_tenants':       1,   # how many tenants are exclusive (fixed machines, full horizon)
     'plan_time_limit':            30,   # s — Gurobi wall-clock limit per plan solve
     'plan_mip_gap':             0.05,   # Gurobi relative optimality gap target
@@ -68,10 +67,10 @@ DEFAULT_CONFIG: dict = {
     'feedback_beta':             0.3,   # demand scale factor per unit normalised wait
     'feedback_gamma':            0.3,   # demand scale factor per unit normalised queue size
     'feedback_wait_ref':         1.0,   # reference wait (sec) for normalising W̄_i
-    'queue_ref':                10,    # reference queue size per tenant for normalising
+    'queue_ref':                10,     # reference queue size per tenant for normalising
     # ── Workload range (Simulation-specific) ──────────────────────────────────
-    'jobs_min_per_round':     3,      # min jobs sampled per interval
-    'jobs_max_per_round':    20,      # max jobs sampled per interval
+    'jobs_min_per_round':     0,      # min jobs sampled per interval
+    'jobs_max_per_round':    10,      # max jobs sampled per interval
     'enable_logging':         0,      # 1 = write detailed interval log to sim_log.jsonl
 }
 

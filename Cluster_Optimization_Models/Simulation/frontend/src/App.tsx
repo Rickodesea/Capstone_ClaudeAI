@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { AnimatePresence } from 'framer-motion'
-import type { SimState, BatchStats } from './types'
+import type { SimState, BatchStats, QueuedJob } from './types'
 import { TENANT_COLORS, TENANT_NAMES } from './types'
 import { api } from './api'
 import { HUD } from './components/HUD'
@@ -149,30 +149,29 @@ export default function App() {
 
   // ── Backend sim config (applied on next Reset) ─────────────────────────────
   // Topology
-  const [cfgTotalNodes,         setCfgTotalNodes]         = useState(8)
+  const [cfgTotalNodes,         setCfgTotalNodes]         = useState(20)
   const [cfgNumTenants,         setCfgNumTenants]         = useState(3)
-  const [cfgAlwaysOnNodes,      setCfgAlwaysOnNodes]      = useState(3)
-  const [cfgNodeMemMinGb,       setCfgNodeMemMinGb]       = useState(16)
-  const [cfgNodeMemMaxGb,       setCfgNodeMemMaxGb]       = useState(64)
-  const [cfgNodeCpuMin,         setCfgNodeCpuMin]         = useState(2)
-  const [cfgNodeCpuMax,         setCfgNodeCpuMax]         = useState(4)
+  const [cfgAlwaysOnNodes,      setCfgAlwaysOnNodes]      = useState(7)
+  const [cfgNodeMemMinGb,       setCfgNodeMemMinGb]       = useState(64)
+  const [cfgNodeMemMaxGb,       setCfgNodeMemMaxGb]       = useState(256)
+  const [cfgNodeCpuMin,         setCfgNodeCpuMin]         = useState(4)
+  const [cfgNodeCpuMax,         setCfgNodeCpuMax]         = useState(16)
   // Workload
-  const [cfgJobArrivalInterval, setCfgJobArrivalInterval] = useState(3)
-  const [cfgJobsMinPerRound,    setCfgJobsMinPerRound]    = useState(3)
-  const [cfgJobsMaxPerRound,    setCfgJobsMaxPerRound]    = useState(20)
-  const [cfgReqMemMinMb,        setCfgReqMemMinMb]        = useState(512)
+  const [cfgJobsMinPerRound,    setCfgJobsMinPerRound]    = useState(0)
+  const [cfgJobsMaxPerRound,    setCfgJobsMaxPerRound]    = useState(10)
+  const [cfgReqMemMinMb,        setCfgReqMemMinMb]        = useState(256)
   const [cfgReqMemMaxMb,        setCfgReqMemMaxMb]        = useState(1024)
   const [cfgReqCpuMin,          setCfgReqCpuMin]          = useState(0.25)
   const [cfgReqCpuMax,          setCfgReqCpuMax]          = useState(1.0)
-  const [cfgSpikeProb,          setCfgSpikeProb]          = useState(10)
+  const [cfgSpikeProb,          setCfgSpikeProb]          = useState(5)
   const [cfgMinLifetimeSec,     setCfgMinLifetimeSec]     = useState(4)
-  const [cfgMaxLifetimeSec,     setCfgMaxLifetimeSec]     = useState(180)
+  const [cfgMaxLifetimeSec,     setCfgMaxLifetimeSec]     = useState(20)
   // Scheduler
   const [cfgKWindow,            setCfgKWindow]            = useState(10)
   const [cfgMemThresholdFrac,   setCfgMemThresholdFrac]   = useState(0.10)
   // Plan-Ahead
-  const [cfgHorizonSteps,       setCfgHorizonSteps]       = useState(50)
-  const [cfgPeriodSteps,        setCfgPeriodSteps]        = useState(4)
+  const [cfgHorizonSteps,       setCfgHorizonSteps]       = useState(24)
+  const [cfgPeriodSteps,        setCfgPeriodSteps]        = useState(6)
   const [cfgNumExclusiveTenants, setCfgNumExclusiveTenants] = useState(1)
   const [cfgPlanTimeLimit,      setCfgPlanTimeLimit]      = useState(30)
   const [cfgPlanMipGap,         setCfgPlanMipGap]         = useState(0.05)
@@ -180,9 +179,16 @@ export default function App() {
   const [cfgUseSocp,            setCfgUseSocp]            = useState(1)   // 0=MILP, 1=SOCP
   const [cfgSigmaFrac,          setCfgSigmaFrac]          = useState(0.20)
   const [cfgCantelliEpsilon,    setCfgCantelliEpsilon]    = useState(0.10)
-  const [cfgFeedbackWaitRef,    setCfgFeedbackWaitRef]    = useState(10)
+  const [cfgFeedbackWaitRef,    setCfgFeedbackWaitRef]    = useState(1)
+  const [cfgFeedbackGamma,      setCfgFeedbackGamma]      = useState(0.3)
+  const [cfgQueueRef,           setCfgQueueRef]           = useState(10)
   const [cfgPlanCapacityBuffer, setCfgPlanCapacityBuffer] = useState(0.25) // MILP only
   const [cfgEnableLogging,      setCfgEnableLogging]      = useState(0)
+
+  // ── Transient queue animation (jobs placed in same step they arrive) ─────────
+  const [flashQueue,     setFlashQueue]     = useState<QueuedJob[]>([])
+  const flashTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const prevQueueIds   = useRef<Set<string>>(new Set())
 
   // Frontend-only color thresholds
   const [actGreenThreshold, setActGreenThreshold] = useState(99)
@@ -218,7 +224,6 @@ export default function App() {
             if (c.node_cpu_min         != null) setCfgNodeCpuMin(c.node_cpu_min)
             if (c.node_cpu_max         != null) setCfgNodeCpuMax(c.node_cpu_max)
             // Workload
-            if (c.job_arrival_interval != null) setCfgJobArrivalInterval(c.job_arrival_interval)
             if (c.jobs_min_per_round   != null) setCfgJobsMinPerRound(c.jobs_min_per_round)
             if (c.jobs_max_per_round   != null) setCfgJobsMaxPerRound(c.jobs_max_per_round)
             if (c.req_mem_min_mb       != null) setCfgReqMemMinMb(c.req_mem_min_mb)
@@ -243,6 +248,8 @@ export default function App() {
             if (c.plan_capacity_buffer    != null) setCfgPlanCapacityBuffer(c.plan_capacity_buffer)
             if (c.min_machines_per_tenant != null) setCfgMinMachinesPerTenant(c.min_machines_per_tenant)
             if (c.feedback_wait_ref       != null) setCfgFeedbackWaitRef(c.feedback_wait_ref)
+            if (c.feedback_gamma          != null) setCfgFeedbackGamma(c.feedback_gamma)
+            if (c.queue_ref               != null) setCfgQueueRef(c.queue_ref)
             if (c.enable_logging          != null) setCfgEnableLogging(c.enable_logging)
           }
           if (s.plan_ahead) {
@@ -288,10 +295,14 @@ export default function App() {
   const advance = useCallback(async () => {
     if (isStepping.current) return
     isStepping.current = true
+    // Snapshot queue IDs before the step so we can detect transient (arrived-and-placed) jobs
+    const preStepQueueIds = new Set(prevQueueIds.current)
     try {
       const next = await api.step()
       setState(next)
       setError(null)
+      // Update the reference for next step
+      prevQueueIds.current = new Set(next.queue.map((j) => j.job_id))
 
       if (next.recent_placements.length > 0) {
         const nodeIds = new Set(next.recent_placements.map((p) => p.node_id))
@@ -299,6 +310,26 @@ export default function App() {
         setRecentNodeIds(nodeIds)
         setRecentJobIds(jobIds)
         setTimeout(() => { setRecentNodeIds(new Set()); setRecentJobIds(new Set()) }, 700)
+
+        // Jobs placed this step that were NOT in the queue before — they arrived and
+        // were scheduled immediately. Show them briefly so queue animation is visible.
+        const newQueueIds = new Set(next.queue.map((j) => j.job_id))
+        const transient = next.recent_placements
+          .filter((p) => !preStepQueueIds.has(p.job_id) && !newQueueIds.has(p.job_id))
+          .map((p): QueuedJob => ({
+            job_id:           p.job_id,
+            tenant_id:        p.tenant_id,
+            req_mem_mb:       p.req_mem_mb,
+            pred_mem_mb:      p.pred_mem_mb,
+            req_cpu:          p.req_cpu,
+            arrival_interval: next.interval - 1,
+            wait_intervals:   0,
+          }))
+        if (transient.length > 0) {
+          setFlashQueue(transient)
+          if (flashTimerRef.current) clearTimeout(flashTimerRef.current)
+          flashTimerRef.current = setTimeout(() => setFlashQueue([]), 700)
+        }
       }
 
       if (next.plan_ahead) {
@@ -417,7 +448,13 @@ export default function App() {
       <div className="flex flex-1 min-h-0">
 
         <div className="w-52 shrink-0 border-r border-slate-800 flex flex-col min-h-0">
-          <JobQueue queue={state.queue} recentPlacements={recentJobIds} />
+          <JobQueue
+            queue={[
+              ...state.queue,
+              ...flashQueue.filter((fj) => !state.queue.some((q) => q.job_id === fj.job_id)),
+            ]}
+            recentPlacements={recentJobIds}
+          />
         </div>
 
         <div className="flex-1 min-h-0">
@@ -687,9 +724,8 @@ export default function App() {
               ]} />
 
               <CfgSection postConfig={postConfig} title="Workload" rows={[
-                { label: 'Job Arrival Every (N)',   val: cfgJobArrivalInterval, set: setCfgJobArrivalInterval, key: 'job_arrival_interval', min: 1 },
-                { label: 'Jobs Min / Arrival',     val: cfgJobsMinPerRound,  set: setCfgJobsMinPerRound,  key: 'jobs_min_per_round', min: 1  },
-                { label: 'Jobs Max / Arrival',     val: cfgJobsMaxPerRound,  set: setCfgJobsMaxPerRound,  key: 'jobs_max_per_round', min: 1  },
+                { label: 'Jobs Min / Interval',    val: cfgJobsMinPerRound,  set: setCfgJobsMinPerRound,  key: 'jobs_min_per_round', min: 0  },
+                { label: 'Jobs Max / Interval',    val: cfgJobsMaxPerRound,  set: setCfgJobsMaxPerRound,  key: 'jobs_max_per_round', min: 0  },
                 { label: 'Job RAM Min (MB)',        val: cfgReqMemMinMb,      set: setCfgReqMemMinMb,      key: 'req_mem_min_mb',     min: 1  },
                 { label: 'Job RAM Max (MB)',        val: cfgReqMemMaxMb,      set: setCfgReqMemMaxMb,      key: 'req_mem_max_mb',     min: 1  },
                 { label: 'Job CPU Min (cores)',     val: cfgReqCpuMin,        set: setCfgReqCpuMin,        key: 'req_cpu_min',        min: 0.1, step: 0.1, isFloat: true },
@@ -731,9 +767,11 @@ export default function App() {
               </div>
               {cfgUseSocp === 1 && (
                 <CfgSection postConfig={postConfig} title="SOCP Parameters" rows={[
-                  { label: 'Demand Sigma Frac', val: cfgSigmaFrac,       set: setCfgSigmaFrac,       key: 'sigma_frac',       min: 0.0,  step: 0.05, isFloat: true },
-                  { label: 'Cantelli ε',        val: cfgCantelliEpsilon, set: setCfgCantelliEpsilon, key: 'cantelli_epsilon', min: 0.01, step: 0.01, isFloat: true },
-                  { label: 'Feedback Wait Ref', val: cfgFeedbackWaitRef, set: setCfgFeedbackWaitRef, key: 'feedback_wait_ref', min: 1, step: 1 },
+                  { label: 'Demand Sigma Frac',  val: cfgSigmaFrac,       set: setCfgSigmaFrac,       key: 'sigma_frac',        min: 0.0,  step: 0.05, isFloat: true },
+                  { label: 'Cantelli ε',          val: cfgCantelliEpsilon, set: setCfgCantelliEpsilon, key: 'cantelli_epsilon',  min: 0.01, step: 0.01, isFloat: true },
+                  { label: 'Feedback Wait Ref',   val: cfgFeedbackWaitRef, set: setCfgFeedbackWaitRef, key: 'feedback_wait_ref', min: 0.1,  step: 0.1,  isFloat: true },
+                  { label: 'Feedback Queue Scale', val: cfgFeedbackGamma,  set: setCfgFeedbackGamma,   key: 'feedback_gamma',    min: 0.0,  step: 0.05, isFloat: true },
+                  { label: 'Queue Ref Size',       val: cfgQueueRef,       set: setCfgQueueRef,        key: 'queue_ref',         min: 1,    step: 1 },
                 ]} />
               )}
               {cfgUseSocp === 0 && (

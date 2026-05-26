@@ -198,7 +198,8 @@ sets_txt = (
     "M = M_a (always-on) u M_b (additional)\n"
     "H = planning periods (slots in horizon)\n\n"
     "Decision variables:\n"
-    "  e[i,n]    1 if exclusive tenant i on machine n\n"
+    "  e[i,n,h]  1 if exclusive tenant i on machine n in period h\n"
+    "            PER-PERIOD: adapts each period via feedback\n"
     "  z_on[n]   1 if additional machine n is activated\n"
     "  y[i,n,h]  1 if shared tenant i on machine n in period h\n"
     "  f[i,n,h]  capacity allocated to tenant i on machine n\n"
@@ -362,15 +363,16 @@ textbox(sl, "Configurable Parameters",
         Inches(9.23), cy + Inches(0.1), cw - Inches(0.3), Inches(0.4),
         size=15, bold=True, color=AMBER)
 textbox(sl, (
-    "Topology: nodes, tenants, RAM, CPU\n"
-    "Workload: jobs/interval (range),\n"
-    "  job RAM/CPU, spike probability,\n"
-    "  job lifetime range\n"
-    "Scheduler: batch duration, K window,\n"
-    "  safety buffer, time limit (ms)\n"
-    "Plan-Ahead: horizon steps,\n"
-    "  period steps, exclusivity fraction,\n"
-    "  MILP vs MISOCP, Gurobi params\n\n"
+    "Topology: nodes (default 20), tenants,\n"
+    "  always-on (7), RAM [64-256 GB], CPU [4-16]\n"
+    "Workload: jobs/interval [0-10],\n"
+    "  job RAM/CPU, spike prob (5%),\n"
+    "  job lifetime [4-20 s]\n"
+    "Scheduler: K window, safety buffer\n"
+    "Plan-Ahead: horizon (24 steps),\n"
+    "  period width (6 steps), exclusivity,\n"
+    "  MILP vs MISOCP, feedback refs\n"
+    "  (W_ref=1s, q_ref=10, gamma=0.3)\n\n"
     "All changes staged, applied on Reset"
 ), Inches(9.23), cy + Inches(0.55), cw - Inches(0.3), Inches(3.5),
     size=12, color=SLATE3)
@@ -398,20 +400,21 @@ textbox(sl, "Feedback Integration",
         size=15, bold=True, color=ROSE)
 
 fb_txt = (
-    "Plan-Ahead receives signals from Real-Time:\n\n"
-    "SLA capacity reduction:\n"
-    "  C_eff[n] = C[n] * (1 - alpha * v_bar_n)\n"
-    "  Machines with frequent violations get smaller\n"
-    "  effective capacity in the next plan solve\n\n"
-    "Demand inflation:\n"
-    "  u_fb[i,h] = u[i,h] * (1 + beta * W_bar_i / W_ref)\n"
-    "  Tenants with long queues get inflated demand\n"
-    "  so the model allocates them more machines\n\n"
+    "Plan-Ahead receives 3 signals from Real-Time:\n\n"
+    "1. SLA capacity reduction (per machine):\n"
+    "   C_eff[n] = C[n] * (1 - alpha * v_bar_n)\n"
+    "   Machines with frequent violations get smaller\n"
+    "   effective capacity in the next plan solve\n\n"
+    "2. Wait-time demand inflation (ALL tenants):\n"
+    "   wait_scale = 1 + beta * min(2, W_bar_i / W_ref)\n\n"
+    "3. Queue-size demand inflation (ALL tenants):\n"
+    "   queue_scale = 1 + gamma * min(2, q_i / q_ref)\n"
+    "   Combined: u[i,h] = u_raw[i,h] * min(3, wait * queue)\n"
+    "   Exclusive tenants also inflate -> more machines assigned\n\n"
     "Cantelli safety buffer:\n"
-    "  kappa = sqrt((1 - eps) / eps)\n"
-    "  t[n,h]^2 >= Sum_i sigma2[i,h] * y[i,n,h]\n"
-    "  Guarantees P(actual <= capacity) >= 1 - eps\n"
-    "  Default: eps=0.10 -> kappa=3.0 -> 90% safety"
+    "   kappa = sqrt((1-eps)/eps); eps=0.10 -> kappa=3.0\n"
+    "   t[n,h]^2 >= Sum_i sigma2[i,h] * y[i,n,h]\n"
+    "   P(actual <= C_eff[n]) >= 1 - eps = 90% safety"
 )
 textbox(sl, fb_txt,
         Inches(0.7), Inches(1.6), Inches(5.4), Inches(4.6),

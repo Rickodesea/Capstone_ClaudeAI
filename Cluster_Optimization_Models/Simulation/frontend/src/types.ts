@@ -36,6 +36,8 @@ export interface PlacedJob {
   tenant_id: number
   node_id: number
   pred_mem_mb: number
+  req_mem_mb: number
+  req_cpu: number
 }
 
 export interface PlanAheadResult {

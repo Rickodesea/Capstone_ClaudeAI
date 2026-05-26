@@ -83,35 +83,37 @@ except Exception:
 def _mock_plan_ahead(cfg: dict, interval: int) -> dict:
     """
     Fallback plan-ahead (used when Gurobi is unavailable).
-    Returns the new format: one group with all tenants and all machines
-    for each plan interval.  Also builds tenant_schedule for the frontend
-    Tenants panel.
+    Exclusive tenants each get their own isolated group; shared tenants
+    share one group.  Matches the isolation semantics of the real optimizer.
     """
-    num_tenants   = int(cfg.get('num_tenants',         NUM_TENANTS))
+    num_tenants   = int(cfg.get('num_tenants',            NUM_TENANTS))
     num_nodes     = int(cfg.get('total_nodes', cfg.get('num_nodes', NUM_NODES)))
+    num_exclusive = int(cfg.get('num_exclusive_tenants',  1))
     horizon       = int(cfg.get('horizon_steps', 50))
-    period_steps = int(cfg.get('period_steps',        4))
+    period_steps  = int(cfg.get('period_steps',           4))
     n_periods     = max(1, horizon // period_steps)
     week_number   = interval // horizon if horizon > 0 else 0
 
-    all_tenant_ids  = list(range(num_tenants))
+    exclusive_ids   = list(range(min(num_exclusive, num_tenants)))
+    shared_ids      = list(range(len(exclusive_ids), num_tenants))
     all_machine_ids = list(range(num_nodes))
 
+    def _make_groups(_h: int) -> list:
+        groups = [
+            {"tenant_ids": [i], "machine_ids": all_machine_ids, "exclusive": True}
+            for i in exclusive_ids
+        ]
+        if shared_ids:
+            groups.append({"tenant_ids": shared_ids, "machine_ids": all_machine_ids, "exclusive": False})
+        return groups
+
     intervals_out = [
-        {
-            "interval": h,
-            "groups": [
-                {
-                    "tenant_ids":  all_tenant_ids,
-                    "machine_ids": all_machine_ids,
-                    "exclusive":   False,
-                }
-            ],
-        }
+        {"interval": h, "groups": _make_groups(h)}
         for h in range(n_periods)
     ]
 
     # tenant_schedule for frontend Tenants panel display
+    all_tenant_ids = list(range(num_tenants))
     tenant_schedule = {
         str(t): {str(h): all_machine_ids for h in range(n_periods)}
         for t in all_tenant_ids
@@ -432,6 +434,8 @@ class SimulationState:
                 "tenant_id":   cm.scheduling_log[k]["tenant_id"],
                 "node_id":     cm.scheduling_log[k]["node_id"],
                 "pred_mem_mb": round(cm.scheduling_log[k]["pred_mem_mb"], 1),
+                "req_mem_mb":  round(cm.scheduling_log[k].get("req_mem_mb", 0.0), 1),
+                "req_cpu":     round(cm.scheduling_log[k].get("req_cpu", 0.0), 3),
             }
             for k in (after_keys - before_keys)
         ]
