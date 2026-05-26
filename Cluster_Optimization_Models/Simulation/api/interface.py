@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import sys
 import os
+from collections import Counter
 from pathlib import Path
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -141,10 +142,11 @@ def _mock_plan_ahead(cfg: dict, interval: int) -> dict:
 
 
 def run_plan_ahead(
-    cfg:           dict,
-    interval:      int,
-    feedback_wait: dict | None = None,  # {tenant_id: avg_wait_sec} from realtime
-    feedback_vbar: dict | None = None,  # {node_id: violation_rate} from realtime
+    cfg:            dict,
+    interval:       int,
+    feedback_wait:  dict | None = None,  # {tenant_id: avg_wait_sec} from realtime
+    feedback_vbar:  dict | None = None,  # {node_id: violation_rate} from realtime
+    feedback_queue: dict | None = None,  # {tenant_id: queued_job_count} from realtime
 ) -> dict:
     """
     Run plan-ahead MISOCP (SOCP default).  Attempts Gurobi; falls back to numpy mock.
@@ -178,7 +180,9 @@ def run_plan_ahead(
 
         feedback_alpha    = float(cfg.get('feedback_alpha',    0.5))
         feedback_beta     = float(cfg.get('feedback_beta',     0.3))
-        feedback_wait_ref = float(cfg.get('feedback_wait_ref', 10.0))
+        feedback_gamma    = float(cfg.get('feedback_gamma',    0.3))
+        feedback_wait_ref = float(cfg.get('feedback_wait_ref', 1.0))
+        queue_ref         = int(cfg.get('queue_ref',           10))
 
         plan_capacity_buffer = float(cfg.get('plan_capacity_buffer', 0.0))
 
@@ -211,9 +215,12 @@ def run_plan_ahead(
             epsilon                 = epsilon,
             feedback_vbar           = feedback_vbar or {},
             feedback_wait           = feedback_wait or {},
+            feedback_queue          = feedback_queue or {},
             feedback_alpha          = feedback_alpha,
             feedback_beta           = feedback_beta,
+            feedback_gamma          = feedback_gamma,
             feedback_wait_ref       = feedback_wait_ref,
+            queue_ref               = queue_ref,
             capacity_buffer_frac    = plan_capacity_buffer,
             min_machines_per_tenant = min_mach,
         )
@@ -474,11 +481,12 @@ class SimulationState:
         if self.interval > 0 and self.interval % plan_ahead_i == 0:
             self.last_plan_ahead = run_plan_ahead(
                 self.cfg, self.interval,
-                feedback_wait = dict(cm.W_t),
-                feedback_vbar = {
+                feedback_wait  = dict(cm.W_t),
+                feedback_vbar  = {
                     n.node_id: compute_violation_rate(n.overflow_history, cm._k_window)
                     for n in cm.nodes
                 },
+                feedback_queue = dict(Counter(j.tenant_id for j in cm.job_queue)),
             )
         elif self.last_plan_ahead is not None:
             # Advance current_slot pointer so the frontend highlights correctly
@@ -495,11 +503,12 @@ class SimulationState:
         cm = self.manager
         self.last_plan_ahead = run_plan_ahead(
             self.cfg, self.interval,
-            feedback_wait = dict(cm.W_t),
-            feedback_vbar = {
+            feedback_wait  = dict(cm.W_t),
+            feedback_vbar  = {
                 n.node_id: compute_violation_rate(n.overflow_history, cm._k_window)
                 for n in cm.nodes
             },
+            feedback_queue = dict(Counter(j.tenant_id for j in cm.job_queue)),
         )
         return self.last_plan_ahead
 

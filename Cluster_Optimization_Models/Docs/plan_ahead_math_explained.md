@@ -41,7 +41,7 @@ MILP is available as an option but never enabled by default.
 | Symbol | Description |
 |--------|-------------|
 | **T** | All tenants: T = T_e ∪ T_s |
-| **T_e** | Exclusive tenants — dedicated machine assignment, fixed for the entire horizon. Do not share machines with others. |
+| **T_e** | Exclusive tenants — dedicated machine assignment per period (can change across periods). Do not share machines with others in the same period. |
 | **T_s** | Shared tenants — T \ T_e. May share machines with other shared tenants. |
 | **M** | All machines in the cluster pool: M = M_a ∪ M_b |
 | **M_a** | Always-available machines (|M_a| = A). Always active; no activation cost. |
@@ -63,9 +63,9 @@ MILP is available as an option but never enabled by default.
 
 | Symbol | Description |
 |--------|-------------|
-| u[i,h] | Expected resource demand of tenant i in period h |
-| u_max[i] | Peak demand of exclusive tenant i: max_h u[i,h] |
-| σ²[i,h] | Demand variance: σ²[i,h] = (σ_frac × u[i,h])² |
+| u[i,h] | Feedback-adjusted demand of tenant i (ALL tenants: exclusive + shared) in period h |
+| u_max[i] | Peak demand of exclusive tenant i: max_h u[i,h] (feedback-adjusted) |
+| σ²[i,h] | Demand variance: σ²[i,h] = (σ_frac × u_raw[i,h])² (shared tenants only) |
 | σ_frac | Uncertainty fraction — std dev is this fraction of mean demand (default 0.20) |
 
 ### Uncertainty / safety parameters
@@ -80,12 +80,15 @@ MILP is available as an option but never enabled by default.
 | Symbol | Description |
 |--------|-------------|
 | v̄_n | Rolling SLA violation rate on machine n from realtime (0 on first run) |
-| W̄_i | Average scheduling wait time of tenant i (in intervals) from realtime |
+| W̄_i | Average scheduling wait time of tenant i (seconds) from realtime |
+| q_i | Queued job count for tenant i at plan-ahead time |
 | C_eff[n] | Effective capacity after SLA feedback: C_eff[n] = C[n] × (1 − α·v̄_n) |
-| u_fb[i,h] | Feedback-adjusted demand: u_fb[i,h] = u[i,h] × (1 + β·min(2, W̄_i/W̄_ref)) |
+| u[i,h] | Feedback demand (ALL tenants): min(3, wait_scale × queue_scale) × u_raw[i,h] |
 | α | Capacity shrinkage coefficient (default 0.5) |
-| β | Demand inflation coefficient (default 0.3) |
-| W̄_ref | Reference wait time in intervals (default 10 intervals) |
+| β | Wait-time demand inflation coefficient (default 0.3) |
+| γ | Queue-size demand inflation coefficient (default 0.3) |
+| W̄_ref | Reference wait time in seconds (default 1.0 = BATCH_DURATION_SEC) |
+| q_ref | Reference queue size per tenant (default 10 jobs) |
 
 ### Scheduling policy parameters
 
@@ -107,7 +110,7 @@ MILP is available as an option but never enabled by default.
 
 | Variable | Domain | Description |
 |----------|--------|-------------|
-| **e[i,n]** | {0,1} | 1 iff exclusive tenant i ∈ T_e is assigned to machine n. Fixed for entire horizon. |
+| **e[i,n,h]** | {0,1} | 1 iff exclusive tenant i ∈ T_e is assigned to machine n in period h. Per-period. |
 | **z_on[n]** | {0,1} | 1 iff additional machine n ∈ M_b is activated at all. |
 | **z[n,h]** | {0,1} | 1 iff machine n is active in period h. |
 | **y[i,n,h]** | {0,1} | 1 iff shared tenant i ∈ T_s is assigned to machine n in period h. |
@@ -136,39 +139,46 @@ Additional machines are active in interval h only if switched on:
 z[n,h] ≤ z_on[n]    ∀ n ∈ M_b, h ∈ H
 ```
 
-**C_zact (Machine Active if Assigned)**
+**C_zact (Machine Active if Shared Assigned)**
 A machine must be active if any shared tenant is assigned to it:
 ```
 z[n,h] ≥ y[i,n,h]    ∀ i ∈ T_s, n ∈ M, h ∈ H
 ```
-Exclusive-machine activation is implied by always-available or additional-machine activation.
+
+**C_zact_excl (Machine Active if Exclusive Assigned)**
+A machine must also be active if any exclusive tenant is assigned to it in period h:
+```
+z[n,h] ≥ e[i,n,h]    ∀ i ∈ T_e, n ∈ M, h ∈ H
+```
+Chains with C_act to force z_on[n] = 1 for any additional machine used exclusively.
 
 ---
 
 ### Exclusive Tenant Constraints
 
-**C_excl1 (At Most One Exclusive Per Machine)**
-Each machine can be exclusively held by at most one exclusive tenant:
+**C_excl1 (At Most One Exclusive Per Machine Per Period)**
+Each machine can be exclusively held by at most one exclusive tenant per period:
 ```
-Σ_{i ∈ T_e} e[i,n] ≤ 1    ∀ n ∈ M
-```
-
-**C_excl2 (Each Exclusive Must Be Assigned)**
-Every exclusive tenant must receive at least one machine:
-```
-Σ_{n ∈ M} e[i,n] ≥ 1    ∀ i ∈ T_e
+Σ_{i ∈ T_e} e[i,n,h] ≤ 1    ∀ n ∈ M, h ∈ H
 ```
 
-**C_excl_cap (Exclusive Capacity Coverage)**
-The machines assigned exclusively to tenant i must together provide enough capacity for its peak demand:
+**C_excl2 (Each Exclusive Must Be Assigned Per Period)**
+Every exclusive tenant must receive at least one machine in every period:
 ```
-Σ_{n ∈ M} e[i,n] × C[n] ≥ u_max[i]    ∀ i ∈ T_e
+Σ_{n ∈ M} e[i,n,h] ≥ 1    ∀ i ∈ T_e, h ∈ H
 ```
+
+**C_excl_cap (Exclusive Capacity Coverage Per Period)**
+The machines assigned to exclusive tenant i in period h must cover the tenant's feedback-adjusted per-period demand using effective (feedback-shrunk) capacity:
+```
+Σ_{n ∈ M} e[i,n,h] × C_eff[n] ≥ u[i,h]    ∀ i ∈ T_e, h ∈ H
+```
+When u[i,h] grows due to feedback (wait or queue), more machines are required.
 
 **C_sep (Exclusive-Shared Separation)**
-A machine assigned exclusively to any exclusive tenant cannot be used by shared tenants in any interval:
+A machine assigned exclusively to any exclusive tenant in period h cannot be used by shared tenants in that same period:
 ```
-Σ_{i ∈ T_e} e[i,n] + y[j,n,h] ≤ 1    ∀ j ∈ T_s, n ∈ M, h ∈ H
+Σ_{i ∈ T_e} e[i,n,h] + y[j,n,h] ≤ 1    ∀ j ∈ T_s, n ∈ M, h ∈ H
 ```
 
 ---
@@ -284,21 +294,38 @@ For ε=0.10, κ=3.0: machines overflow at most 10% of the time under the worst-c
 After the first planning horizon, the Real-Time model reports:
 
 - **v̄_n**: rolling SLA violation rate per machine (fraction of intervals where demand > capacity)
-- **W̄_i**: average scheduling wait time per tenant (seconds)
+- **W̄_i**: average scheduling wait time per tenant (seconds, 1 sec added per unplaced interval)
+- **q_i**: number of jobs queued for tenant i at plan-ahead time
 
 These feed back into the plan-ahead parameters:
 
 ```
 C_eff[n] = C[n] × (1 − α · v̄_n)
-u_fb[i,h] = u[i,h] × (1 + β · min(2, W̄_i / W̄_ref))
+
+wait_scale  = 1 + β · min(2, W̄_i / W̄_ref)
+queue_scale = 1 + γ · min(2, q_i / q_ref)
+scale       = min(3.0, wait_scale × queue_scale)
+u[i,h]     = u_raw[i,h] × scale          ← applies to ALL tenants (exclusive + shared)
 ```
+
+Key redesign points:
+- **Feedback applies to ALL tenants** including exclusive ones. Previously only shared
+  tenants had feedback-adjusted demand, so an exclusive tenant with 100 queued jobs
+  always got a single machine. Now its inflated u[i,h] forces C_excl_cap to require
+  more machines (taken from inactive M_b first).
+- **Per-period exclusive assignment** (e[i,n,h]): machine count can adapt per period.
+  A period with high expected demand gets more machines; quiet periods get fewer.
+- **Queue-size signal (q_i)**: direct count of backlogged jobs. Stronger signal than
+  wait time alone — fires even before wait accumulates to W̄_ref.
 
 - High violation rate → conservative capacity → fewer tenants packed per machine.
 - High wait time → inflated demand → model assigns more machines for that tenant.
-- The `min(2, …)` cap prevents extreme demand inflation from making the MISOCP infeasible.
+- High queue count → demand inflated further → extra machines from inactive pool.
+- Both caps (`min(2,…)` per signal, `min(3.0,…)` combined) prevent infeasibility.
 
-Default: **α = 0.5, β = 0.3, W̄_ref = 10 intervals** (calibrated to simulated time-steps,
-not wall-clock seconds; at W̄_i = 10 intervals the scale factor is 1.30×).
+Default: **α=0.5, β=0.3, γ=0.3, W̄_ref=1.0 sec, q_ref=10 jobs**
+- W̄_ref=1.0 = BATCH_DURATION_SEC: after just 1 unplaced interval, wait signal fires.
+- q_ref=10: after 10 queued jobs, queue signal fires at full 1.30× scale.
 
 ---
 
@@ -306,13 +333,13 @@ not wall-clock seconds; at W̄_i = 10 intervals the scale factor is 1.30×).
 
 ```
 PlanAheadOutput = {
-    "periods": [
+    "intervals": [
         {
-            "period": 0,
+            "interval": 0,
             "groups": [
                 {
                     "tenant_ids": [2],           # exclusive tenant (single-tenant group)
-                    "machine_ids": [0, 1],        # their machines (same every period)
+                    "machine_ids": [0, 1],        # their machines THIS period (can differ next period)
                     "exclusive": True
                 },
                 {
@@ -328,8 +355,8 @@ PlanAheadOutput = {
             ]
         },
         {
-            "period": 1,
-            "groups": [...]      # exclusive tenant groups unchanged; shared may differ
+            "interval": 1,
+            "groups": [...]      # exclusive tenant machines may differ if feedback drove reallocation
         },
         ...
     ]
@@ -338,7 +365,7 @@ PlanAheadOutput = {
 
 **Rules:**
 - All tenants appear in every period.
-- Exclusive tenant groups have the same machine_ids across all periods (entire horizon).
+- Exclusive tenant groups: machine_ids are per-period and CAN change across periods based on feedback-adjusted demand.
 - Shared tenant groups may change machine_ids between periods.
 - The Cluster Manager loops through groups in order and calls the Real-Time model once per group per interval within that period.
 

@@ -6,12 +6,12 @@ MISOCP build, solve, and output extraction for the plan-ahead model.
 Key design properties
 ─────────────────────
   • Pool of M machines: M_a always available, M_b additional (model decides activation).
-  • Exclusive tenants T_e: assigned machines for entire horizon (e[i,n], no interval split).
-  • Shared tenants T_s: assigned machines per interval (y[i,n,h], can change).
+  • Exclusive tenants T_e: assigned machines per period (e[i,n,h]); can change across periods.
+  • Shared tenants T_s: assigned machines per period (y[i,n,h], can change).
   • All tenants are assigned machines every interval — no admission / rejection.
   • Mix bonus: objective rewards assigning heavy + light shared tenants to same machine.
   • Cantelli cone (C1a + C1b) gives probabilistic capacity guarantee ≥ 1−ε.
-  • Feedback parameters (v̄_n, W̄_i) are baked into C_eff and u_fb in plan_ahead_data.py.
+  • Feedback parameters (v̄_n, W̄_i, queue counts) are baked into C_eff and u in plan_ahead_data.py.
 
 Sets
 ────
@@ -27,7 +27,7 @@ Sets
 
 Variables
 ─────────
-  e[i,n]          {0,1}   exclusive tenant i assigned to machine n (horizon-wide)
+  e[i,n,h]        {0,1}   exclusive tenant i assigned to machine n in period h (per-period)
   z_on[n]         {0,1}   additional machine n ∈ M_b is activated at all
   z[n,h]          {0,1}   machine n is active in interval h
   y[i,n,h]        {0,1}   shared tenant i assigned to machine n in interval h
@@ -42,11 +42,12 @@ Constraints
 ───────────
   C_aa         z[n,h] = 1                              ∀ n ∈ M_a, h          (always available)
   C_act        z[n,h] ≤ z_on[n]                        ∀ n ∈ M_b, h          (additional gate)
-  C_zact       z[n,h] ≥ y[i,n,h]                       ∀ i∈T_s, n, h         (node active if assigned)
-  C_excl1      Σ_i e[i,n] ≤ 1                          ∀ n                   (one exclusive per machine)
-  C_excl2      Σ_n e[i,n] ≥ 1                          ∀ i∈T_e               (each exclusive assigned)
-  C_excl_cap   Σ_n e[i,n]·C[n] ≥ u_max[i]             ∀ i∈T_e               (exclusive capacity cover)
-  C_sep        Σ_i e[i,n] + y[j,n,h] ≤ 1              ∀ j∈T_s, n, h         (no sharing exclusive machines)
+  C_zact       z[n,h] ≥ y[i,n,h]                       ∀ i∈T_s, n, h         (node active if shared assigned)
+  C_zact_excl  z[n,h] ≥ e[i,n,h]                       ∀ i∈T_e, n, h         (node active if excl assigned)
+  C_excl1      Σ_i e[i,n,h] ≤ 1                        ∀ n, h                (one exclusive per machine per period)
+  C_excl2      Σ_n e[i,n,h] ≥ 1                        ∀ i∈T_e, h            (each exclusive assigned per period)
+  C_excl_cap   Σ_n e[i,n,h]·C_eff[n] ≥ u[i,h]         ∀ i∈T_e, h            (exclusive capacity per period)
+  C_sep        Σ_i e[i,n,h] + y[j,n,h] ≤ 1            ∀ j∈T_s, n, h         (no sharing exclusive machines)
   C_share      Σ_n y[i,n,h] ≥ 1                        ∀ i∈T_s, h            (shared always assigned)
   C1a          Σ_i f[i,n,h] + κ·t[n,h] ≤ C_eff[n]·z[n,h]  ∀ n, h           (capacity + buffer)
   C1b          Σ_i σ²[i,h]·y[i,n,h] ≤ t[n,h]²         ∀ n, h   (SOCP: cone)
@@ -113,9 +114,9 @@ def build_model(P: dict, env: gp.Env, use_socp: bool = True) -> tuple[gp.Model, 
 
     # ── Decision variables ─────────────────────────────────────────────────
 
-    # Exclusive tenant machine assignment (horizon-wide, not per interval)
+    # Exclusive tenant machine assignment (per planning period — can change across periods)
     e = m.addVars(
-        [(i, n) for i in T_e for n in M],
+        [(i, n, h) for i in T_e for n in M for h in H],
         vtype=GRB.BINARY, name="e"
     )
 
@@ -179,28 +180,38 @@ def build_model(P: dict, env: gp.Env, use_socp: bool = True) -> tuple[gp.Model, 
             for h in H:
                 m.addConstr(z[n, h] >= y[i, n, h], name=f"C_zact_{i}_{n}_{h}")
 
-    # ── C_excl1: At most one exclusive tenant per machine ───────────────────
+    # ── C_zact_excl: Machine must be active if exclusive tenant assigned ────
+    for i in T_e:
+        for n in M:
+            for h in H:
+                m.addConstr(z[n, h] >= e[i, n, h], name=f"C_zact_excl_{i}_{n}_{h}")
+
+    # ── C_excl1: At most one exclusive tenant per machine per period ────────
     if T_e:
         for n in M:
+            for h in H:
+                m.addConstr(
+                    gp.quicksum(e[i, n, h] for i in T_e) <= 1,
+                    name=f"C_excl1_{n}_{h}"
+                )
+
+    # ── C_excl2: Each exclusive tenant must be assigned at least one machine per period ─
+    for i in T_e:
+        for h in H:
             m.addConstr(
-                gp.quicksum(e[i, n] for i in T_e) <= 1,
-                name=f"C_excl1_{n}"
+                gp.quicksum(e[i, n, h] for n in M) >= 1,
+                name=f"C_excl2_{i}_{h}"
             )
 
-    # ── C_excl2: Each exclusive tenant must be assigned at least one machine ─
+    # ── C_excl_cap: Exclusive machines must cover per-period demand ──────────
     for i in T_e:
-        m.addConstr(
-            gp.quicksum(e[i, n] for n in M) >= 1,
-            name=f"C_excl2_{i}"
-        )
-
-    # ── C_excl_cap: Exclusive machines must cover peak demand ───────────────
-    for i in T_e:
-        if i in u_max and u_max[i] > 0:
-            m.addConstr(
-                gp.quicksum(e[i, n] * C[n] for n in M) >= u_max[i],
-                name=f"C_excl_cap_{i}"
-            )
+        for h in H:
+            demand_ih = u.get((i, h), 0.0)
+            if demand_ih > 0:
+                m.addConstr(
+                    gp.quicksum(e[i, n, h] * C_eff.get(n, C[n]) for n in M) >= demand_ih,
+                    name=f"C_excl_cap_{i}_{h}"
+                )
 
     # ── C_sep: Exclusive machines cannot be used by shared tenants ──────────
     if T_e and T_s:
@@ -208,7 +219,7 @@ def build_model(P: dict, env: gp.Env, use_socp: bool = True) -> tuple[gp.Model, 
             for n in M:
                 for h in H:
                     m.addConstr(
-                        gp.quicksum(e[i, n] for i in T_e) + y[j, n, h] <= 1,
+                        gp.quicksum(e[i, n, h] for i in T_e) + y[j, n, h] <= 1,
                         name=f"C_sep_{j}_{n}_{h}"
                     )
 
@@ -341,10 +352,12 @@ def solve_and_report(model: gp.Model, vars_: dict, P: dict) -> None:
         activated = [n for n in P['M_b'] if z_on[n].X > 0.5]
         print(f"  Additional machines activated: {activated}")
 
-    print(f"\nExclusive tenants {T_e}: (horizon-wide machine assignment)")
+    print(f"\nExclusive tenants {T_e}: (per-period machine assignment)")
     for i in T_e:
-        machines = [n for n in M if e[i, n].X > 0.5]
-        print(f"  tenant {i}: machines {machines}  (peak demand={P['u_max'].get(i, '?'):.2f})")
+        for h in H:
+            machines = [n for n in M if e[i, n, h].X > 0.5]
+            demand_h = P['u'].get((i, h), 0.0)
+            print(f"  tenant {i} period {h}: machines {machines}  (demand={demand_h:.2f})")
 
     print(f"\nShared tenants {T_s}: (per-interval assignment)")
     for h in H:
@@ -380,9 +393,8 @@ def extract_tenant_access_schedule(
     schedule: dict[tuple[int, int], list[int]] = {}
 
     for i in T_e:
-        machines = [n for n in M if e[i, n].X > 0.5]
         for h in H:
-            schedule[(i, h)] = machines
+            schedule[(i, h)] = [n for n in M if e[i, n, h].X > 0.5]
 
     for i in T_s:
         for h in H:
@@ -410,20 +422,16 @@ def extract_plan_output(vars_: dict, P: dict) -> dict:
     M, H     = P['M'], P['H']
     e, y     = vars_['e'], vars_['y']
 
-    # Precompute exclusive assignments (same for all intervals)
-    exclusive_machines = {}
-    for i in T_e:
-        exclusive_machines[i] = [n for n in M if e[i, n].X > 0.5]
-
     intervals = []
     for h in H:
         groups = []
 
-        # Exclusive tenant groups (fixed assignment, same every interval)
+        # Exclusive tenant groups (per-period assignment — machines can change across periods)
         for i in T_e:
+            machines = [n for n in M if e[i, n, h].X > 0.5]
             groups.append({
                 "tenant_ids":  [i],
-                "machine_ids": exclusive_machines[i],
+                "machine_ids": machines,
                 "exclusive":   True,
             })
 

@@ -53,7 +53,19 @@
       "Bash(python -m pytest test_main.py -v -k \"not TestPlanAhead\")",
       "Bash(python interface.py 1)",
       "Bash(python Cluster_Optimization_Models/Docs/generate_slides.py)",
-      "PowerShell(python -c \"import pptx; print\\('ok'\\)\" 2>&1)"
+      "PowerShell(python -c \"import pptx; print\\('ok'\\)\" 2>&1)",
+      "Bash(python gen_pptx.py)",
+      "Bash(python -W error plan_ahead_optimizer.py)",
+      "Bash(python interface.py)",
+      "Bash(python test_plan_ahead_socp.py)",
+      "Bash(python -X utf8 test_plan_ahead_socp.py)",
+      "Bash(python -X utf8 test_pipeline_quality.py)",
+      "Bash(python large_scale_sensitivity.py --quick --sweep 1)",
+      "Bash(python -X utf8 large_scale_sensitivity.py --quick --sweep 1)",
+      "Bash(python large_scale_sensitivity.py --quick)",
+      "Bash(python -X utf8 test_plan_ahead.py)",
+      "Bash(python -X utf8 plan_ahead_sensitivity.py)",
+      "Bash(python test_pipeline_quality.py)"
     ],
     "deny": [],
     "ask": []

@@ -236,10 +236,10 @@ def test_exclusive_shared_isolation():
     e, y = v['e'], v['y']
     violations = []
     for n in M:
-        excl_sum = sum(e[i, n].X for i in T_e)
-        if excl_sum > 0.5:
-            for j in T_s:
-                for h in H:
+        for h in H:
+            excl_sum = sum(e[i, n, h].X for i in T_e)
+            if excl_sum > 0.5:
+                for j in T_s:
                     if y[j, n, h].X > 0.5:
                         violations.append((j, n, h))
     _assert(len(violations) == 0,

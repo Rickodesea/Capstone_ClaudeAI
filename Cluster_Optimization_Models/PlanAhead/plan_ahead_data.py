@@ -74,9 +74,12 @@ def build_synthetic_data(
     epsilon:              float = 0.10,
     feedback_vbar:        dict  | None = None,  # {node_id: v̄_n} from realtime
     feedback_wait:        dict  | None = None,  # {tenant_id: W̄_i} from realtime
+    feedback_queue:       dict  | None = None,  # {tenant_id: queued_job_count}
     feedback_alpha:       float = 0.5,     # SLA feedback capacity scaling
     feedback_beta:        float = 0.3,     # wait-time demand scaling
-    feedback_wait_ref:    float = 60.0,    # W̄_ref (seconds) for normalisation
+    feedback_gamma:       float = 0.3,     # queue-size demand scaling
+    feedback_wait_ref:    float = 10.0,    # W̄_ref (seconds) for normalisation
+    queue_ref:            int   = 10,      # reference queue size for normalisation
     capacity_buffer_frac:    float = 0.0,  # fraction of C_eff withheld for realtime (MILP only)
     min_machines_per_tenant: int   = 1,   # minimum machines each shared tenant must receive per period
     **_ignored,
@@ -99,9 +102,12 @@ def build_synthetic_data(
     epsilon             : Cantelli tail probability — κ = sqrt((1-ε)/ε)
     feedback_vbar       : SLA violation rates per node {node_id: float} (0..1)
     feedback_wait       : average wait times per tenant {tenant_id: float} (seconds)
+    feedback_queue      : queued job count per tenant {tenant_id: int} (0 on first run)
     feedback_alpha      : capacity reduction factor per unit violation rate
     feedback_beta       : demand inflation factor per unit normalised wait
+    feedback_gamma      : demand inflation factor per unit normalised queue size
     feedback_wait_ref   : reference wait time for normalising W̄_i
+    queue_ref           : reference queue size for normalising tenant queue counts
     """
     rng = np.random.default_rng(seed)
 
@@ -139,24 +145,25 @@ def build_synthetic_data(
         for i in T for h in H
     }
 
-    # Peak demand for exclusive tenants (max over intervals)
-    u_max = {i: max(u_raw[i, h] for h in H) for i in T_e}
-
-    # Feedback-adjusted demand for shared tenants
-    fb_wait = feedback_wait or {}
+    # Feedback-adjusted demand for ALL tenants (exclusive and shared)
+    fb_wait  = feedback_wait  or {}
+    fb_queue = feedback_queue or {}
     W_bar_ref = feedback_wait_ref
     u_fb = {}
-    for i in T_s:
+    for i in T:
         w_i = fb_wait.get(i, 0.0)
-        scale = 1.0 + feedback_beta * min(2.0, w_i / max(1.0, W_bar_ref))
+        q_i = fb_queue.get(i, 0)
+        wait_scale  = 1.0 + feedback_beta  * min(2.0, w_i / max(1.0, W_bar_ref))
+        queue_scale = 1.0 + feedback_gamma * min(2.0, q_i / max(1, queue_ref))
+        scale = min(3.0, wait_scale * queue_scale)
         for h in H:
             u_fb[(i, h)] = u_raw[(i, h)] * scale
 
-    # Combine into full u dict (exclusive tenants use raw demand; shared use fb-adjusted)
-    u = {}
-    for i in T:
-        for h in H:
-            u[(i, h)] = u_raw[(i, h)] if i in T_e else u_fb[(i, h)]
+    # u: feedback-adjusted demand for all tenants
+    u = {(i, h): u_fb[(i, h)] for i in T for h in H}
+
+    # Peak demand for exclusive tenants (max over intervals, feedback-adjusted)
+    u_max = {i: max(u_fb[i, h] for h in H) for i in T_e}
 
     # --- Cantelli uncertainty model ------------------------------------------
     kappa  = math.sqrt((1.0 - epsilon) / epsilon)

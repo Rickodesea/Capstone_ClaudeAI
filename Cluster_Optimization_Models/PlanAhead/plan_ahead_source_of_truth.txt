@@ -1,7 +1,8 @@
 ================================================================================
 PLAN-AHEAD CLUSTER OPTIMIZATION MODEL — SOURCE OF TRUTH
 plan_ahead_source_of_truth.txt
-(Reflects refactored MISOCP model as of 2026-05-25.)
+(Reflects redesigned MISOCP model as of 2026-05-25: per-period exclusive
+ assignment, queue-size feedback, feedback applied to all tenants.)
 ================================================================================
 EDITING CONVENTION
   1. To change a symbol, update the GLOSSARY entry first.
@@ -27,7 +28,7 @@ ASCII shorthand        LaTeX                                  Description
   H                    \mathcal{H}                            Planning periods
 
   Decision Variables
-  e_in                 e_{i,n}            Exclusive assignment: 1 iff exclusive tenant i gets machine n
+  e_inh                e_{i,n,h}          Exclusive assignment: 1 iff exclusive tenant i gets machine n in period h
   z_on_n               z^{on}_n           Activation: 1 iff additional machine n is activated
   z_nh                 z_{n,h}            Machine active: 1 iff machine n active in period h
   y_inh                y_{i,n,h}          Shared assignment: 1 iff shared tenant i uses machine n in period h
@@ -44,10 +45,9 @@ ASCII shorthand        LaTeX                                  Description
   pi_n                 \pi_n              Activation cost for additional machine n in M_b
 
   Parameters — Demand
-  u_ih                 u_{i,h}            Expected total demand of shared tenant i in period h
-  u_fb_ih              u^{fb}_{i,h}       Feedback-adjusted demand: u_fb_ih = u_ih * (1+beta*min(2, W_bar_i/W_bar_ref))
-  u_max_i              u^{max}_i          Peak demand of exclusive tenant i: max_h u_{i,h}
-  sigma2_ih            \sigma^2_{i,h}     Demand variance: (sigma_frac * u_{i,h})^2
+  u_ih                 u_{i,h}            Expected demand of tenant i (ALL tenants) in period h, feedback-adjusted
+  u_max_i              u^{max}_i          Peak demand of exclusive tenant i: max_h u_{i,h} (feedback-adjusted)
+  sigma2_ih            \sigma^2_{i,h}     Demand variance: (sigma_frac * u_{raw,i,h})^2  (shared tenants only)
 
   Parameters — Uncertainty
   sigma_frac           \sigma_{frac}      Fractional uncertainty: std dev as fraction of u_{i,h} (default 0.20)
@@ -56,10 +56,13 @@ ASCII shorthand        LaTeX                                  Description
 
   Parameters — Feedback
   v_bar_n              \bar{v}_n          Rolling SLA violation rate on machine n (from realtime, rolling k-window)
-  W_bar_i              \bar{W}_i          Average scheduling wait time of tenant i in intervals (from realtime)
+  W_bar_i              \bar{W}_i          Average scheduling wait time of tenant i in seconds (from realtime)
+  q_i                  q_i                Queued job count for tenant i at plan-ahead time (from realtime)
   alpha                \alpha             Capacity shrinkage coefficient (default 0.5)
-  beta                 \beta              Demand inflation coefficient (default 0.3)
-  W_bar_ref            \bar{W}_{ref}      Reference wait time in intervals (default 10)
+  beta                 \beta              Wait-time demand inflation coefficient (default 0.3)
+  gamma                \gamma             Queue-size demand inflation coefficient (default 0.3)
+  W_bar_ref            \bar{W}_{ref}      Reference wait time in seconds (default 1.0; = BATCH_DURATION_SEC)
+  q_ref                q_{ref}            Reference queue size per tenant for normalisation (default 10)
 
   Parameters — Policy
   m_min                m_{min}            Minimum machines per shared tenant per period (default 2)
@@ -112,10 +115,10 @@ Feedback loop (after each horizon):
   T = T_e ∪ T_s     All tenants
 
   T_e                Exclusive tenants.
-                     - Receive dedicated machines for the ENTIRE horizon.
-                     - Machines assigned to exclusive tenants are off-limits to
-                       all shared tenants (C_sep constraint).
-                     - Assignment is fixed: same machines for all periods h in H.
+                     - Receive dedicated machines per PERIOD (e[i,n,h] is per-period).
+                     - Machine assignment can change across periods based on feedback.
+                     - Machines assigned exclusively in period h are off-limits to
+                       shared tenants in that same period (C_sep constraint).
 
   T_s = T \ T_e      Shared tenants.
                      - May share machines with other shared tenants.
@@ -150,17 +153,25 @@ Machine parameters:
   pi_n         Activation cost for additional machine n in M_b
 
 Tenant demand parameters:
-  u_{i,h}      Expected demand of shared tenant i in period h (raw, before feedback)
-  u_fb_{i,h}   Feedback-adjusted demand (used in C3 and Cantelli):
-               u_fb_{i,h} = u_{i,h} * (1 + beta * min(2, W_bar_i / W_bar_ref))
-               The min(2,...) cap prevents infeasibility at very high wait times.
+  u_{i,h}      Feedback-adjusted demand of tenant i (ALL tenants: exclusive + shared)
+               in period h. Computed in plan_ahead_data.build_synthetic_data():
+
+               wait_scale  = 1 + beta  * min(2, W_bar_i / W_bar_ref)
+               queue_scale = 1 + gamma * min(2, q_i / q_ref)
+               scale       = min(3.0, wait_scale * queue_scale)
+               u_{i,h}     = u_raw_{i,h} * scale
+
+               Feedback applies to ALL tenants including exclusive ones.
+               The min(2,...) cap and overall min(3.0,...) cap prevent infeasibility.
+
   u_max_i      Peak demand of exclusive tenant i: max_{h in H} u_{i,h}
-  sigma^2_{i,h} Demand variance: (sigma_frac * u_{i,h})^2
-               Note: variance uses the PRE-FEEDBACK demand u_{i,h}, not u_fb.
-               This means the Cantelli buffer is sized to raw uncertainty only.
+               (feedback-adjusted; used for reporting, not in MISOCP constraints)
+
+  sigma^2_{i,h} Demand variance: (sigma_frac * u_raw_{i,h})^2
+               Only for shared tenants. Cantelli buffer sized by raw uncertainty.
 
 Uncertainty parameters:
-  sigma_frac   std dev of actual demand as fraction of u_{i,h} (default 0.20)
+  sigma_frac   std dev of actual demand as fraction of u_raw_{i,h} (default 0.20)
   eps          Cantelli tail probability (default 0.10 -> 90% coverage)
   kappa        Cantelli safety factor: sqrt((1-eps)/eps)
                eps=0.10 -> kappa=3.00
@@ -169,16 +180,22 @@ Uncertainty parameters:
 Feedback parameters:
   v_bar_n      Rolling SLA violation rate per machine (fraction, [0,1])
                Computed over last k_window intervals from realtime layer.
-  W_bar_i      Average scheduling wait time per tenant (in intervals)
-               Computed over last k_window intervals from realtime layer.
+  W_bar_i      Average scheduling wait time per tenant (seconds, from realtime).
+               Each unplaced interval adds BATCH_DURATION_SEC (=1 sec) to tenant wait.
+  q_i          Number of jobs queued for tenant i at plan-ahead firing time.
+               Collected by Cluster Manager from job_queue before plan-ahead call.
   alpha        Capacity shrinkage coefficient (default 0.5)
-               C_eff_n = C_n * (1 - 0.5 * v_bar_n) means a 100% violation rate
-               halves the effective capacity.
-  beta         Demand inflation coefficient (default 0.3)
-               At W_bar_i = W_bar_ref: scale = 1 + 0.3*1 = 1.30 (30% more demand)
-  W_bar_ref    Reference wait time in intervals (default 10)
-               At W_bar_i = W_bar_ref the scale factor is exactly 1+beta = 1.30.
-               At W_bar_i = 2*W_bar_ref the scale hits the cap: 1+beta*2 = 1.60.
+               C_eff_n = C_n * (1 - 0.5 * v_bar_n): 100% violation halves capacity.
+  beta         Wait-time demand inflation coefficient (default 0.3)
+               At W_bar_i = W_bar_ref: wait_scale = 1.30 (30% demand inflation)
+  gamma        Queue-size demand inflation coefficient (default 0.3)
+               At q_i = q_ref: queue_scale = 1.30 (30% demand inflation)
+  W_bar_ref    Reference wait time in seconds (default 1.0 = BATCH_DURATION_SEC)
+               At W_bar_i = 1 sec (one unplaced interval): wait_scale = 1.30.
+               At W_bar_i = 2 sec: wait_scale hits cap 1.60.
+  q_ref        Reference queue size per tenant (default 10 jobs)
+               At q_i = 10 queued jobs: queue_scale = 1.30.
+               At q_i = 20+ queued jobs: queue_scale hits cap 1.60.
 
 Policy parameters:
   m_min        Minimum machines per shared tenant per period (default 2).
@@ -198,9 +215,9 @@ Objective weights:
 §3  DECISION VARIABLES
 ================================================================================
 
-  e_{i,n}      in {0,1}    1 iff exclusive tenant i in T_e is assigned machine n.
-                            Fixed for the entire planning horizon (all periods share
-                            the same exclusive assignment).
+  e_{i,n,h}    in {0,1}    1 iff exclusive tenant i in T_e is assigned machine n in
+                            period h. PER-PERIOD: can change across planning periods.
+                            Feedback drives the per-period machine count up or down.
 
   z_on_{n}     in {0,1}    1 iff additional machine n in M_b is activated.
                             Activation cost pi_n applies when z_on_n = 1.
@@ -244,30 +261,38 @@ C_act (Additional Machine Activation):
   z_{n,h} <= z_on_n    for all n in M_b, h in H
   Additional machines active only if switched on.
 
-C_zact (Machine Active if Assigned):
+C_zact (Machine Active if Shared Assigned):
   z_{n,h} >= y_{i,n,h}    for all i in T_s, n in M, h in H
   A machine must be active whenever any shared tenant is assigned to it.
+
+C_zact_excl (Machine Active if Exclusive Assigned):
+  z_{n,h} >= e_{i,n,h}    for all i in T_e, n in M, h in H
+  A machine must be active whenever any exclusive tenant is assigned to it.
+  Chains with C_act to force z_on_n = 1 for any additional machine used by
+  an exclusive tenant in any period.
 
 Exclusive Tenant Constraints
 ────────────────────────────
 
-C_excl1 (At Most One Exclusive Per Machine):
-  sum_{i in T_e} e_{i,n} <= 1    for all n in M
-  Each machine can be held exclusively by at most one exclusive tenant.
+C_excl1 (At Most One Exclusive Per Machine Per Period):
+  sum_{i in T_e} e_{i,n,h} <= 1    for all n in M, h in H
+  Each machine can be held exclusively by at most one exclusive tenant per period.
 
-C_excl2 (Each Exclusive Must Be Assigned):
-  sum_{n in M} e_{i,n} >= 1    for all i in T_e
-  Every exclusive tenant must receive at least one machine.
+C_excl2 (Each Exclusive Must Be Assigned Per Period):
+  sum_{n in M} e_{i,n,h} >= 1    for all i in T_e, h in H
+  Every exclusive tenant must receive at least one machine in every period.
 
-C_excl_cap (Exclusive Capacity Coverage):
-  sum_{n in M} e_{i,n} * C_n >= u_max_i    for all i in T_e
-  Machines assigned exclusively to tenant i must cover its peak demand.
+C_excl_cap (Exclusive Capacity Coverage Per Period):
+  sum_{n in M} e_{i,n,h} * C_eff_n >= u_{i,h}    for all i in T_e, h in H
+  Machines assigned exclusively to tenant i in period h must provide enough
+  effective capacity to cover the tenant's feedback-adjusted per-period demand.
+  Uses C_eff_n (not C_n) so feedback-shrunk capacity is accounted for.
 
 C_sep (Exclusive-Shared Separation):
-  sum_{i in T_e} e_{i,n} + y_{j,n,h} <= 1
+  sum_{i in T_e} e_{i,n,h} + y_{j,n,h} <= 1
     for all j in T_s, n in M, h in H
-  A machine assigned exclusively to any exclusive tenant cannot be used
-  by any shared tenant in any period.
+  A machine assigned exclusively to any exclusive tenant in period h cannot be
+  used by any shared tenant in that same period.
 
 Shared Tenant Constraints
 ──────────────────────────
@@ -386,28 +411,48 @@ Practical implication:
 
 After each planning horizon, the realtime layer reports:
   - v_bar_n: rolling SLA violation rate per machine (rolling k_window average)
-  - W_bar_i: average scheduling wait time per tenant (in intervals)
+  - W_bar_i: average scheduling wait time per tenant (seconds, k_window average)
+  - q_i:     number of jobs queued for tenant i at plan-ahead time
 
 These update plan parameters for the NEXT horizon:
-  C_eff_n  = C_n * (1 - alpha * v_bar_n)
-  u_fb_ih  = u_ih * (1 + beta * min(2, W_bar_i / W_bar_ref))
 
-Effect:
+  Capacity feedback (applies to machines):
+    C_eff_n = C_n * (1 - alpha * v_bar_n)
+
+  Demand feedback (applies to ALL tenants — exclusive AND shared):
+    wait_scale  = 1 + beta  * min(2, W_bar_i / W_bar_ref)
+    queue_scale = 1 + gamma * min(2, q_i / q_ref)
+    scale       = min(3.0, wait_scale * queue_scale)
+    u_{i,h}     = u_raw_{i,h} * scale
+
+WHY feedback applies to exclusive tenants:
+  Previously only shared tenants got feedback-adjusted demand. This meant
+  exclusive tenants with 100+ queued jobs still got a single machine assignment
+  because their demand was always computed from raw values. Now, if an exclusive
+  tenant is queueing jobs, its inflated demand triggers C_excl_cap to require
+  more machines in the next period, taking from inactive (M_b) machines first.
+
+Effect of each signal:
   - High violation rate (v_bar_n -> 1): C_eff_n shrinks toward 0.5 * C_n.
-    Fewer tenants can be packed onto the stressed machine.
-  - High wait time (W_bar_i >= W_bar_ref): demand inflated by (1+beta) = 1.30.
-    At W_bar_i = 2*W_bar_ref: max inflation = (1+2*beta) = 1.60.
-  - The min(2,...) cap prevents infeasibility: with C_n=40 GB and kappa=3,
-    a 1.60x scale still allows feasible assignment with enough machines.
+    Fewer tenants pack onto the stressed machine.
+  - High wait time (W_bar_i >= W_bar_ref = 1 sec): wait_scale = 1.30.
+    (W_bar_ref = BATCH_DURATION_SEC = 1 sec; after 1 unplaced interval, signal fires.)
+  - High queue (q_i >= q_ref = 10 jobs): queue_scale = 1.30.
+    (After 10 queued jobs, inflated demand forces the model to assign more machines.)
+  - Combined: at q_i=10 and W_bar_i=1 sec, scale = 1.30 * 1.30 = 1.69x.
 
-Default calibration:
-  alpha = 0.5, beta = 0.3, W_bar_ref = 10 intervals
-  At W_bar_i = 10 (one reference period of waiting): scale = 1.30x
-  At W_bar_i = 20 (two reference periods): scale = 1.60x (capped)
+Machine source when demand inflates:
+  - The model takes from inactive additional machines (M_b) first (z_on cost = 0
+    in simulation: lam_0=0).
+  - If M_b is exhausted, it shifts machines from under-utilised tenant groups.
+
+Default calibration (simulation DEFAULT_CONFIG):
+  alpha=0.5, beta=0.3, gamma=0.3, W_bar_ref=1.0 sec, q_ref=10 jobs
+  job_arrival_interval=1 (jobs every interval, not every 3)
 
 First run (no history):
   v_bar_n = 0.0 for all n -> C_eff_n = C_n (no capacity shrinkage)
-  W_bar_i = 0.0 for all i -> u_fb_ih = u_ih (no demand inflation)
+  W_bar_i = 0.0 for all i, q_i = 0 -> scale = 1.0 (no demand inflation)
 
 
 ================================================================================
@@ -476,7 +521,7 @@ Default parameters:
 Variable counts (approximate):
   Binary:     |T_s|*|M|*|H|  (y vars)
             + |M_b|          (z_on vars)
-            + |T_e|*|M|      (e vars)
+            + |T_e|*|M|*|H|  (e vars — per-period, up from |T_e|*|M|)
             + |M|*|H|        (z vars)
             + 3*|M|*|H|      (mix: hH, hL, mix vars)
   Continuous: |T_s|*|M|*|H|  (f vars)
@@ -526,8 +571,11 @@ The current formulation changes:
      tenant i's jobs to machine n. Not a priority hint — a hard routing decision.
   5. MISOCP default: SOCP mode is always on. MILP mode was needed only for
      debugging; the cone is what makes the formulation academically rigorous.
-  6. Feedback loop: v_bar_n, W_bar_i fed from realtime into plan-ahead parameters,
-     creating a closed control loop (adaptive scheduling).
+  6. Feedback loop: v_bar_n, W_bar_i, q_i fed from realtime into plan-ahead
+     parameters, creating a closed control loop (adaptive scheduling).
+     Key redesign: feedback now applies to ALL tenants (inclusive of exclusive),
+     e[i,n] is per-period (e[i,n,h]), and queue-size (q_i) is a second feedback
+     signal so exclusive tenants with heavy queuing get more machines next period.
 
 
 ================================================================================

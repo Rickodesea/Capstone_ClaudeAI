@@ -39,7 +39,7 @@ DEFAULT_CONFIG: dict = {
     'node_cpu_max':           4,      # cores — most CPU per machine
     # ── Workload parameters ───────────────────────────────────────────────────
     'jobs_per_round':        20,      # new jobs per scheduling interval
-    'job_arrival_interval':   3,      # generate new jobs every N intervals (1 = every interval)
+    'job_arrival_interval':   1,      # generate new jobs every N intervals (1 = every interval)
     'req_mem_min_mb':       512,      # MB — min declared memory per job
     'req_mem_max_mb':      1024,      # MB — max declared memory per job
     'req_cpu_min':          0.25,     # cores — min CPU request per job
@@ -66,7 +66,9 @@ DEFAULT_CONFIG: dict = {
     'min_machines_per_tenant':     2,   # minimum machines each shared tenant receives per period
     'feedback_alpha':            0.5,   # capacity reduction per unit SLA violation rate
     'feedback_beta':             0.3,   # demand scale factor per unit normalised wait
-    'feedback_wait_ref':        10.0,   # reference wait (intervals) for normalising W̄_i
+    'feedback_gamma':            0.3,   # demand scale factor per unit normalised queue size
+    'feedback_wait_ref':         1.0,   # reference wait (sec) for normalising W̄_i
+    'queue_ref':                10,    # reference queue size per tenant for normalising
     # ── Workload range (Simulation-specific) ──────────────────────────────────
     'jobs_min_per_round':     3,      # min jobs sampled per interval
     'jobs_max_per_round':    20,      # max jobs sampled per interval

@@ -233,23 +233,24 @@ def test_min_machines_for_low_queuing():
 
 def test_exclusive_assignment_stable_across_horizons():
     """
-    Run plan-ahead twice (simulating horizon refresh). Exclusive tenants must
-    keep the same machine set in both runs (horizon-stable property).
+    Run plan-ahead twice with the same seed. Exclusive tenants must get the
+    same machine set per period in both runs (deterministic same-seed result).
     """
-    print("\n[2] Exclusive assignment stable across plan refreshes")
+    print("\n[2] Exclusive assignment deterministic across same-seed plan refreshes")
     m1, v1, P1 = _plan_solve(n_tenants=4, n_nodes=8, n_excl=1, n_always=4, min_mach=2, seed=10)
     m2, v2, P2 = _plan_solve(n_tenants=4, n_nodes=8, n_excl=1, n_always=4, min_mach=2, seed=10)
     if m1 is None or m2 is None:
         print("  SKIP  (one solve failed)")
         return
 
-    T_e, M = P1['T_e'], P1['M']
+    T_e, M, H = P1['T_e'], P1['M'], P1['H']
     for i in T_e:
-        mach1 = frozenset(n for n in M if v1['e'][i, n].X > 0.5)
-        mach2 = frozenset(n for n in M if v2['e'][i, n].X > 0.5)
-        _assert(mach1 == mach2,
-                f"exclusive tenant {i}: same machines in both runs "
-                f"({sorted(mach1)} == {sorted(mach2)})")
+        for h in H:
+            mach1 = frozenset(n for n in M if v1['e'][i, n, h].X > 0.5)
+            mach2 = frozenset(n for n in M if v2['e'][i, n, h].X > 0.5)
+            _assert(mach1 == mach2,
+                    f"exclusive tenant {i} period {h}: same machines in both same-seed runs "
+                    f"({sorted(mach1)} == {sorted(mach2)})")
 
 
 # ── Test 3: feedback expands assignment in next horizon ───────────────────────
