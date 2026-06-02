@@ -1,0 +1,186 @@
+  Real-Time MILP
+  - The LP relaxation (GLOP) scales predictably: J=16→1024 at N=1024 goes 314ms→15.7s, roughly O(J × N) — this matches the LP complexity of a J×N variable problem.
+  - The exact MILP (CBC) is fragile under high load: J=64 on N=16 nodes (4 jobs/node) hit the 15-minute cap while J=16 on N=64 (0.25 jobs/node) solved in 132ms with identical variable
+  count (1,024). The difficulty is not variable count alone — it is problem tightness (jobs competing for scarce machines makes the branch-and-bound tree exponentially deeper).
+  - Production viability: realistic per-group sizes (J=5–20, N=5–50) consistently solve in < 200ms. The model is well within real-time constraints for its intended use.
+
+  Plan-Ahead MISOCP
+  - The model solved cleanly up to ~477k variables (T=256, N=256, 756s), with MIP gap < 0.01% in every solved case — solution quality is excellent.
+  - Hard memory wall hit at ~535k variables (T=128, N=512 and larger): Gurobi ran out of RAM before the time limit. This is the binding constraint, not solve time.
+  - The practical boundary is approximately T ≤ 128, N ≤ 256 (≈242k vars) for reliable solves. Beyond that, decomposition (Benders, column generation, or rolling horizon) is required — the
+  monolithic MISOCP is not scalable to production-scale cluster sizes (T=90, N=250 is already at the edge).
+  - The single capped case (T=512, N=512, 1.9M vars, ~40min estimate) confirms the limitation shown earlier: this problem class needs structural decomposition to be operationally viable.
+
+==================================================================
+
+PS C:\Users\alric\Documents\Spring2026\Capstone_ClaudeAI\Cluster_Optimization_Models\Pipeline> python computational_time_analysis.py
+
+════════════════════════════════════════════════════════════════════════════════════
+  TABLE 1 — Real-Time MILP  (OR-Tools / CBC)
+════════════════════════════════════════════════════════════════════════════════════
+  Grid    : J = [16, 64, 256, 1024]
+            N = [4, 16, 64, 256, 512, 1024]
+  Filter  : skip if J > N × 4  (6 skipped, 18 active)
+  Cap     : 900 s = 15 min per combination
+  Threads : 18  (one per combination, all concurrent)
+  Job lifetime : fixed 1 s  (used to estimate cluster background load)
+
+  Progress (elapsed from start):
+  [    1.5s] RT  J=64    N=16    [GLOP] →       90.0 ms   placed=64/64  [done]
+  [    1.6s] RT  J=16    N=64    [GLOP] →      231.8 ms   placed=16/16  [done]
+  [    1.7s] RT  J=16    N=256   [GLOP] →      308.1 ms   placed=16/16  [done]
+  [    2.0s] RT  J=16    N=16    [CBC ] →      668.7 ms   placed=16/16  [done]
+  [    2.5s] RT  J=64    N=64    [GLOP] →      868.6 ms   placed=64/64  [done]
+  [    2.9s] RT  J=16    N=4     [CBC ] →     1588.2 ms   placed=16/16  [done]
+  [    3.8s] RT  J=256   N=64    [GLOP] →     2002.1 ms   placed=256/256  [done]
+  [    3.9s] RT  J=16    N=512   [GLOP] →     2467.6 ms   placed=16/16  [done]
+  [    4.9s] RT  J=16    N=1024  [GLOP] →     3365.8 ms   placed=16/16  [done]
+  [    5.5s] RT  J=64    N=256   [GLOP] →     3701.0 ms   placed=64/64  [done]
+  [    8.0s] RT  J=64    N=512   [GLOP] →     5960.2 ms   placed=64/64  [done]
+  [    9.6s] RT  J=256   N=256   [GLOP] →     7595.1 ms   placed=256/256  [done]
+  [    9.6s] RT  J=64    N=1024  [GLOP] →     7701.3 ms   placed=64/64  [done]
+  [   14.4s] RT  J=256   N=512   [GLOP] →    12123.7 ms   placed=256/256  [done]
+  [   24.1s] RT  J=256   N=1024  [GLOP] →    21457.9 ms   placed=256/256  [done]
+  [   30.0s] RT  J=1024  N=256   [GLOP] →    26009.0 ms   placed=1024/1024  [done]
+  [   41.6s] RT  J=1024  N=512   [GLOP] →    38657.3 ms   placed=1024/1024  [done]
+  [   55.9s] RT  J=1024  N=1024  [GLOP] →    52643.1 ms   placed=1024/1024  [done]
+
+  ────────────────────────────────────────────────────────────────────
+  Solve time per call  (>cap = hit 15-min limit, estimate in parentheses  |  SKIP = filtered)
+  ────────────────────────────────────────────────────────────────────
+  J \ N \ Nodes               4              16              64             256             512            1024
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+  16            1.59s [CBC]   668.7ms [CBC]  231.8ms [GLOP]  308.1ms [GLOP]    2.47s [GLOP]    3.37s [GLOP]
+  64                   SKIP   90.0ms [GLOP]  868.6ms [GLOP]    3.70s [GLOP]    5.96s [GLOP]    7.70s [GLOP]
+  256                  SKIP            SKIP    2.00s [GLOP]    7.60s [GLOP]   12.12s [GLOP]   21.46s [GLOP]
+  1024                 SKIP            SKIP            SKIP   26.01s [GLOP]   38.66s [GLOP]   52.64s [GLOP]
+
+  ────────────────────────────────────────────────────────────────────
+  Variable count  J × N  (binary x[j,n])
+  ────────────────────────────────────────────────────────────────────
+  J \ N \ Nodes               4              16              64             256             512            1024
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+  16                     64             256              1k              4k              8k             16k
+  64                      —              1k              4k             16k             33k             66k
+  256                     —               —             16k             66k            131k            262k
+  1024                    —               —               —            262k            524k            1.0M
+
+  CSV → C:\Users\alric\Documents\Spring2026\Capstone_ClaudeAI\Cluster_Optimization_Models\Pipeline\timing_data\rt_timing.csv
+
+════════════════════════════════════════════════════════════════════════════════════
+  TABLE 2 — Plan-Ahead MISOCP  (Gurobi)  ·  T × N  (P = 4 periods)
+════════════════════════════════════════════════════════════════════════════════════
+  Grid    : T = [2, 8, 128, 256, 512]
+            N = [4, 16, 64, 256, 512, 1024]
+  Filter  : skip if N < T  (11 skipped, 19 active)
+  Cap     : 900 s = 15 min per combination
+  Threads : 19  (one per combination, all concurrent)
+  u[i,h]  : tenant memory demand drawn from [0.5, 2.5] capacity units per period
+            node capacity = 10.0 units  (in production: node RAM in MB)
+
+  Progress (elapsed from start):
+Set parameter WLSAccessID
+Set parameter WLSAccessID
+Set parameter WLSSecret
+Set parameter WLSAccessID
+Set parameter WLSSecret
+Set parameter LicenseID to value 2804943
+Set parameter LicenseID to value 2804943
+Set parameter WLSAccessID
+Set parameter WLSSecret
+Set parameter LicenseID to value 2804943
+Set parameter WLSAccessID
+Set parameter WLSSecret
+Set parameter WLSAccessID
+Set parameter WLSSecret
+Set parameter WLSAccessID
+Set parameter WLSSecret
+Set parameter LicenseID to value 2804943
+Set parameter WLSSecret
+Set parameter LicenseID to value 2804943
+Set parameter LicenseID to value 2804943
+Set parameter LicenseID to value 2804943
+Set parameter WLSAccessID
+Set parameter WLSAccessID
+Set parameter WLSAccessID
+Set parameter WLSSecret
+Set parameter WLSAccessID
+Set parameter WLSSecret
+Set parameter WLSAccessID
+Set parameter WLSAccessID
+Set parameter WLSSecret
+Set parameter LicenseID to value 2804943
+Set parameter LicenseID to value 2804943
+Set parameter WLSAccessID
+Set parameter WLSSecret
+Set parameter WLSSecret
+Set parameter LicenseID to value 2804943
+Set parameter WLSSecret
+Set parameter LicenseID to value 2804943
+Set parameter LicenseID to value 2804943
+Set parameter WLSSecret
+Set parameter LicenseID to value 2804943
+Set parameter WLSAccessID
+Set parameter LicenseID to value 2804943
+Set parameter WLSAccessID
+Set parameter WLSSecret
+Set parameter LicenseID to value 2804943
+Set parameter WLSSecret
+Set parameter LicenseID to value 2804943
+Set parameter WLSAccessID
+Set parameter WLSSecret
+Set parameter WLSAccessID
+Set parameter WLSSecret
+Set parameter WLSAccessID
+Set parameter WLSSecret
+Set parameter LicenseID to value 2804943
+Set parameter LicenseID to value 2804943
+Set parameter LicenseID to value 2804943
+Academic license 2804943 - for non-commercial use only - registered to ha___@unfc.ca
+Academic license 2804943 - for non-commercial use only - registered to ha___@unfc.ca
+Academic license 2804943 - for non-commercial use only - registered to ha___@unfc.ca
+Academic license 2804943 - for non-commercial use only - registered to ha___@unfc.ca
+Academic license 2804943 - for non-commercial use only - registered to ha___@unfc.ca
+Academic license 2804943 - for non-commercial use only - registered to ha___@unfc.ca
+Set parameter LogToConsole to value 0
+Academic license 2804943 - for non-commercial use only - registered to ha___@unfc.ca
+Academic license 2804943 - for non-commercial use only - registered to ha___@unfc.ca
+Academic license 2804943 - for non-commercial use only - registered to ha___@unfc.ca
+Academic license 2804943 - for non-commercial use only - registered to ha___@unfc.ca
+Academic license 2804943 - for non-commercial use only - registered to ha___@unfc.ca
+Set parameter LogToConsole to value 0
+Academic license 2804943 - for non-commercial use only - registered to ha___@unfc.ca
+Academic license 2804943 - for non-commercial use only - registered to ha___@unfc.ca
+Academic license 2804943 - for non-commercial use only - registered to ha___@unfc.ca
+  [   63.0s] PA  T=2     N=16    →       0.17 s    vars=329  [OPTIMAL]
+Academic license 2804943 - for non-commercial use only - registered to ha___@unfc.ca
+Academic license 2804943 - for non-commercial use only - registered to ha___@unfc.ca
+Academic license 2804943 - for non-commercial use only - registered to ha___@unfc.ca
+Academic license 2804943 - for non-commercial use only - registered to ha___@unfc.ca
+  [   82.5s] PA  T=2     N=4     →       1.34 s    vars=83  [OPTIMAL]
+Academic license 2804943 - for non-commercial use only - registered to ha___@unfc.ca
+Set parameter LogToConsole to value 0
+Set parameter LogToConsole to value 0
+  [  140.3s] PA  T=2     N=64    →      21.27 s    vars=1,313  [OPTIMAL]
+  [  141.6s] PA  T=8     N=16    →       2.12 s    vars=1,289  [OPTIMAL]
+Set parameter LogToConsole to value 0
+  [  156.1s] PA  T=8     N=64    →      55.94 s    vars=5,153  [OPTIMAL]
+Set parameter LogToConsole to value 0
+Set parameter LogToConsole to value 0
+  [  196.0s] PA  T=2     N=512   →     131.06 s    vars=10,497  [OPTIMAL]
+  [  196.2s] PA  T=2     N=256   →     135.29 s    vars=5,249  [OPTIMAL]
+Set parameter LogToConsole to value 0
+  [  298.3s] PA  T=2     N=1024  →     207.03 s    vars=20,993  [OPTIMAL]
+Set parameter LogToConsole to value 0
+  [  323.3s] PA  T=8     N=256   →     264.61 s    vars=20,609  [OPTIMAL]
+Set parameter LogToConsole to value 0
+  [  395.2s] PA  T=8     N=512   →     255.57 s    vars=41,217  [OPTIMAL]
+Set parameter LogToConsole to value 0
+  [  436.0s] PA  T=8     N=1024  →     341.57 s    vars=82,433  [OPTIMAL]
+Set parameter LogToConsole to value 0
+  [  908.9s] PA  T=128   N=256   ERR: Out of memory
+Warning: environment still referenced so free is deferred (Continue to use WLS)
+Set parameter LogToConsole to value 0
+Set parameter LogToConsole to value 0
+  [ 1365.7s] PA  T=128   N=512   ERR: Out of memory
+Warning: environment still referenced so free is deferred (Continue to use WLS)

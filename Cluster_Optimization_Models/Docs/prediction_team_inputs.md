@@ -1,5 +1,13 @@
 # Prediction Team — Required Model Inputs
 
+---
+
+## Explanation by Claude Code
+
+The optimizer has its own internal concept of "period" and "horizon" that is independent of the Google trace's native 5-minute measurement intervals. The optimizer's **horizon** is configured as **24 hours (1 day)** — this is the full window it plans machine assignments over. The **period** is **6 hours** — the horizon is divided into 4 equal planning slots (h = 0 h, 6 h, 12 h, 18 h from the start of the day), and the optimizer can reassign tenants to different machines at each slot boundary. These values are fixed configuration choices in the optimizer; they have nothing to do with the 5-minute row granularity in the Google trace. Your EDA's "period_h" refers to the trace's native 5-minute measurement window — that is not the optimizer's period. Internally, your models can forecast at whatever resolution suits them (5-minute LSTM steps, hourly rollups, etc.), but the final output delivered to the optimizer must be one aggregate number per tenant per 6-hour slot: the total predicted memory demand that tenant will consume across all its running jobs during that 6-hour window. The optimizer does not see individual job-level inputs for the plan-ahead model; it only sees tenant-level totals per period.
+
+---
+
 **Data source:** Google cluster-usage traces v3.
 **Job identity:** `collection_id` only. Ignore `task_id` — all predictions are at the job (collection) level.
 
@@ -27,7 +35,7 @@ Both fields must be available before the job enters the queue — the scheduler 
 
 The plan-ahead model runs once per planning horizon (~every 20 intervals) to assign tenants to machines for the next set of planning periods. It needs aggregate demand estimates per tenant per planning period — not per job.
 
-A **planning period** spans 5 scheduling intervals (~5 minutes of simulated time).
+A **planning period** is **6 hours**. The full planning horizon is **24 hours (1 day)**, divided into 4 periods at h = 0 h, 6 h, 12 h, and 18 h.
 
 | Field | Type | What to predict |
 |---|---|---|

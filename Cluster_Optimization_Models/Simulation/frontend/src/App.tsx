@@ -375,24 +375,15 @@ export default function App() {
     isStepping.current = false
     prevQueueIds.current = new Set()
     setFlashQueue([])
+    if (paTimer.current) clearTimeout(paTimer.current)
+    paWasRunning.current = false  // prevent onClose from auto-starting
     const fresh = await api.reset()
     setState(fresh)
     setError(null)
     if (fresh.plan_ahead) {
       setPlanAheadData(fresh.plan_ahead)
       setShowPlanAhead(true)
-      if (paTimer.current) clearTimeout(paTimer.current)
-      if (resume) {
-        // Defer auto-play until the plan popup closes (same mechanism as mid-run plan-ahead)
-        paWasRunning.current = true
-        paTriggeredManually.current = false
-        paTimer.current = setTimeout(() => {
-          setShowPlanAhead(false)
-          setIsRunning(true)
-        }, 10000)
-      }
-    } else if (resume) {
-      setIsRunning(true)
+      paTimer.current = setTimeout(() => setShowPlanAhead(false), 10000)
     }
   }
 
