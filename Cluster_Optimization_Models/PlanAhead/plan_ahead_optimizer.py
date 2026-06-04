@@ -462,18 +462,129 @@ def extract_plan_output(vars_: dict, P: dict) -> dict:
 # ── Entry point ─────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    import argparse
+    import csv
+    import time as _time
+    from pathlib import Path as _Path
     from plan_ahead_data import build_synthetic_data, make_gurobi_env
 
-    P   = build_synthetic_data()
-    env = make_gurobi_env()
-    m, vars_ = build_model(P, env)
-    solve_and_report(m, vars_, P)
+    ap = argparse.ArgumentParser(description="Plan-Ahead MISOCP — timed solve")
+    ap.add_argument("--tenants",    type=int,   default=128,   help="Number of tenants        (default 128)")
+    ap.add_argument("--nodes",      type=int,   default=64,    help="Number of machines       (default 64)")
+    ap.add_argument("--seed",       type=int,   default=42,    help="Random seed              (default 42)")
+    ap.add_argument("--periods",    type=int,   default=4,     help="Planning periods         (default 4)")
+    ap.add_argument("--time-limit", type=float, default=300.0, help="Solver wall-clock limit s (default 300)")
+    ap.add_argument("--mip-gap",    type=float, default=0.01,  help="MIP gap tolerance        (default 0.01)")
+    ap.add_argument("--csv",        action="store_true",       help="Append result row to CSV")
+    args = ap.parse_args()
 
-    output = extract_plan_output(vars_, P)
-    print("\nPlan-Ahead Output:")
-    for interval_dict in output["intervals"]:
-        h = interval_dict["interval"]
-        print(f"  Interval {h}:")
-        for g in interval_dict["groups"]:
-            tag = "EXCL" if g["exclusive"] else "SHARED"
-            print(f"    [{tag}] tenants={g['tenant_ids']}  machines={g['machine_ids']}")
+    n_t   = args.tenants
+    n_n   = args.nodes
+    seed  = args.seed
+    n_per = args.periods
+
+    # Same capacity / demand defaults as plan_ahead_iterative.py for fair comparison
+    n_always = max(1, n_n // 2)
+    n_excl   = max(1, min(int(n_t * 0.20), n_t - 1))
+
+    print("═" * 64)
+    print("  Plan-Ahead MISOCP — Timed Solve")
+    print("═" * 64)
+    print(f"  Tenants  : {n_t}   Machines : {n_n}   Periods : {n_per}   Seed : {seed}")
+    print(f"  Always-on: {n_always}   Exclusive tenants : {n_excl}")
+    print(f"  Demand   : u[i,h] ∈ [0.5, 2.5]   Node capacity : 10.0 units/period")
+    print(f"  Solver   : Gurobi   TimeLimit : {args.time_limit:.0f}s   MIPGap : {args.mip_gap:.2%}")
+    print()
+
+    P = build_synthetic_data(
+        seed=seed,
+        n_tenants=n_t,
+        n_nodes=n_n,
+        n_intervals=n_per,
+        node_capacity=10.0,
+        n_always_available=n_always,
+        n_exclusive=n_excl,
+        tenant_usage_min=0.5,
+        tenant_usage_max=2.5,
+        sigma_frac=0.20,
+        epsilon=0.10,
+        min_machines_per_tenant=1,
+    )
+
+    env = make_gurobi_env()
+    try:
+        print("  Building model ...")
+        t_build0 = _time.perf_counter()
+        model, vars_ = build_model(P, env, use_socp=True)
+        build_s = _time.perf_counter() - t_build0
+        n_constrs = model.NumConstrs + model.NumQConstrs
+        print(f"  Build  : {build_s:.3f} s  |  vars={model.NumVars:,}  constrs={n_constrs:,}")
+        print()
+
+        model.Params.TimeLimit    = args.time_limit
+        model.Params.MIPGap       = args.mip_gap
+        model.Params.LogToConsole = 0
+        model.Params.OutputFlag   = 0
+
+        print("  Solving ...")
+        t_solve0 = _time.perf_counter()
+        model.optimize()
+        solve_s = _time.perf_counter() - t_solve0
+
+        _STATUS = {
+            GRB.OPTIMAL:     "OPTIMAL",
+            GRB.TIME_LIMIT:  "TIME_LIMIT",
+            GRB.SUBOPTIMAL:  "SUBOPTIMAL",
+            GRB.INFEASIBLE:  "INFEASIBLE",
+            GRB.INF_OR_UNBD: "INF_OR_UNBD",
+        }
+        status_str = _STATUS.get(model.Status, str(model.Status))
+        has_sol    = model.SolCount > 0
+
+        print()
+        print("  " + "─" * 44)
+        print("  Plan-Ahead MISOCP — Results")
+        print("  " + "─" * 44)
+        print(f"  Status       : {status_str}")
+        print(f"  Build time   : {build_s:.3f} s")
+        print(f"  Solve time   : {solve_s:.3f} s  (wall clock)")
+        print(f"  Total time   : {build_s + solve_s:.3f} s")
+        print(f"  Variables    : {model.NumVars:,}")
+        if has_sol:
+            activated = sum(1 for n in P['M_b'] if vars_['z_on'][n].X > 0.5) if P['M_b'] else 0
+            print(f"  Objective    : {model.ObjVal:.4f}")
+            print(f"  MIP gap      : {model.MIPGap:.4%}")
+            print(f"  Fairness (σ) : {vars_['sigma'].X:.4f}")
+            print(f"  Nodes used   : {len(P['M_a']) + activated} / {n_n}"
+                  f"  (always={len(P['M_a'])}  activated={activated})")
+        else:
+            print("  No feasible solution within time limit.")
+        print()
+
+        if args.csv:
+            csv_path = (_Path(__file__).resolve().parent.parent
+                        / "Pipeline" / "timing_data" / "pa_misocp_cli_results.csv")
+            csv_path.parent.mkdir(parents=True, exist_ok=True)
+            write_header = not csv_path.exists()
+            with open(csv_path, "a", newline="", encoding="utf-8") as fh:
+                w = csv.writer(fh)
+                if write_header:
+                    w.writerow(["tenants", "nodes", "periods", "seed", "n_vars",
+                                "build_s", "solve_s", "total_s", "status",
+                                "obj_val", "mip_gap", "sigma"])
+                w.writerow([
+                    n_t, n_n, n_per, seed, model.NumVars,
+                    f"{build_s:.4f}", f"{solve_s:.4f}", f"{build_s + solve_s:.4f}",
+                    status_str,
+                    f"{model.ObjVal:.4f}"   if has_sol else "",
+                    f"{model.MIPGap:.6f}"   if has_sol else "",
+                    f"{vars_['sigma'].X:.4f}" if has_sol else "",
+                ])
+            print(f"  CSV → {csv_path}")
+
+        model.dispose()
+    finally:
+        try:
+            env.dispose()
+        except Exception:
+            pass

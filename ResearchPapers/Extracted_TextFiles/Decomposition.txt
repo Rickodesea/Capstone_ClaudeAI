@@ -1,0 +1,1764 @@
+Computationally-Eﬃcient Decomposition Heuristic for the Static
+Traﬃc Assignment Problem
+Venktesh Pandeya and Priyadarshan N. Patilb
+aAssistant Professor, North Carolina Agricultural and Technical State University, North
+Carolina, USA; bGraduate Research Assistant, The University of Texas at Austin, Texas,
+USA
+ARTICLE HISTORY
+Compiled June 28, 2022
+ABSTRACT
+Applications such as megaregional planning require eﬃcient methods for solving
+traﬃc assignment problems (TAPs) on large-scale networks. We propose a decom-
+position heuristic that generates approximate TAP solutions by partitioning the
+complete network into subnetworks which are solved in parallel and use an iterative-
+reﬁnement algorithm for improving the network partitions. A novel network transfor-
+mation and three-stage algorithm are also proposed to solve a constrained shortest
+path problem as a subproblem of the heuristic. Experiments on various networks
+show that the heuristic can generate 15.1–67.8% computational savings in ﬁnding
+solutions with initial relative gap of 0.02. The performance beneﬁts of the proposed
+heuristic when warmstarting standard TAP algorithms are demonstrated with an
+average computational savings of 10–35% over a TAP solver without warmstarting.
+KEYWORDS
+Traﬃc assignment, Spatial decomposition, Parallel schemes for traﬃc assignment,
+Statewide modeling, Partitioning algorithms
+1.
+Introduction
+Traﬃc assignment problems (TAPs), which assign vehicles to network routes as the last
+step of the four-step planning process, are well studied. The classical time-independent
+or static version of TAP takes as input a demand matrix (number of travelers going
+from one zone to the other) and the network supply side characteristics (transporta-
+tion network and travel-time functions on links as a function of number of travelers),
+and solves for ﬂows on network links such that the Wardrop equilibrium condition is
+satisﬁed. Static TAP is used ubiquitously for transportation planning purposes such
+as select link analysis, scenario comparison, and ﬂow assignment in the four-step plan-
+ning process. With advances in computing power, several eﬃcient algorithms have
+been proposed to solve the static TAP. This research is motivated by the need to
+improve the computational eﬃciency of solving TAPs on large-scale networks.
+Corresponding Author: Venktesh Pandey. Email: vpandey@ncat.edu
+arXiv:2206.12496v1  [math.OC]  24 Jun 2022
+
+The ﬁrst motivation is planning for megaregions. Megaregions cross state and politi-
+cal boundaries and are characterized by trade and infrastructural connections across
+a much larger area. For example, the north-eastern megaregion spans the states of
+Connecticut, Rhode Island, New York, Massachusetts, Pennsylvania, Delaware, New
+Jersey and Virginia, and contains as much as 17% of the current US population. With
+increasing intra-megaregion trade and traﬃc, current statewide or citywide models are
+not appropriate for the megaregion scale creating a need for computationally-eﬃcient
+TAP algorithms for these networks.
+The second motivation is rooted in applications that require multiple TAP solutions,
+such as scenario analysis and network design problems(Gokalp, Patil, and Boyles 2021;
+Patil, Walthall, and Boyles 2022). These applications can beneﬁt signiﬁcantly from
+faster TAP algorithms. Furthermore, for such applications we often desire only an
+approximate solution to the TAP, characterized by a higher relative gap value than an
+optimal solution at which the relative gap is zero (Patriksson 2015; Patil, Ross, and
+Boyles 2021).
+Lately, network decomposition algorithms have been proposed for TAP (Jafari,
+Pandey, and Boyles 2017; Raadsen 2018). These algorithms decompose a large network
+into subnetworks which can be solved in parallel and oﬀer a potential to outperform
+algorithms that solve TAP on the full network (referred to as centralized algorithms)
+by making use of multiple machine cores. Furthermore, decentralized computations
+also oﬀer robustness against centralized machine failures (Jafari 2017). However, scal-
+ing these algorithms for more than two network partitions and handling subnetwork
+interactions is challenging. In this article, we propose a decomposition-based heuristic
+that generates approximate solutions to the TAP in faster computation time than the
+centralized algorithms.
+The contributions of this research include the following: (a) we propose a novel net-
+work transformation and three-stage algorithm to solve a restricted shortest path (SP)
+problem as a subproblem of the heuristic, (b) we propose partitioning algorithms that
+work for general networks without obvious geographical partitions (such as a natural
+partition created by a river) and discuss their impacts on solving TAP for large scale
+networks, which is an improvement over prior work (Yahia, Pandey, and Boyles 2018),
+and (c) we propose an iterative reﬁnement approach for network partitioning that im-
+proves the computational eﬃciency of the heuristic. The rest of the article is organized
+as follows. Section 2 presents the formulation and background for TAP and its solution
+methods. Sections 3 and 4 present the methodology and the heuristic, and discuss the
+implementation detail. Section 5 reports experimental results and ﬁndings on diﬀerent
+large-scale test networks. Lastly, Section 6 concludes the article and presents potential
+future extensions.
+2.
+Formulation and Literature Review
+This section provides the convex programming formulation for static TAP and then
+discusses advances in TAP solution methods.
+2
+
+2.1.
+Formulation
+Let G = (N, A) be the directed network deﬁned by set of nodes N and set of arcs A.
+For each node i ∈N, let Γi denotes the set of all outgoing arcs and Γ−1
+i
+denote the set
+of all incoming arcs. A subset of N, denoted by Z, indicates the set of centroids where
+demand originates or terminates. The demand from origin zone r to destination zone
+s is denoted by drs, and the origin-destination (OD) pair is denoted by < r, s >. The
+set of all demand values is recorded in an OD matrix D, deﬁned as D = {drs | r ∈
+Z, s ∈Z}. Sets G and D are inputs for static TAP.
+The output of static TAP is the steady state ﬂow xij on each link (i, j) ∈A, starting
+at node i and terminating at node j. The travel times on each link as a function
+of ﬂow is given by a link performance function, which is commonly assumed to be
+an increasing and a convex function of link ﬂow. One commonly used function is the
+Bureau of Public Roads equation (United States Bureau of Public Roads 1964), stated
+as follows:
+tij(xij) = t0
+ij(1 + α(xij/uij)β),
+(1)
+where t0
+ij is the free-ﬂow travel time (i.e., the travel time on the link with zero conges-
+tion), uij is the capacity of the link, and α and β are shape parameters calibrated to
+the link. If calibration is not possible, the default values are α = 0.15 and β = 4.
+Let π denote a path, and hπ denote the number of drivers who choose the path. The
+set of all paths connecting zones r and s is denoted by Πrs. Link and path ﬂows can
+be tied together using the following equation:
+xij =
+X
+r∈Z
+X
+s∈Z
+X
+π∈Πrs
+δπ
+ijhπ,
+where δπ
+ij is an indicator variable which takes the value 1 if link (i, j) is used by path
+π, and 0 otherwise. Similarly, path travel times cπ are deﬁned as the sum of travel
+times of the links included on the path. Thus,
+cπ =
+X
+(i,j)∈A
+δπ
+ijtij.
+Traﬃc equilibrium is a steady state of the network where no driver can get an ad-
+vantage by unilaterally changing their decision. More formally, the principle of user
+equilibrium states “Every used route connecting an origin and destination has equal
+and minimal travel cost”. This is also known as Wardrop’s ﬁrst principle (Wardrop and
+Whitehead 1952). This principle makes a few assumptions including (a) the assump-
+tion of driver’s rationality where each driver wants to choose the path between their
+origin and their destination with the least travel cost, and (b) the assumption of per-
+fect information, where drivers have perfect knowledge of link travel times. With these
+assumptions, the TAP for user equilibrium can be formulated as a convex program as
+3
+
+follows:
+min
+x,h
+X
+(i,j)∈A
+Z xij
+0
+tij(x)dx
+(2a)
+subject to:
+xij =
+X
+π∈Π:(i,j)∈π
+hπ
+∀(i, j) ∈A
+(2b)
+X
+π∈Πrs
+hπ = drs
+∀(r, s) ∈Z2
+(2c)
+hπ ≥0
+∀π ∈Π
+(2d)
+This convex program formulation was ﬁrst proposed by Martin Beckmann (Beckmann,
+McGuire, and Winsten 1956). The constraints denote the relation between link ﬂows
+and path ﬂows (Equation (2b)), ﬂow conservation across all paths for each OD pair
+(Equation (2c)), and non-negativity of path ﬂows (Equation (2d)). Assuming that
+link travel time functions are continuous guarantees existence of a solution and that
+these functions are strictly increasing guarantees uniqueness for the convex program.
+More details on the convex program formulation in Equation (2) and its variants can
+be found in standard texts such as Patriksson (2015) and Boyles, Lownes, and Un-
+nikrishnan (2020). This formulation has allowed for conventional convex programming
+approaches to be applied to TAP, as well as development of specialized TAP solution
+algorithms that are discussed next.
+2.2.
+TAP solution methods
+Specialized iterative methods have been developed to solve the convex program in
+Equation (2) eﬃciently by exploiting properties of TAP. These methods broadly fall
+into three classes: link-based, path-based and origin-based. Historically, link-based
+algorithms were the ﬁrst to be studied, owing to low memory requirements. These
+methods update the link ﬂow vector in order to strictly reduce the objective function.
+The method of successive averages algorithm (Powell and Sheﬃ1982) and Frank-Wolfe
+(FW) algorithm (Frank and Wolfe 1956; LeBlanc, Morlok, and Pierskalla 1975) are
+the two most widely used link based algorithms. Researchers have tried to improve
+upon these methods by modifying the search direction (Patriksson 2015; Daneva and
+Lindberg 2003; Mitradjieva and Lindberg 2013; Holmgren and Lindberg 2014). Link-
+based methods are easy to implement but are slow and ineﬃcient for larger instances.
+Additionally, the solution does not include path information.
+Path-based methods address these issues by tracking used path sets, taking advan-
+tage of increased computing power. For each OD pair, the algorithms track a used
+path set and equilibrate ﬂows within the used path set. Two widely known algorithms
+are gradient projection (Jayakrishnan et al. 1994) and projected gradient (Florian,
+Constantin, and Florian 2009). Some other algorithms in this class are disaggre-
+gate simplicial decomposition algorithm (Larsson and Patriksson 1992), path based
+FW (Chen, Jayakrishnan, and Tsai 2002), conjugate gradient projection (Lee, Nie,
+and Chen 2003), slope-based methods (Kumar and Peeta 2010, 2014), and greedy
+path-based approach (Xie, Nie, and Liu 2018). However, path-based algorithms have
+4
+
+signiﬁcant redundancy in path storage, due to overlap in multiple paths for an OD
+pair.
+This led to development of origin-based methods which keep track of a set of bushes (a
+connected acyclic subnetwork rooted at an origin). Knowing the bush structure allows
+for easy decomposition into path ﬂows. Dial’s Algorithm B (Dial 2006) allows for ﬂow
+equilibration only between the shortest and longest path in a bush, while Bar-gera’s
+OBA (Bar-Gera 2002) shifts ﬂows on multiple paths in a bush. Nie (2010) compares
+multiple Newton-type bush-based algorithms. Bar-Gera (2010) proposes TAPAS, an
+algorithm using ﬂow shifts between paired alternative segments, rather than ﬂow shifts
+over entire paths. Some other algorithms in this space are local user equilibrium algo-
+rithm (Gentile 2014) and i-TAPAS (Xie and Xie 2016).
+These approaches solve TAP for the entire network. With nonlinear computational
+complexity for TAP, decomposing and solving multiple smaller problems can lead to
+better performance. Jafari, Pandey, and Boyles (2017) decompose the network into
+smaller subnetworks and alternate solving the master network (using network con-
+tractions) and subnetworks till convergence. Raadsen (2018) focuses on creating an
+alternate lossless representation of the network and performing computational opti-
+mization on this representation using an integrated disaggregation-aggregation frame-
+work. In this article, we build oﬀthe geoegraphical-decomposition model proposed in
+Jafari, Pandey, and Boyles (2017).
+Computational improvements have also been sought by parallelization of sub-routines
+such as shortest path subroutines (Kumar and Singh 1991; Florian and Gendreau
+2001), or OD pair equilibration in Gradient projection (Chen et al. 2020). Usage
+of contraction hierarchies (Buchhold, Sanders, and Wagner 2018, 2019) or eﬃcient
+shortest path methods (Ziliaskopoulos, Kotzinos, and Mahmassani 1997) have also
+been proposed. Each of these eﬃciencies can be implemented as a complementary
+dimension to the geographical partitioning implemented in our proposed heuristic.
+One last consideration is the usage of ‘warm-starting’ to reduce computation time.
+Warm-starting has seen some prior usage for traﬃc assignment algorithms. First sug-
+gested by Dial (Dial 1999), a feasible traﬃc assignment solution was proposed as a
+substitute to shortest path assignment. Dial (2006) also found that warm-starting with
+a TAP solution reduced computation time for a slightly modiﬁed trip table. Peeta, Ku-
+mar, and Sharma (2011) show the beneﬁts of warm-starting TAP algorithms on mul-
+tiple networks, observing faster convergence. The beneﬁts of warm-starting dynamic
+TAP using static TAP solutions have also been observed in multiple studies (Levin
+et al. 2011; Nezamuddin 2011; Levin, Boyles, and Nezamuddin 2015).
+The common motivation for these methods has been the reduction of computa-
+tion time. The improvements are benchmarked on large-scale networks, including
+megaregions. In this article, we contribute towards this motivation by developing
+decomposition-based algorithms (as introduced in Section 3). We also exploit the use-
+fulness of the proposed heuristic to generate solutions for eﬃciently warmstarting TAP,
+as discussed later.
+2.3.
+Convergence of TAP solution algorithms
+Traﬃc assignment algorithms provide link ﬂows (and in some cases, path ﬂows) as
+output. Relevant metrics such as total system travel time (TSTT) are calculated from
+5
+
+the link ﬂows. Given the current link ﬂow vector x, TSTT is deﬁned as the sum of
+travel times across all travelers and is calculated using the following formula:
+TSTT(x) =
+X
+(i,j)∈A
+tij(xij)xij.
+(3)
+Traﬃc assignment algorithms terminate based on a predetermined convergence cri-
+terion. The convergence criterion indicates proximity to the optimal solution. There
+are various criteria that are used in practice, such as relative gap, average excess cost
+or average/total link reduced cost (Bar-Gera 2010). Patil, Ross, and Boyles (2021)
+provide some guidance on appropriate level of relative gap values required for various
+network metrics to stabilize. There are several deﬁnitions of relative gap in common
+practice; we use the following one. Let κrs(x) denote the travel time on the shortest
+path from origin r to destination s using the link travel times corresponding to x. The
+shortest path travel time (SPTT) equals TSTT if all vehicles were on shortest paths
+(as required by the user equilibrium condition):
+SPTT(x) =
+X
+<r,s>∈Z2
+κrs(x)drs.
+(4)
+The relative gap (RG) can then be deﬁned as:
+gap(x) = TSTT(x) −SPTT(x)
+(5)
+RG(x) =
+gap(x)
+SPTT(x) = TSTT(x)
+SPTT(x) −1 .
+(6)
+3.
+Methodology
+3.1.
+DSTAP vs DSTAP-Heuristic
+Jafari, Pandey, and Boyles (2017) proposed a decomposition algorithm for static traﬃc
+assignment problem (DSTAP) where a full network is replaced by three components:
+(a) geographically separate regions called subnetworks, (b) a master network that
+retains the origins, destinations, and boundary nodes in each subnetwork, and (c)
+artiﬁcial links that approximate the interactions between connecting nodes where the
+link parameters are estimated using TAP sensitivity analysis. Figure 1(b) shows the
+DSTAP master network and subnetworks obtained after decomposing the full network
+in Figure 1(a). Artiﬁcial links in the master network approximate interactions within a
+subnetwork between an origin/destination node and a boundary node of a subnetwork.
+On the other hand, artiﬁcial links for subnetworks approximate the paths connecting
+boundary nodes of a subnetwork that traverse other subnetworks.
+6
+
+Figure 1.: (a) Full network, (b) DSTAP networks, and (c) DSTAP-Heuristic networks
+The DSTAP procedure is shown in Algorithm 1. In each DSTAP iteration for the
+network shown in Figure 1(b), the master network TAP is solved ﬁrst where demand
+between OD pairs 1 →8 and 1 →11 are loaded on paths in the master network.
+Next, the ﬂows on each master network artiﬁcial link is used to update the demand
+on subnetworks; for example, ﬂow obtained on artiﬁcial link (1, 5) is added to the
+demand between OD pair [1,5] in the left subnetwork. Next, the subnetworks are
+solved in parallel, and the obtained solution is used to ﬁnd the updated artiﬁcial link
+parameters for the next iteration using a bush-based sensitivity analysis (Jafari and
+Boyles 2016). Last, the ﬂows on each used path between an OD pair in the master
+network and subnetworks are mapped to the full network by identifying corresponding
+paths that replace an artiﬁcial link. For example, the ﬂow on path 1 →5 →7 →11
+will be mapped to the full network by concatenating the paths connecting 1 and 5 in
+subnetwork 1, with link (5, 7), followed by paths connecting 7 and 11 in subnetwork
+2. Jafari, Pandey, and Boyles (2017) showed that the DSTAP iterative procedure is
+guaranteed to converge to the optimal TAP solution with additional computational
+savings for large-scale networks.
+Algorithm 1 DSTAP procedure for solving TAP (Jafari, Pandey, and Boyles 2017)
+Inputs: network ﬁle, trips ﬁle, networks partitions as subnetworks
+Step 1: Set up — validate partitions for connectivity, create master networks and
+subnetworks, generate master network artiﬁcial links and corresponding artiﬁcial
+origin-destination (OD) pairs inside subnetworks.
+Step 2: Optimize
+while relative gap on the full network > threshold AND iteration number <
+desired maximum iterations do
+Solve master network to a desired gap
+Update the demand on subnetwork artiﬁcial OD pairs
+Solve the subnetworks in parallel with the updated demand to a desired gap
+Update the parameters for master network artiﬁcial links and subnetwork ar-
+tiﬁcial links using TAP sensitivity analysis
+Outputs: Final full network gap and link ﬂows/costs
+Implementing DSTAP for megaregions and other large-scale networks is advantageous
+as it distributes the computations over subnetworks, which can each be solved in
+parallel. However, the number of artiﬁcial links generated can pose a computational
+7
+
+bottleneck. In the Austin network tested by Jafari, Pandey, and Boyles (2017), there
+were approximately 74000 artiﬁcial links in the master network and 3000 artiﬁcial
+links across the subnetworks (more details are presented in Table 1).
+As observed, the number of master network artiﬁcial links is signiﬁcantly high and one
+might expect their inclusion to pose a computational burden for DSTAP. However, that
+is not the case. This is because, for the case with 2 subnetworks, the used paths in the
+master network connecting an OD pair only includes 2 artiﬁcial links: one connecting
+origin to the boundary node of origin’s subnetwork, and the one connecting boundary
+node of destination’s subnetwork to the destination. Additionally, artiﬁcial links in
+the master network are essential in modeling the interaction between interior and
+boundary nodes. Thus, master network artiﬁcial links are not a primary challenge.
+On the other hand, subnetwork artiﬁcial links (SALs) such as (dashed) links (5,6) and
+(7,8) in subnetworks in Figure 1(b), which represent all the paths connecting the two
+nodes completely outside the given subnetwork, are particularly challenging due to
+three reasons.
+First, at any DSTAP iteration, a path replacing an SAL may itself include SALs in
+other subnetwork, which adds an unnecessary complexity to the calculation of sensi-
+tivity parameters and mapping of ﬂow on the full network. For example, consider the
+network shown in Figure 2(a) where the used paths at equilibrium connecting nodes
+a and d in subnetwork 1 are shown. If we replace interactions outside the subnetwork
+with artiﬁcial links, then artiﬁcial link (a, d) is modeled by conducting sensitivity
+analysis of OD pair (e, h) in subnetwork 2, whose paths include another artiﬁcial link
+(f, g). This pattern where a SAL may replace other (possibly multiple) SALs create
+computational issues of SAL parameters’ from one iteration to the next and also while
+mapping ﬂow from SALs to full network paths.
+(a)
+(b)
+Figure 2.: Issue 1 where a SAL (a,d) in subnetwork 1 includes a path that includes
+another SAL (f, g) in subnetwork 2 creating computational burden with ﬂow mapping
+and computing SAL parameters using sensitivity analysis.
+Second, as discussed in Jafari, Pandey, and Boyles (2017), modeling SALs for more
+than two subnetworks requires approximating a part of the master network in all other
+subnetworks, which adds additional computational burden by increasing the number
+of links in each subnetwork. For example, in the ﬁgure shown below, we observe that
+to model outside-the-network interactions between nodes a1 and a2 in subnetwork 1,
+8
+
+we require including 12 extra links (with regional and master-network artiﬁcial links
+included), which can make the process of solving each subnetwork cumbersome.
+𝑐!
+𝑐"
+𝑎!
+𝑎"
+𝑐#
+𝑏$
+𝑏#
+𝑏!
+𝑏"
+Subnetwork 1
+Subnetwork 2
+Subnetwork 3
+(a)
+𝑐!
+𝑐"
+𝑎!
+𝑎"
+𝑐#
+𝑏$
+𝑏#
+𝑏!
+𝑏"
+Subnetwork 1
+(b)
+Figure 3.: Issue 2 with subnetwork artiﬁcial links where if more than two partitions
+are considered (part (a)), then capturing interactions outside of a subnetwork requires
+handling multiple additional links and nodes for every pair of boundary nodes (as
+shown in (b)).
+Last, there is an additional computation burden posed by the issue when a boundary
+node in a subnetwork connects to multiple boundary nodes of another subnetwork. For
+example, for the network in Figure 4 modeling the associated OD pair in subnetwork
+2 for the SAL (a, d) in subnetwork 1 requires modeling extra nodes a and d and
+regional links as part of subnetwork 2, which increases the computational complexity
+of DSTAP.
+(a)
+(b)
+Figure 4.: Issue 3 where modeling the associated OD pair in subnetwork 2 for the SAL
+(a, d) in subnetwork 1 requires modeling extra nodes a and d and regional links as
+part of subnetwork 2.
+Given that the objective of DSTAP is to improve the computational eﬃciency of solv-
+ing the TAP by creating geographically separable partitions, the three issues created
+due to SALs create computational bottlenecks. In this research, we modify DSTAP by
+simply dropping the SALs (networks in Figure 1(c)). Artiﬁcial links in the master net-
+work are left as it is, since they are essential in representing routes connecting interior
+9
+
+nodes with other subnetworks. Dropping SALs is a reasonable assumption when there
+is limited interaction between subnetworks. Because we exclude SALs, the convergence
+of DSTAP is no longer guaranteed and DSTAP now becomes a heuristic, which we call
+DSTAP-Heuristic. Algorithm 2 shows the steps for DSTAP-Heuristic in detail, where
+TAP subproblems are solved using the Goldstein-Levitin-Polyak gradient projection
+algorithm (Jayakrishnan et al. 1994).
+Algorithm 2 DSTAP-Heuristic for solving TAP
+Inputs: network ﬁle, trips ﬁle, networks partitions as subnetworks
+Step 1: Set up — validate partitions for connectivity, create master networks
+and subnetworks, generate master net artiﬁcial links and corresponding artiﬁcial
+origin-destination (OD) pairs inside subnetworks.
+Step 2: Optimize
+while relative gap on the full network > threshold AND iteration number <
+desired maximum iterations do
+Solve master network to a desired gap
+Update the demand on subnetwork artiﬁcial OD pairs
+Solve the subnetworks in parallel with the updated demand to a desired gap
+Update the parameters for master network artiﬁcial links
+Map ﬂows on used paths between OD pairs in the master network and subnet-
+works to the full network and compute the full network relative gap
+Outputs: Final full network gap and link ﬂows/costs
+Due to the heuristic nature of the algorithm, the relative gap values obtained on the
+full network after each iteration of DSTAP-Heuristic are not guaranteed to decrease
+or converge to the optimal solution. However, removing SALs allows each iteration of
+DSTAP-Heuristic to be faster than DSTAP, which as we demonstrate in Section 5,
+can be used to warmstart the TAP problem and obtain faster solution than using a
+centralized method.
+3.2.
+Partitioning algorithms
+Computational performance of DSTAP and DSTAP-Heuristic also depends on the
+choice of subnetwork boundaries. A good partition is the one that creates fewer
+boundary nodes and where the subnetworks are “balanced” in size and have mini-
+mal “interactions” among each other. Yahia, Pandey, and Boyles (2018) compared
+two partitioning algorithms: the Shortest Domain Decomposition Algorithm (SDDA),
+which incrementally builds the subnetworks using seed nodes located far apart, and
+a ﬂow-weighted Spectral partitioning algorithm that minimizes the ﬂow across all cut
+arcs (assuming the equilibrium ﬂows are available).
+While both SDDA and Spectral partitioning algorithms can be applied for the DSTAP-
+Heuristic, we desire partitions that minimize the ﬂows leaving the subnetwork and
+entering back again, as this minimizes the role of SALs providing better convergence.
+For a network with two subnetwork partitions, we deﬁne a statistic ψ as the diﬀerence
+between the total ﬂow across the cut arcs (interﬂow) and the total demand for OD
+pairs with origins and destinations in diﬀerent subnetworks (interdemand). That is,
+ψ = Interﬂow −Interdemand.
+(7)
+10
+
+If at equilibrium no path between an OD pair leaves a subnetwork and enters it back
+again (implying zero ﬂow on all SALs), then ψ = 0. We hypothesize that partitions
+with lower value of ψ generate solutions with lower relative gap than the ones with
+higher ψ. As discussed in Section 5, lower ψ values result in a solution with lower or
+equal relative gap (after 1 iteration of DSTAP), compared to solutions with higher ψ
+values.
+We propose an iterative partitioning-reﬁnement algorithm which is based on reﬁnement
+approach proposed in Fiduccia and Mattheyses (1982) (commonly referred as the
+FM reﬁnement). Given an initial partition, the algorithm performs local improvement
+by evaluating the boundary nodes and moving one of the nodes that results in the
+highest reduction in the current value of ψ, until a ﬁxed number of iterations or until
+no reﬁnement is possible. The details of the ψ-FM algorithm are similar to the FM
+algorithm shown in Algorithm 3.
+Algorithm 3 ψ−FM algorithm for improving partitions
+Input: given partition of the network with an evaluated ψ
+while ψ of partition cannot be lowered further do
+Evaluate ψ
+Loop through all boundary nodes and compare the reduction in ψ if nodes were
+to be shifted from one partition to the next
+Select the node which leads to highest reduction in the value of ψ
+Revise the partition after shifting the selected node
+In our experiments, we consider the ψ-FM reﬁnement with diﬀerent initial partitions
+including SDDA, Spectral, and the partitions generated by the well-known partitioning
+solver METIS (Karypis and Kumar 1998). We adopt two variants of the METIS solver:
+• METISv1: this partitioning heuristic partitions a network into n balanced par-
+titions with minimal total ﬂow across all the cut links. It shares the same objec-
+tive as the Spectral partitioning, though unlike Spectral partitioning it utilizes
+multi-level partitioning heuristic than the eigenvalue decomposition. See the doc-
+umentation for ﬂow-weighted METIS solver for additional details (Karypis and
+Kumar 1998).
+• METISv2: this partitioning heuristic is same as METISv1, except that the ﬂow
+weight on each link is replaced with a value of 1. Eﬀectively, METISv2 solves for
+a partition with minimal number of cut links.
+We note that the deﬁnition of ψ in Equation (7) can be extended to more than one
+partition; however, the iterative ψ−FM algorithm is not guaranteed to converge for
+more than two partitions (Fiduccia and Mattheyses 1982) . Thereby, we focus our ex-
+periments with ψ−FM for networks with two-partitions and leave the detailed analysis
+for more than two partitions for future work.
+4.
+Other modeling details for DSTAP-Heuristic
+We now present some speciﬁc modeling choices for the DSTAP-Heuristic necessary for
+full reproducibility of results.
+11
+
+4.1.
+Constrained shortest path problem for the master network
+An artiﬁcial link in the master network either connects an origin inside each subnet-
+work with a boundary node of the subnetwork, or connects a boundary node with a
+destination in the subnetwork. This artiﬁcial link models all the paths in the subnet-
+work connecting its head and tail nodes. However, depending on the choice of partition,
+it is possible that origin and destination nodes may be located at the boundary of the
+subnetwork, resulting in feasible paths that include two consecutive artiﬁcial links. For
+example, the master network shown in Figure 5(a) (corresponding to the full network
+in Figure 1) includes both nodes 8 and 11 as destinations in subnetwork 2, where node
+8 is also a boundary node (whose incoming links include both an artiﬁcial link and a
+physical link).
+We argue that a path in the master network must not include two consecutive artiﬁcial
+links. This is because, if there were two consecutive artiﬁcial links x and y, then the
+subpath [x, y] eﬀectively models all paths within a subnetwork connecting the head
+node of x (denoted by xh) with the tail node of y (denoted by yt); however, these
+paths should instead be modeled through a direct artiﬁcial link connecting xh and yt.
+Standard label-correcting algorithms cannot be used to ﬁnd shortest paths under this
+constraint, as the Bellman property is not satisﬁed. For example, consider the destina-
+tion nodes 8 and 11 in the master network shown in Figure 5(a). The shortest path to
+node 11 which does not contain two consecutive artiﬁcial links is [1, 5, 7, 6, 8, 11]; how-
+ever, the subpath [1, 5, 7, 6, 8] is not the SP to node 8. We now present two approaches
+for ﬁnding the shortest paths under the constraint of no consecutive artiﬁcial links.
+11a
+1
+5
+6
+7
+8
+4
+1
+1
+5
+2
+10
+3
+0
+5
+6
+7
+4
+1
+1
+5
+10
+8p
+8a
+8
+2
+3
+0
+Subnetwork 1 node
+Subnetwork 2 node
+1
+Artificial link
+1
+Physical link
+(a)
+(b)
+11
+1
+1p
+0
+11
+0
+OD Pairs 1-8 and 1-11
+Zero-cost link
+Figure 5.: (a) Original master network, and the (b) transformed master network
+Approach 1 Network transformation for any number of subnetworks First,
+we propose a network transformation for solving the constrained SP problem. The pro-
+posed transformation creates additional nodes and links for every zone in the network
+and is presented in detail in Algorithm 4.
+12
+
+Algorithm 4 Master Network Transformation
+Input: Master network Gmaster = (Nmaster, Amaster, Zmaster)
+Output: Transformed master network Gt = (Nt, At, Zt)
+Set transformed network to be identical to the given master network: Gt ←Gmaster
+Deﬁne Nchild and A0cost as empty sets.
+for all centroid nodes (or zones) z ∈Zt do
+Create two “child nodes” zp and za and add it to sets:
+Nt ←Nt ∪{zp, za},
+Nchild ←Nchild ∪{zp, za}
+if z is only an origin node then
+Create two links with zero costs: (z, zp) and (z, za)
+Add the created links to sets At and A0cost
+else if z is only a destination node then
+Create two links with zero costs: (zp, z) and (za, z)
+Add the created links to sets At and A0cost
+else if z is both an origin and a destination node then
+Duplicate the zone for its origin and destination equivalent: zo and zd
+Create four links with zero costs: (zo, zp), (zo, za), (zp, zd) and (za, zd)
+Add the created links to sets At and A0cost
+for all centroid nodes z ∈Zt do
+for all incoming links l ∈Γ−1
+z
+such that l /∈A0cost do
+Remove link l from incoming link set of node z: Γ−1
+z
+←Γ−1
+z
+\ {l}
+if l is a physical link then
+Add l to incoming set of child node zp: Γ−1
+zp ←Γ−1
+zp ∪{l}
+else if l is an artiﬁcial link then
+Add l to incoming set of child node za: Γ−1
+za ←Γ−1
+za ∪{l}
+for all centroid nodes z ∈Zt do
+for all outgoing links l ∈Γz such that l /∈A0cost do
+Remove link l from outgoing link set of node z: Γz ←Γz \ {l}
+if l is a physical link then
+Add copy of link l as an outgoing link for each child node zp and za:
+Γzp ←Γzp ∪{l},
+Γza ←Γza ∪{l}
+else if l is an artiﬁcial link then
+Add copy of link l as an outgoing link for the corresponding zp node:
+Γzp ←Γzp ∪{l}
+Remove all child nodes without any incoming or outgoing link l ∈At \ A0ccost.
+Figure 5(b) shows how node 8 is split into child nodes 8a and 8p. Nodes with subscript
+a can only have artiﬁcial link as incoming links and only physical link as outgoing links.
+On the other hand, nodes with subscript p can only have physical link as incoming links
+and allow any link type as outgoing links. Hence, node 8a does not include the original
+outgoing link (8, 11) since both its incoming and outgoing links cannot be artiﬁcial.
+Next, we show that using standard label-correcting algorithms on the transformed
+network solves the constrained SP problem.
+Lemma 1. All paths from an origin to a destination in the transformed network
+obtained from Algorithm 4 satisfy the no-consecutive-artiﬁcial-link path constraint
+13
+
+Proof. The proof follows from the design of transformed network where in its last
+step the algorithm does not add outgoing artiﬁcial links to a child node (za) that has
+an incoming artiﬁcial link.
+Lemma 2. There exists a path in transformed network for every feasible path in the
+original network
+Proof. The proof is included in Appendix A.
+From Lemma 1 we can argue that a shortest path found in transformed network is also
+a feasible path in the original network. Similarly, from Lemma 2 we can argue that a
+shortest path found in transformed network must be the shortest feasible path in the
+original network, because if there were any other shorter feasible path, then the same
+path would exist in the transformed network and would be found. Hence, solving the
+shortest path problem on the transformed network will provide the shortest path in
+the original master network that does not include two consecutive artiﬁcial links.
+The network transformation approach in Algorithm 4 is general and can be applied
+to partitions with more than two subnetworks. Unfortunately, the proposed trans-
+formation creates several additional nodes and links in the master network. In our
+experiments on large-scale networks, we observe that this increased network size can
+slow the computation of the shortest path by up to twice the amount relative to when
+path constraints are removed, which can be detrimental to the desired computational
+eﬃciency of DSTAP-Heuristic.
+Approach 2: For two subnetworks only The second approach designed for two-
+subnetwork partition addresses the computational-eﬃciency issue while preserving
+path constraints. This approach exploits the property that a shortest path for mas-
+ter network with two subnetworks can have at most 3 links, and simply adapts the
+one-to-all label-correcting algorithms for ﬁnding the shortest paths in master network
+by avoiding two consecutive artiﬁcial links. Assuming the origin is in subnetwork 1
+and destinations are in subnetwork 2, the algorithm completes the search of a shortest
+path in the master network in three stages as follows:
+(1) In stage 1 all outgoing artiﬁcial links from the origin are scanned and the cost
+labels of link’s tail nodes are updated. Because an artiﬁcial link exists from
+origin to every boundary node in subnetwork 1, this stage updates the cost label
+of all boundary nodes in subnetwork 1. We note that if the origin is located at
+the boundary, this step does not scan the physical links that might connect the
+origin to boundary nodes of subnetwork 2.
+(2) In stage 2, the cost labels of all boundary nodes are updated, considering only
+the connections formed using physical links. An iterative label-setting procedure
+is used that starts with all boundary nodes in subnetwork 1 as part of the scan-
+eligible list (SEL). In each iteration, the node with lowest cost label is removed
+from SEL and all its outgoing physical links are scanned to add other potential
+nodes to SEL. Since all boundary nodes in subnetwork 2 are connected to a
+boundary node in subnetwork 1 through a physical link, this stage guarantees
+that cost labels of all boundary nodes will be updated. We note that it is possible
+for the label of a boundary node in subnetwork 1 to be modiﬁed in this stage
+14
+
+if there exists an alternate shortest path using the physical links from another
+boundary node.
+(3) Stage 3 enumerates paths to all destinations in subnetwork 2 by exploiting the
+property that path constraint violation can only occur in this stage. We enumer-
+ate the shortest path for each destination in subnetwork 2 as back node labels
+are not suﬃcient to construct the shortest path since Bellman’s principle does
+not hold. Due to the property that the master net shortest path can have at
+most 3 links, storing explicit shortest paths does not add signiﬁcant memory
+constraints. In ﬁrst part of this stage, paths to all interior destinations are enu-
+merated by scanning all incoming artiﬁcial links to the destination. In second
+stage, the same process is repeated for all destinations at the boundary; how-
+ever, now the destinations are scanned in increasing order of their cost labels.
+Destination nodes at boundary already have cost labels from stage 2 and this
+order of scanning ensures that we ﬁnd a path that may include another incoming
+artiﬁcial link to the node.
+Algorithm 5 provides the pseudocode for the 3-stage shortest path algorithm (termed
+3-stage-SPP) on master network. For the network in Figure 5(a), the three stages
+proceed as follows: in stage 1, cost labels of nodes 1, 5, 6 are updated to 0,1, and 4,
+respectively; in stage 2, cost labels of nodes 5,6,7, and 8 are updated to 1,3,2, and 8
+respectively, and in stage 3, paths to destination 11 is updated as [1,5,7,11] with a cost
+of 12 units and to destination 8 is updated as [1,5,7,8] with a cost of 4 units.
+It is easy to verify that 3-stage-SPP algorithm indeed ﬁnds the optimal path with
+desired property of no-consecutive artiﬁcial links for two subnetwork partitions since
+it accounts for artiﬁcial links only in ﬁrst and third stages which explicitly captures
+the path constraint rule of no consecutive artiﬁcial links. Extending the algorithm for
+more than 2 partitions will involve more than three stages and is left as part of the
+future work.
+Next, we determine the computational complexity of the 3-stage-SPP algorithm. If
+bi, oi, and di are respectively the number of boundary nodes, origins, and destina-
+tions in subnetwork i, i ∈{1, 2}, the computational complexity of stage 1 is O(b1),
+stage 2 is O
+ (b1 + b2)2
+, and Stage 3 is O(d2b2 + b2
+2). Since megaregional networks
+have signiﬁcantly higher number of destinations in a subnetwork than the number of
+boundary nodes, the algorithm has an overall complexity of O (d2b2). When repeated
+for all origins, the all-to-all shortest path routine for master network has the com-
+plexity O (o1d2b2 + o2d1b1), which is bounded by O
+ |Zm|2|B|
+
+, where Zm is the set of
+zones in master network and B is the set of all boundary nodes.
+We also note that if the path constraints are not modeled, the procedure for DSTAP-
+Heuristic in Algorithm 2 still holds, albeit it might result in a further suboptimal
+solution (since the proof in Jafari, Pandey, and Boyles (2017) relies on the assumption
+that regional OD pair paths have alternating artiﬁcial and physical links.) If we apply
+standard one-to-all Dijkstra’s algorithm to solve shortest paths in the master network,
+the overall computational complexity is O
+ |Zm||Nm|2
+, where Nm is the set of all
+nodes in the master network. Since |B| << |Nm| and |Zm| < |Nm|, the 3-stage-SPP
+algorithm is more eﬃcient and saves additional computation time. In Section 5 we
+quantify this savings for various networks.
+15
+
+Algorithm 5 One-to-all 3-stage-SPP algorithm for solving constrained shortest path
+problem on master network with two partitions
+1: Input: master network with physical and artiﬁcial links, associated link costs (given
+by LinkCost(i, j) function for a link (i, j)), and an origin node o (assumed to be
+in subnetwork 1)
+2: Initialization: For the origin node, set cost label co = 0. For all other nodes
+i ∈Nmaster \ {o}, set ci = ∞and back node label bi = null.
+3: Stage 1: Update shortest cost labels for boundary nodes in subnetwork 1
+4: for all outgoing artiﬁcial links (o, i) ∈Γo do
+5:
+if co + LinkCost(o, i) < ci then
+6:
+Set ci ←co + LinkCost(o, i) and bi ←o
+7: Stage 2: Update shortest cost labels for all boundary nodes
+8: Initialize scan eligible list (SEL) to all boundary nodes in subnetwork 1
+9: while SEL is not empty do
+10:
+Remove a node from SEL with lowest cost label. Call it n.
+11:
+for all outgoing physical links (n, i) ∈Γn do
+12:
+if cn + LinkCost(n, i) < ci then
+13:
+Set ci ←cn + LinkCost(n, i) and bi ←n
+14:
+SEL ←SEL ∪{i}
+15: Stage 3: Deﬁne shortest path to each destination in subnetwork 2
+16: Deﬁne empty shortest path variable πd ←null for all destinations d in subnetwork
+2.
+17: Stage 3a: Update paths to interior destinations
+18: for all destination d in subnetwork 2 that are not boundary nodes do
+19:
+for all incoming artiﬁcial links (i, d) ∈Γ−1
+d
+do
+20:
+if ci + LinkCost(i, d) < cd then
+21:
+Set cd ←ci + LinkCost(i, d)
+22:
+Append node d to path to i: πd ←tracePathTo(i) ⊕d
+23: Stage 3b: Update paths to destinations that are at the boundary
+24: for all destinations d in subnetwork 2 that are boundary nodes in increasing order
+of current cost labels do
+25:
+for all incoming artiﬁcial links (i, d) ∈Γ−1
+d
+do
+26:
+if ci + LinkCost(i, d) < cd then
+27:
+Set cd ←ci + LinkCost(i, d)
+28:
+Append node d to path to i: πd ←tracePathTo(i) ⊕d
+16
+
+4.2.
+Handling centroid connectors and network pruning
+Transportation networks consist of centroids (or zones) where trips originate and end.
+Commonly, it is assumed that ﬁrst ζ nodes in the network are centroids and any link
+originating or terminating at those nodes is a centroid connector. If a partitioning
+algorithm ﬁnds a cut passing through a centroid connector, it can result in a discon-
+nected OD pair which is undesirable. We circumvent this problem by ﬁrst removing
+all centroids and centroid connectors from the network prior to the partitioning, then
+applying a partitioning algorithm on the modiﬁed network, and then reattaching the
+centroids to the appropriate nodes and partition. If during the reattachment process,
+a centroid is found connected to nodes in diﬀerent subnetworks, copies of the centroid
+are created one for each subnetwork, to ensure the connectivity of OD pairs in the
+master network and subnetworks. Furthermore, to model the constraint that the cen-
+troids should only be at the ends of any path in a network, we set the ﬁrst through
+node for the masternetwork and subnetworks to be the same value as the complete
+network, which is equal to ζ + 1 by the convention in Transportation Networks for
+Research Core Team (2019).
+In addition to potential duplication of centroids, we note that for partitioning using
+Spectral and METISv1 algorithms, we drop the links that have zero ﬂow. This is
+consistent with the design of METISv1 (Karypis and Kumar 1998) and Spectral (Bell
+et al. 2017; Yahia, Pandey, and Boyles 2018) algorithms to prevent ﬁnding a cut
+that passes through zero ﬂow links as this often results in an imbalanced cut. For
+transportation networks, zero ﬂow links are a result of unused portions of network
+that are not used by a traveler. Dropping the zero ﬂow links might create disconnected
+portions of network. In our analysis, we consider the largest connected portion for
+further partitioning and drop the other portion. This dropping of nodes and links can
+thus result in DSTAP-Heuristic working on a smaller portion of the network than
+the original network; however, there is no loss of accuracy as the TAP can be solved
+separately on other smaller disconnected portions.
+4.3.
+Best possible gap achieved using DSTAP-Heuristic
+The performance of DSTAP-Heuristic depends on the choice of the partition and
+whether there is “signiﬁcant” proportion of demand leaving a subnetwork and entering
+back again.
+As stated earlier, the value of ψ−statistic plays a role in the quality of partition. If
+we are able to ﬁnd a partition with ψ = 0, then DSTAP-heuristic (as described in
+Section 3.1) converges to the optimal within a threshold as argued in the original
+DSTAP work. Unfortunately, if we relax path constraints in the master network or
+have a partition where ψ > 0, then convergence is not guaranteed.
+In our experiments, we found that DSTAP-Heuristic shows initial convergence, though
+the relative gap begins to oscillate as the iterations are continued. Given its heuristic
+nature, we report the best possible relative gap for DSTAP-Heuristic obtained across
+all iterations. The value of best possible relative gap depends on (a) the number of
+cut links/boundary nodes, and (b) the value of ψ. In the next section, we demonstrate
+that despite its heuristic nature and lack of theoretical guarantees, DSTAP-Heuristic
+is a useful algorithm for improving computational eﬃciencies of solving the TAP.
+17
+
+5.
+Results
+We conduct experiments on six mid- to large-scale test networks obtained from the
+transportation networks test problems repository (Transportation Networks for Re-
+search Core Team 2019) including Berlin Center, Austin, Goldcoast, Philadelphia,
+Chicago Regional, and Texas1. All experiments are conducted on a Linux machine
+Ubuntu 18.04, 32 GB of memory and Intel i5 processor 3.30 GHz.
+First, we report the beneﬁts of using DSTAP-Heuristic over DSTAP. Table 1 shows
+the number of additional nodes and links generated by DSTAP and DSTAP-Heuristic
+procedures for diﬀerent networks partitioned using a given partitioning heuristic.2 For
+each subnetwork and the master network, we report the total number of nodes, number
+of physical links (ones that are present in the complete network before partitioning),
+and the number of artiﬁcial links generated to model interactions between interior
+and boundary nodes and to model subnetwork interactions. As observed, modeling
+subnetwork interaction in DSTAP leads to creation of 0.8%–2.4% additional nodes
+and 1.9%–21.4% additional SALs. Each additional SAL has an associated OD pair
+in the other subnetwork, and thus leads to creation of up to 3.5% additional origins
+requiring additional shortest path computation. By dropping the SALs, the network
+in DSTAP-Heuristic is simpliﬁed, allowing for computational eﬃciency over the cen-
+tralized algorithm that we discuss next. The master networks in both DSTAP and
+DSTAP-Heuristic are identical with up to 1650 times more artiﬁcial links than physical
+links. However, as discussed in Section 3.1, master network artiﬁcial links are essential
+for the DSTAP-Heuristic process and with an appropriate choice of the shortest path
+routine, these links do not add signiﬁcant burden to computations.
+Next, we demonstrate the computational advantage of using the 3-stage-SPP algorithm
+relative to solving Dijkstra’s algorithm on the entire Master network. Figure 6 shows
+the time it took to solve master network using the 3-stage-SPP algorithm and solving
+Dijkstra’s on the entire master network. As observed, the 3-stage-SPP algorithm is
+up to 10 times more eﬃcient than solving Dijkstra’s algorithm on the entire network
+because it exploits the layout of master network where artiﬁcial links only appear in
+ﬁrst and third stages.
+1The Texas network was obtained from the statewide regional model and is the largest network among
+all instances with 44798 nodes, 122944 links, and 4667 zones. Other networks statistics are provided in the
+Appendix B.
+2As explained in Section 5.1 all partitioning heuristics performed relatively similarly across the test networks.
+In this section, we report results for the heuristic that took the least time in solving the network to a relative
+gap of 1E−4 after warmstarting DSTAP using the solution obtained from one run of DSTAP-Heuristic.
+18
+
+Table 1.: Comparison of number of SALs generated by DSTAP and DSTAP-Heuristic.
+In DSTAP-Heuristic the number of artiﬁcial links are simply dropped. The three-tuple
+values indicate number of nodes, number of physical links, and number of artiﬁcial
+links.
+Network
+DSTAP
+DSTAP-Heuristic
+Austin
+Masternet- (1094, 81, 74079)
+Subnetwork 1- (3777, 9242, 1441)
+Subnetwork 2- (3867, 9376, 1510)
+Masternet- (1094, 81, 74079)
+Subnetwork 1- (3685, 9242, 0)
+Subnetwork 2- (3779, 9376, 0)
+Berlin
+Masternet- (637, 113, 55416)
+Subnetwork 1- (6554, 13527, 2466)
+Subnetwork 2- (6681, 14730, 2413)
+Masternet- (637, 113, 55416)
+Subnetwork 1- (6432, 13527, 0)
+Subnetwork 2- (6549, 14730, 0)
+Goldcoast
+Masternet- (1089, 20, 20756)
+Subnetwork 1- (2218, 5108, 100)
+Subnetwork 2- (2609, 6008, 112)
+Masternet- (1089, 20, 20756)
+Subnetwork 1- (2194, 5108, 0)
+Subnetwork 2- (2587, 6008, 0)
+Chicago
+Masternet- (1919, 159, 262868)
+Subnetwork 1- (6509, 19229, 4673)
+Subnetwork 2- (6776, 19630, 5351)
+Masternet- (1919, 159, 262868)
+Subnetwork 1- (6351, 19229, 0)
+Subnetwork 2- (6628, 19630, 0)
+Philadelphia
+Masternet- (1623, 158, 223258)
+Subnetwork 1- (6874, 20606, 5811)
+Subnetwork 2- (6819, 19239, 4950)
+Masternet- (1623, 158, 223258)
+Subnetwork 1- (6728, 20606, 0)
+Subnetwork 2- (6661, 19239, 0)
+Texas
+Masternet- (1729, 192, 207593)
+Subnetwork 1- (22467, 61780, 7998)
+Subnetwork 2- (22599, 60520, 7640)
+Masternet- (1729, 192, 207593)
+Subnetwork 1- (22293, 61780, 0)
+Subnetwork 2- (22421, 60520, 0)
+Berlin
+Austin
+Goldcoast
+Chicago Regional
+Philadelphia
+0
+20
+40
+60
+80
+100
+120
+Time (sec)
+3-stage-SPP
+Dijkstra
+Figure 6.: Comparison of computation time to solve master network using two diﬀerent
+shortest path routines: the 3-stage-SPP algorithm and standard Dijkstra’s algorithm
+Next, we compare the computation times obtained from DSTAP-Heuristic relative to
+the centralized approach for diﬀerent test networks, as shown in Table 2. Column 2
+shows the lowest relative gap obtained from running DSTAP-Heuristic and the par-
+tition obtaining that gap. Columns 3 and 4 show the computation time taken by
+DSTAP-Heuristic and the centralized algorithm to reach that gap (using the gradient
+projection algorithm as the TAP solver for all cases).
+19
+
+Table 2.: Comparison of computation time for generating solutions up to a certain
+relative gap using DSTAP-Heuristic vs gradient projection (GP)
+Computation time till best gap (sec)
+Network
+Best gap
+DSTAP-Heuristic
+DSTAP-Heuristic
+using GP
+Centralized
+using GP
+%-savings
+Berlin
+0.0273 (METISv2)
+18.21
+41.88
+56.5%
+Austin
+0.1712 (ψ-FM METISv2)
+48.61
+86.09
+43.5%
+Goldcoast
+0.0608 (Spectral)
+47.94
+100.92
+52.5%
+Chicago
+0.0744 (METISv2)
+231.87
+439.76
+47.3%
+Philadelphia
+0.7226 (ψ-FM METISv2)
+241.09
+284.11
+15.1%
+Texas
+0.0175 (METISv2)
+1464.43
+4551.87
+67.8%
+We make following key observations:
+• First, the best-possible achieved gap using the DSTAP-Heuristic depends on the
+choice of partitioning algorithm and varies in the range of 0.02–0.72 for various
+networks. Due to its heuristic nature, DSTAP-Heuristic is not guaranteed to
+monotonically reduce the relative gap from one iteration to the next.
+• We observe that, with the exception of Goldcoast network, METISv2 partitions
+or its variant obtained using ψ−FM reﬁnement did the best in obtaining the
+lowest gap after an iteration of DSTAP-Heuristic relative to other partitioning
+algorithms. METISv2 simply relies on the indegree and outdegree of network
+nodes and generates a balanced partition relative to the ones generated by other
+algorithms. METISv2 is also advantageous over Spectral and METISv1 parti-
+tions since it does not rely on prior knowledge of equilibrium ﬂows that are
+sometimes unavailable. We also observe that the ψ-FM reﬁnement does better
+than the partitions without this reﬁnement for 2 out of the 6 tested networks.
+• For all network instances, DSTAP-Heuristic took lesser time than the central-
+ized approach (solved to same relative gap as the best possible achieved gap
+by DSTAP-Heuristic) generating a percent time savings ranging between 15.1–
+67.8%. This demonstrates the usefulness of DSTAP-Heuristic to obtain eﬃcient
+approximation to TAP solutions than using a centralized approach.
+Figure 7 shows the split of computation times across four subroutines of DSTAP-
+Heuristic. The split is reported as a percent of the total time spent in (a) solving
+the master network to a prespeciﬁed relative gap of 0.05, (b) solving subnetworks in
+parallel to a relative gap of 0.05, (c) mapping the ﬂow obtained on DSTAP-Heuristic
+network to the full network, and (d) computing full network relative gap. As expected,
+solving subnetworks in parallel takes a signiﬁcant portion of the DSTAP-Heuristic time
+(> 55% for all networks). Master network computations are relatively lower (< 15%),
+credited to the 3-stage-SPP algorithm. Computing the relative gap on the full network
+takes the second-highest time for all networks since solving full network gap requires
+solving shortest path on the full network, which is time-consuming. If full network
+relative gap computation is skipped (such as when the termination criterion is based
+on performing a ﬁxed number of iterations), DSTAP-Heuristic will prove additionally
+useful.
+20
+
+Figure 7.: Percent of total DSTAP Heuristic from Table 2 that is spent in diﬀerent
+subroutines
+(a) Austin ψ-FM METISv2 parti-
+tion
+(b) Berlin METISv2 partition
+(c) Goldcoast Spectral partition
+(d) Chicago METISv2 partition
+(e) Philadelphia ψ-FM METISv2
+partition
+(f) Texas METISv2 2-net partition
+Figure 8.: All network partitions that performed the best relative to the centralized
+gradient projection
+21
+
+Figure 8 shows the partitions on these networks. For all the network instances, the
+partitions generated are well-balanced and may explore the geographical features of
+the city. For example, the METISv2 partition for Austin network cuts bridges on the
+Colorado river for a portion of the partitioning line. Similarly, the Texas network is
+partitioned with each subnetwork containing the major cities (Dallas and Houston
+in blue partition, and Austin, San Antonio and El Paso in the red partition). For
+the Philadelphia network, while the Delaware river runs through the city, dividing the
+network just using the bridges as cut links would have resulted in imbalanced partition.
+Instead, ψ-FM METISv2 partition uses a portion of river as the boundary between
+subnetworks and the remainder of the boundary passes through the city. The partitions
+for Berlin, Goldcoast and Chicago Regional networks are standard balanced partitions
+without a clear geographical interpretation. While the best achieved relative gap is still
+high using these partitions is high, the computational advantage of DSTAP-Heuristic
+makes it suitable for obtaining an approximate TAP solution or for warmstarting a
+TAP using standard algorithms which we demonstrate next.
+5.1.
+Warm Starting TAP using DSTAP-Heuristic Solution
+Due to its heuristic nature, DSTAP-Heuristic is not guaranteed to converge. In this
+section, we report improvements obtained from using DSTAP-Heuristic to warm start
+a traditional TAP algorithm (in our case, gradient projection). This warm starting
+guarantees convergence to the optimal solution and is faster than the traditional TAP
+algorithm for all tested networks.
+Figure 9 presents results for the set of experiments where warm-starting was imple-
+mented after one iteration of DSTAP-heuristic for the networks mentioned earlier.
+First, as a general trend, we observe that the proposed heuristic performs better than
+centralized gradient projection for all tested networks. However, there are partitions
+that take longer than the centralized algorithm. METISv2 did consistently better
+for all networks. Second, depending on the network characteristics, the performance
+of DSTAP-Heuristic may only be marginally better. The observed beneﬁt narrows
+signiﬁcantly for the Gold Coast and Philadelphia networks, where warm-starting using
+the heuristic performs marginally better than the centralized algorithm.
+Table 3 presents the percent savings obtained from using DSTAP-Heuristic for warm-
+starting TAP for the best partition instance for three demand levels with scaling
+factors as 1.0 (base demand), 0.85 (low demand), and 1.5 (high demand). We do not
+generate new partitions for low and high demand scenarios to demonstrate the useful-
+ness of partitions generated at base demand (demand factor 1.0). As observed, for all
+demand levels and for all networks, DSTAP-Heuristic generates computational savings
+between 2.0%–47.05% relative to centralized gradient projection. There is no clear ev-
+idence that increasing the demand increases the beneﬁt of DSTAP-Heuristic; however,
+this may be due to the choice of same partition as base demand.
+The application of proposed DSTAP-Heuristic as a warmstarting tool is highlighted
+by the results. Beyond the ﬁrst iteration, the gap for warmstart and no-warmstart
+case reduce at similar rates due to usage of the same centralized algorithm. Therefore,
+the cause for the savings is isolated at warmstarting. The results provide evidence for
+usability of the proposed heuristic on large networks and the associated time saving,
+while overcoming the heuristic gap issue. The detailed numerical results and partition
+22
+
+(a) Austin
+(b) Berlin
+(c) Goldcoast
+(d) Chicago
+(e) Philadelphia
+Figure 9.: Plots of relative gap as a function of computation time after warmstarting
+gradient projection using the path ﬂows obtained after 1 iteration of DSTAP-Heuristic
+for various networks.
+23
+
+statistics can be found in Appendix B.
+5.2.
+Using DSTAP Heuristic for Megaregions
+Last, to demonstrate the usefulness of DSTAP-Heuristic for solving TAP on megare-
+gions, we analyze the performance of the heuristic on the Texas network which consists
+of major cities such as Austin, Dallas, Houston, and San Antonio.
+Megaregional networks commonly have higher density of links and nodes in the city
+area, and are relatively sparse in other locations. An intuitive way to partition a
+megaregion would be to consider each city as its own subnetwork; this intuitive parti-
+tioning aligns with how the regional models are maintained, where the state handles
+solving TAP on a relative sparse statewide network, while the MPOs handle solving
+TAPs on a detailed citywide network. However, it is a diﬃcult process to determine
+where the boundary of partitions should pass, and which cities should be grouped to-
+gether, which is where the default graph partitioning algorithms can be used. Due to
+the superior performance of METISv2 partitions, we use the same for Texas megare-
+gional network. Figure 10 shows the partitions generated using METISv2 algorithm
+for the Texas megaregion considering two and three subnetworks.
+(a) Texas METISv2 2-net parti-
+tion
+(b) Texas METISv2 3-net parti-
+tion
+Figure 10.: Two- and Three-subnetwork partitions for Texas that performed the best
+relative to the centralized gradient projection
+For the Texas network, we run DSTAP-Heuristic for one iteration and use the obtained
+solution to warm start the gradient projection solver. We compare the computation
+time taken to solve the megaregion to a relative gap less than 1E−4 compared relative
+to the centralized method without warmstarting. We observe that the solution time
+for TAP using centralized gradient projection without warmstarting in 384 minutes.
+Whereas, if we allow warmstarting through DSTAP-Heuristic, then the solution time
+using two subnetworks is 269 minutes and using three subnetworks is 261 minutes.
+Thus, we save 30% of computation time on average using DSTAP-heuristic to warm
+start the TAP for megaregions.
+24
+
+Table 3.: Comparison of computation time for centralized gradient projection when solved to a relative gap of 1E−4 without (“Central-
+ized”) and with (“DSTAP-Heuristic”) warmstarting using the DSTAP-Heuristic algorithm
+Demand
+Factor
+Computation
+time
+Network
+Austin
+Berlin-
+Center
+Goldcoast
+Chicago
+Regional
+Philadelphia
+0.85
+Centralized
+time (sec)
+442.64
+119.88
+409.73
+1530.40
+2883.65
+DSTAP-Heuristic
+time (sec)
+404.50
+63.48
+350.38
+1165.89
+2198.49
+% savings
+8.62%
+47.05%
+14.49%
+23.82%
+23.76%
+1.0
+Centralized
+time (sec)
+684.10
+144.18
+616.25
+1912.71
+2673.76
+DSTAP-Heuristic
+time (sec)
+425.55
+78.29
+555.08
+1646.68
+2357.19
+% savings
+37.8%
+45.70%
+9.93%
+13.91%
+11.84%
+1.5
+Centralized
+time (sec)
+869.42
+182.9
+1129.91
+4752.40
+4004.96
+DSTAP-Heuristic
+time (sec)
+687.49
+102.09
+1162.42
+3649.99
+3435.46
+% savings
+20.93%
+44.18%
+−2.88%
+23.20%
+14.22%
+25
+
+Figure 11.: Performance on the Texas network using METISv2 two and three subnet-
+work partitions
+6.
+Conclusions
+Computational eﬃciency of TAP is an important concern as networks grow in size and
+resolution and for megaregional planning. This article proposes a network decomposi-
+tion heuristic for solving TAP with associated network transformation for solving the
+constrained shortest path and an iterative reﬁnement approach for network partition-
+ing. The results compare the performance of the proposed heuristic and centralized
+gradient projection algorithm for multiple large-scale networks, showing the computa-
+tional beneﬁts of warmstarting using the proposed heuristic, with an average computa-
+tional savings of 10–35% over a TAP solver without warmstarting. The computational
+beneﬁt is observed for all tested networks and for diﬀerent demand levels. Partitions
+generated by METISv2 algorithm or its variant obtained after ψ-FM reﬁnement were
+found to achieve the lowest gap after an iteration of DSTAP-Heuristic. Based on our
+ﬁndings, we recommend the use of DSTAP-Heuristic to warm start TAP solutions for
+ﬁnding eﬃcient solutions in limited time.
+Various directions for future research can be identiﬁed. First, investigating newer net-
+work partitioning algorithms with additional metrics or explanatory variables can help
+improve the performance of DSTAP-Heuristic. This includes partitioning based on lat-
+itude and longitudes of nodes in a regional network (Schild and Sommer 2015) and/or
+natural divisions, such as a river, that have demonstrated eﬃciency for solving short-
+est path on megaregional networks. Second, various component models for DSTAP-
+Heuristic can be enhanced based on latest advancements in the TAP literature. These
+include using contraction hierarchies (Schneck and N¨okel 2020), using bush-based algo-
+rithms for solving TAP on master and subnetworks (Bar-Gera 2010), and incorporating
+other techniques of parallelization such as ones based on OD pair (Chen and Meyer
+1988) or parallel block-coordinate-descent for gradient projection (Chen et al. 2020)
+in tandem with geographic partitions. Finally, the geographical partitioning methods
+can be extended for solving equilibrium on dynamic networks, which pose additional
+constraints due to time dependencies and modeling of queue spillbacks.
+26
+
+Acknowledgements
+Authors would like to thank Texas Department of Transportation for sharing the
+statewide model data that was used to create the Texas network used in this analysis.
+We also acknowledge the input and feedback from Steve Boyles on several earlier drafts
+of this article. Partial research by the ﬁrst author was also supported by the Center
+for Advanced Transportation Mobility, University Transportation Center, and NSF
+Grant No. 2106989.
+References
+Bar-Gera, Hillel. 2002. “Origin-based algorithm for the traﬃc assignment problem.” Trans-
+portation Science 36 (4): 398–417.
+Bar-Gera, Hillel. 2010. “Traﬃc assignment by paired alternative segments.” Transportation
+Research Part B: Methodological 44 (8-9): 1022–1046.
+Beckmann, Martin, Charles B McGuire, and Christopher B Winsten. 1956. “Studies in the
+Economics of Transportation.” (RM-1488-PR).
+Bell, Michael GH, Fumitaka Kurauchi, Supun Perera, and Walter Wong. 2017. “Investigat-
+ing transport network vulnerability by capacity weighted spectral analysis.” Transportation
+Research Part B: Methodological 99: 251–266.
+Boyles, Stephen D., Nicholas E. Lownes, and A. Unnikrishnan. 2020. Transportation Network
+Analysis. 0th ed., Vol. 1.
+Buchhold, Valentin, Peter Sanders, and Dorothea Wagner. 2018. “Real-time traﬃc assignment
+using fast queries in customizable contraction hierarchies.” In 17th International Sympo-
+sium on Experimental Algorithms (SEA 2018), Schloss Dagstuhl-Leibniz-Zentrum fuer In-
+formatik.
+Buchhold, Valentin, Peter Sanders, and Dorothea Wagner. 2019. “Real-time traﬃc assignment
+using engineered customizable contraction hierarchies.” Journal of Experimental Algorith-
+mics (JEA) 24: 1–28.
+Chen, Anthony, R Jayakrishnan, and Wei K Tsai. 2002. “Faster Frank-Wolfe traﬃc assignment
+with new ﬂow update scheme.” Journal of Transportation Engineering 128 (1): 31–39.
+Chen, Rong-Jaye, and Robert R Meyer. 1988. “Parallel optimization for traﬃc assignment.”
+Mathematical Programming 42 (1-3): 327–345.
+Chen, Xinyuan, Zhiyuan Liu, Kai Zhang, and Zewen Wang. 2020. “A parallel computing ap-
+proach to solve traﬃc assignment using path-based gradient projection algorithm.” Trans-
+portation Research Part C: Emerging Technologies 120: 102809.
+Daneva, Maria, and Per Olov Lindberg. 2003. “A conjugate direction Frank-Wolfe method
+with applications to the traﬃc assignment problem.” In Operations Research Proceedings
+2002, 133–138. Springer.
+Dial, Robert B. 1999. “Network-optimized road pricing: Part II: Algorithms and examples.”
+Operations Research 47 (2): 327–336.
+Dial, Robert B. 2006. “A path-based user-equilibrium traﬃc assignment algorithm that ob-
+viates path storage and enumeration.” Transportation Research Part B: Methodological 40
+(10): 917–936.
+Fiduccia, Charles M, and Robert M Mattheyses. 1982. “A linear-time heuristic for improving
+network partitions.” In 19th Design Automation Conference, 175–181. IEEE.
+Florian, Michael, Isabelle Constantin, and Dan Florian. 2009. “A new look at projected gradi-
+ent method for equilibrium assignment.” Transportation Research Record 2090 (1): 10–16.
+Florian, Michael, and Michel Gendreau. 2001. “Applications of parallel computing in trans-
+portation.” Parallel Computing 27 (12): 1521–1522.
+Frank, Marguerite, and Philip Wolfe. 1956. “An algorithm for quadratic programming.” Naval
+research logistics quarterly 3 (1-2): 95–110.
+27
+
+Gentile, Guido. 2014. “Local User Cost Equilibrium: a bush-based algorithm for traﬃc assign-
+ment.” Transportmetrica A: Transport Science 10 (1): 15–54.
+Gokalp, Can, Priyadarshan N Patil, and Stephen D Boyles. 2021. “Post-disaster recovery
+sequencing strategy for road networks.” Transportation research part B: methodological 153:
+228–245.
+Holmgren, Johan, and Per Olov Lindberg. 2014. “Upright Stiﬀ: subproblem updating in the
+FW method for traﬃc assignment.” EURO Journal on Transportation and Logistics 3 (3-4):
+205–225.
+Jafari, Ehsan. 2017. “Network modeling and design: a distributed problem solving approach.”
+PhD diss., The University of Texas at Austin.
+Jafari, Ehsan, and Stephen D Boyles. 2016. “Improved bush-based methods for network con-
+traction.” Transportation Research Part B: Methodological 83: 298–313.
+Jafari, Ehsan, Venktesh Pandey, and Stephen D Boyles. 2017. “A decomposition approach to
+the static traﬃc assignment problem.” Transportation Research Part B: Methodological 105:
+270–296.
+Jayakrishnan, R, Wei T Tsai, Joseph N Prashker, and Subodh Rajadhyaksha. 1994. “A Faster
+Path-Based Algorithm for Traﬃc Assignment.” .
+Karypis, George, and Vipin Kumar. 1998. “A fast and high quality multilevel scheme for
+partitioning irregular graphs.” SIAM Journal on scientiﬁc Computing 20 (1): 359–392.
+Kumar, Amit, and Srinivas Peeta. 2010. “Slope-based multipath ﬂow update algorithm for
+static user equilibrium traﬃc assignment problem.” Transportation research record 2196
+(1): 1–10.
+Kumar, Amit, and Srinivas Peeta. 2014. “Slope-based path shift propensity algorithm for the
+static traﬃc assignment problem.” International Journal for Traﬃc and Transport Engi-
+neering 4 (3): 297–319.
+Kumar, Vipin, and Vineet Singh. 1991. “Scalability of parallel algorithms for the all-pairs
+shortest-path problem.” Journal of Parallel and Distributed Computing 13 (2): 124–138.
+Larsson, Torbj¨orn, and Michael Patriksson. 1992. “Simplicial decomposition with disaggre-
+gated representation for the traﬃc assignment problem.” Transportation Science 26 (1):
+4–17.
+LeBlanc, Larry J, Edward K Morlok, and William P Pierskalla. 1975. “An eﬃcient approach to
+solving the road network equilibrium traﬃc assignment problem.” Transportation research
+9 (5): 309–318.
+Lee, Der-Horng, Yu Nie, and Anthony Chen. 2003. “A conjugate gradient projection algorithm
+for the traﬃc assignment problem.” Mathematical and computer modelling 37 (7-8): 863–
+878.
+Levin, Michael, Roshan Kumar, N Nezamuddin, Natalia Ruiz Juri, and S Travis Waller. 2011.
+“Utilizing a Static-based Initial Feasible Solution to Expedite the Convergence of Dynamic
+Traﬃc Assignment Problems.” .
+Levin, Michael W, Stephen D Boyles, and Nezamuddin. 2015. “Warm-starting dynamic traﬃc
+assignment with static solutions.” Transportmetrica B: Transport Dynamics 3 (2): 99–113.
+Mitradjieva, Maria, and Per Olov Lindberg. 2013. “The stiﬀis moving—Conjugate direction
+Frank-Wolfe methods with applications to traﬃc assignment.” Transportation Science 47
+(2): 280–293.
+Nezamuddin. 2011. “Improving the eﬃciency of dynamic traﬃc assignment through computa-
+tional methods based on combinatorial algorithm.” PhD diss., ”The University of Texas at
+Austin”.
+Nie, Yu Marco. 2010. “A class of bush-based algorithms for the traﬃc assignment problem.”
+Transportation Research Part B: Methodological 44 (1): 73–89.
+Patil, Priyadarshan, Rydell Walthall, and Stephen D Boyles. 2022. “Budget-Constrained Rail
+Electriﬁcation Modeling Using Symmetric Traﬃc Assignment: A North American Case
+Study.” Journal of Infrastructure Systems 28 (2): 04022007.
+Patil, Priyadarshan N., Katherine C. Ross, and Stephen D. Boyles. 2021. “Convergence behav-
+ior for traﬃc assignment characterization metrics.” Transportmetrica A: Transport Science
+28
+
+17 (4): 1244–1271. https://doi.org/10.1080/23249935.2020.1857883.
+Patriksson, Michael. 2015. The traﬃc assignment problem: models and methods. Courier Dover
+Publications.
+Peeta, Srinivas, Amit Kumar, and Sushant Sharma. 2011. “Post-Processing Techniques to
+Enhance Reliability of Assignment Algorithm Based Performance Measures.” .
+Powell, Warren B, and Yosef Sheﬃ. 1982. “The convergence of equilibrium algorithms with
+predetermined step sizes.” Transportation Science 16 (1): 45–55.
+Raadsen, Mark Pieter Hendrik. 2018. “Aggregation and decomposition methods in traﬃc as-
+signment: towards consistent and eﬃcient planning models in a multi-scale environment.”
+PhD diss., University of Sydney.
+Schild, Aaron, and Christian Sommer. 2015. “On balanced separators in road networks.” In
+International Symposium on Experimental Algorithms, 286–297. Springer.
+Schneck, Arne, and Klaus N¨okel. 2020. “Accelerating traﬃc assignment with customizable
+contraction hierarchies.” Transportation research record 2674 (1): 188–196.
+Transportation Networks for Research Core Team. 2019. “Transportation Networks for Re-
+search.” https://github.com/bstabler/TransportationNetworks. Accessed: May 12,
+2022.
+United States Bureau of Public Roads. 1964. Traﬃc assignment manual for application with a
+large, high speed computer. Vol. 37. US Department of Commerce, Bureau of Public Roads.
+Wardrop, John Glen, and James Ivor Whitehead. 1952. “Correspondence. some theoretical
+aspects of road traﬃc research.” Proceedings of the Institution of Civil Engineers 1 (5):
+767–768.
+Xie, Jun, Yu Nie, and Xiaobo Liu. 2018. “A greedy path-based algorithm for traﬃc assign-
+ment.” Transportation Research Record 2672 (48): 36–44.
+Xie, Jun, and Chi Xie. 2016. “New insights and improvements of using paired alternative
+segments for traﬃc assignment.” Transportation Research Part B: Methodological 93: 406–
+424.
+Yahia, Cesar N, Venktesh Pandey, and Stephen D Boyles. 2018. “Network Partitioning Al-
+gorithms for Solving the Traﬃc Assignment Problem using a Decomposition Approach.”
+Transportation Research Record 2672 (48): 116–126.
+Ziliaskopoulos, Athanasios, Dimitrios Kotzinos, and Hani S Mahmassani. 1997. “Design and
+implementation of parallel time-dependent least time path algorithms for intelligent trans-
+portation systems applications.” Transportation Research Part C: Emerging Technologies 5
+(2): 95–107.
+29
+
+Appendix A. Proof for Lemma 2
+Proof. First, we deﬁne a mapping relating every path in the transformed network to
+a path in the original network. Let Πtransformed be set of all paths in the transformed
+network and Πfeasible
+original be the set of all feasible paths in the original network. We deﬁne
+a mapping f : Πtransformed →Πfeasible
+original as follows:
+• If the path passes through a node zo, zd, zp or za, replace the occurrence with
+the z
+• If node z has multiple consecutive occurrences, then replace it with one occur-
+rence of z
+For example, a path [1o, 1p, 2a, 3, 4p, 5p, 6, 7a, 7d] will map to a path [1, 2, 3, 4, 5, 6, 7] in
+the original network. We can now show that f is a surjective mapping which completes
+the proof.
+Let [o, x1, . . . , xn, d] ∈Πfeasible
+original be a feasible path representing an ordered list of nodes
+connecting origin zone o to destination zone d. For the mapping f to be surjective,
+we must be able to ﬁnd a path π ∈Πtransformed that maps to this path. In a general
+case, this path may pass through other centroid nodes. Let’s assume that all nodes
+x1, x2, . . . , xn are centroids. Then, by the construction of network transformation, if
+the link connecting (xi, xi+1) is artiﬁcial, then we have replaced it with link (xi
+p, xi+1
+a
+).
+On the other hand, if the link connecting (xi, xi+1) is a physical link, then we have
+replaced it with two links (xi
+a, xi+1
+p
+) and (xi
+p, xi+1
+p
+). This process applies for all links in
+the original network path, hence, there exists a path in the transformed network for
+every feasible path in the original network.
+30
+
+Appendix B. Detailed Partition Statistics
+Austin network results are shown in Table B1.3
+Table B1.: Austin Network Partition
+Austin network (n = 7466, m = 18710)
+Partition
+METISv1
+ψ−FM
+METISv1
+ψ−FM
+METISv2
+n1 : n2
+3796 : 3667
+3799 : 3664
+3685 : 3779
+m1 : m2
+10434 : 8169
+9387 : 9207
+9242 : 9376
+# boundary
+nodes
+94
+98
+90
+# cut
+links
+95
+101
+81
+ψ
+9580.93
+6810.11
+16223.7
+Centralized
+time to reach
+gap 1E-4
+502.72
+502.72
+502.72
+Total DSTAP
+warmstarting
+time (sec)
+448.66
+410.68
+416.46
+Fullnet
+gap from 1
+itr of DSTAP
+0.1698
+0.1312
+0.1712
+3The total number of links (or nodes) across diﬀerent partitions along with the cut links (or boundary nodes)
+may not add up to the total in the network as certain nodes/links were dropped to ensure network connectivity
+and those nodes/links were not being used.
+31
+
+Table B2.: Berlin-center Network Partition
+Berlin-center network (n = 12981, m = 28376)
+Partition
+Spectral
+ψ−FM
+Spectral
+METISv1
+METISv2
+ψ−FM
+METISv2
+n1 : n2
+6443 : 6538
+6450 : 6531
+5891 : 5794
+6432 : 6549
+6427 : 6554
+m1 : m2
+13590 : 14634
+13610 : 14593
+13111 : 12966
+13527 : 14730
+13498 : 14743
+# boundary
+nodes
+170
+183
+217
+127
+135
+# cut
+links
+146
+167
+231
+113
+129
+ψ
+4700.74
+3789.65
+995.5
+3429.92
+2934.01
+Centralized
+time to reach
+gap 1E-4 (sec)
+149.79
+Total DSTAP
+warmstarting
+time (sec)
+78.242
+87.56
+63.41
+77.44
+77.91
+Fullnet
+gap from 1
+itr of DSTAP
+0.0535
+0.0289
+0.0161
+0.0273
+0.0272
+32
+
+Table B3.: Goldcoast Network Partition
+Goldcoast network (n = 4807, m = 11140)
+Partition
+Spectral
+ψ−FM
+Spectral
+METISv1
+ψ−FM
+METISv1
+METISv2
+ψ−FM
+METISv2
+n1 : n2
+2194 : 2587
+2194 : 2587
+2421 : 2356
+2419 : 2358
+2397 : 2384
+2396 : 2385
+m1 : m2
+5108 : 6008
+5108 : 6008
+5619 : 5474
+5615 : 5479
+5518 : 5598
+5516 : 5599
+# boundary
+nodes
+23
+23
+35
+34
+22
+23
+# cut
+links
+20
+20
+33
+32
+20
+21
+ψ
+241.92
+241.92
+929.43
+415.63
+2803.21
+2803.21
+Centralized
+time to reach
+gap 1E-4 (sec)
+615.11
+Total DSTAP
+warmstarting
+time (sec)
+545.85
+555.12
+545.05
+625.9
+563.03
+513.99
+Fullnet
+gap from 1
+itr of DSTAP
+0.0607
+0.0598
+0.069
+0.068
+0.0682
+0.075
+33
+
+Table B4.: Chicago-regional Network Partition
+Chicago regional network (n = 12982, m = 39018)
+Partition
+Spectral
+ψ−FM
+Spectral
+METISv1
+ψ−FM
+METISv1
+METISv2
+ψ−FM
+METISv2
+n1 : n2
+6399 : 6580
+6405 : 6574
+6562 : 6411
+6555 : 6418
+6352 : 6627
+6351 : 6628
+m1 : m2
+19136 : 19675
+19145 : 19673
+19289 : 19425
+19277 : 19440
+19240 : 19627
+19229 : 19630
+# boundary
+nodes
+192
+195
+246
+241
+152
+153
+# cut
+links
+207
+200
+288
+285
+151
+159
+ψ
+81512.19
+48238.04
+12598.71
+12598.71
+33672.62
+32821.14
+Centralized
+time to reach
+gap 1E-4 (sec)
+1668.28
+Total DSTAP
+warmstarting
+time (sec)
+1558.96
+1558.69
+4696.46
+1568.57
+1544.49
+1680.52
+Fullnet
+gap from 1
+itr of DSTAP
+0.0623
+0.0611
+0.1077
+0.0955
+0.0664
+0.0744
+34
+
+Table B5.: Philadelphia Network Partition
+Philadelphia network (n = 13389, m = 40003)
+Partition
+Spectral
+ψ−FM
+Spectral
+METISv1
+ψ−FM
+METISv1
+METISv2
+ψ−FM
+METISv2
+n1 : n2
+4867 : 8522
+4863 : 8526
+6858 : 6531
+6852 : 6537
+6734 : 6655
+6728 : 6661
+m1 : m2
+14751 : 25130
+14743 : 25147
+19798 : 19929
+19773 : 19952
+20624 : 19223
+20606 : 19239
+# boundary
+nodes
+104
+107
+259
+252
+152
+152
+# cut
+links
+122
+113
+276
+278
+156
+158
+ψ
+459897.3
+359189.24
+367387.31
+281971.62
+310871.26
+278558.5
+Centralized
+time to reach
+gap 1E-4 (sec)
+2403.5
+Total DSTAP
+warmstarting
+time (sec)
+2354.91
+2331.33
+2689.24
+2418.92
+2469.81
+2351.194
+Fullnet
+gap from 1
+itr of DSTAP
+0.2143
+0.0995
+0.2937
+0.2260
+0.8109
+0.7226
+35

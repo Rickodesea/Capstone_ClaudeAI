@@ -1,7 +1,91 @@
 # Simulation — How To Run
 
 ## Overview
-Interactive visualization of the multi-tenant cluster scheduler running in real time.
+Two ways to run the simulation:
+
+1. **`sim_runner.py` — solver-agnostic CLI** (no frontend needed). Runs the full ClusterManager scheduling loop with either the regular or iterative RT solver, prints aggregate stats, and optionally compares both solvers side-by-side. Iterative is the default.
+
+2. **Interactive browser visualization** — FastAPI backend + React frontend. Step through scheduling intervals in real time, configure all parameters from the UI, see live node/tenant metrics.
+
+---
+
+## Quick Start: sim_runner.py
+
+```bash
+cd Simulation/
+pip install ortools numpy
+
+python sim_runner.py                            # iterative RT, no PA, 20 batches
+python sim_runner.py --rt no-iterative          # single-shot MILP baseline
+python sim_runner.py --compare                  # iterative vs regular side-by-side
+python sim_runner.py --compare --pa mock --batches 30 --quiet
+python sim_runner.py --rt iterative --rt-batch-jobs 16 --rt-batch-nodes 16
+python sim_runner.py --compare --csv results.csv    # saves regular.csv + iterative.csv
+```
+
+### All flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--rt {regular,iterative}` | iterative | RT solver mode |
+| `--pa {none,mock,gurobi}` | none | Plan-ahead grouping mode |
+| `--batches N` | 20 | Scheduling intervals |
+| `--seed N` | 42 | RNG seed — same seed = identical job arrivals |
+| `--solver SOLVER` | CBC | Integer backend: CBC, SCIP, HIGHS, GUROBI |
+| `--rt-batch-jobs N` | 32 | Jobs per sub-MILP (iterative RT only) |
+| `--rt-batch-nodes N` | 32 | Nodes per sub-MILP (iterative RT only) |
+| `--time-limit MS` | 10000 | Per-call solver wall-clock limit ms |
+| `--jobs-per-round N` | — | Override JOBS_PER_ROUND from simulation_data |
+| `--csv PATH` | — | Save per-batch stats to CSV |
+| `--quiet` | — | Suppress ClusterManager per-batch output |
+| `--compare` | — | Run both RT modes, print side-by-side table |
+
+### PA modes
+
+| Mode | Description |
+|------|-------------|
+| `none` | All tenants compete for all nodes — no grouping (fastest) |
+| `mock` | Deterministic round-robin groups — no Gurobi required |
+| `gurobi` | Full MISOCP plan-ahead — falls back to mock if Gurobi unavailable |
+
+### How injection works
+`sim_runner.py` patches `cluster_manager.solve` with the chosen RT solver function before each run and restores the original in a `finally` block. No existing model code is modified or copied.
+
+---
+
+## Interactive Browser Simulation
+
+### Overview
+Combines both model layers:
+- **Real-Time MILP** (from `Realtime/`) — OR-Tools CBC solver, called once per tenant group per step
+- **Plan-Ahead** — Gurobi MILP/MISOCP if available; falls back to a numpy mock that produces the same output format
+
+The backend is a FastAPI server driving a React + Tailwind frontend. All simulation parameters are configurable from the UI without restarting the backend.
+
+### Requirements
+```bash
+# Backend
+pip install fastapi uvicorn ortools numpy
+
+# Frontend
+node >= 18, npm
+```
+
+Gurobi WLS license in `PlanAhead/.env` is optional — the mock plan-ahead runs without it.
+
+### Start the backend
+```bash
+cd Simulation/api/
+uvicorn main:app --reload --port 8000
+```
+
+### Start the frontend
+```bash
+cd Simulation/frontend/
+npm install
+npm run dev
+```
+Open http://localhost:5173
 
 The Simulation combines both model layers:
 - **Real-Time MILP** (from `Realtime/`) — OR-Tools CBC solver, called once per tenant group per step

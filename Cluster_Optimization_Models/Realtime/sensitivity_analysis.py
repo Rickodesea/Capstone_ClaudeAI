@@ -9,28 +9,37 @@ Sweep dimensions
                                    shrink node effective capacity
   jobs_per_round (arrival load)  — controls queue pressure
 
-Fixed during sweep
-------------------
-  NUM_NODES / NUM_TENANTS / node topology — set in simulation_data.py
+Solver modes
+------------
+  --iterative (default)   Use optimizer_iterative.solve() — batch MILP, faster at scale.
+  --no-iterative          Use realtime_optimizer.solve()  — single-shot MILP baseline.
 
 Usage
 -----
-    cd optimization/
-    python sensitivity_analysis.py                           # full sweep
+    cd Realtime/
+    python sensitivity_analysis.py                           # full sweep (iterative default)
+    python sensitivity_analysis.py --no-iterative            # single-shot MILP
     python sensitivity_analysis.py --batches 20 --seed 99
     python sensitivity_analysis.py --plot-only               # replot existing CSV
     python sensitivity_analysis.py --output my_results.csv
+    python sensitivity_analysis.py --rt-batch-jobs 16 --rt-batch-nodes 16
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import io
 import os
 import sys
 import time
 from itertools import product
 from typing import Any
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+else:
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 # ── Headless matplotlib (works without a display) ──────────────────────────────
 try:
@@ -74,22 +83,39 @@ CSV_FIELDS = [
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def run_one(
-    k_window:      int,
+    k_window:       int,
     jobs_per_round: int,
-    num_batches:   int,
-    seed:          int,
+    num_batches:    int,
+    seed:           int,
+    iterative:      bool = True,
+    batch_jobs:     int  = 32,
+    batch_nodes:    int  = 32,
 ) -> dict[str, Any]:
     """Run one ClusterManager configuration and return a CSV-ready row."""
-    t0 = time.perf_counter()
+    import cluster_manager as _cm
 
-    cm = ClusterManager(
-        seed          = seed,
-        verbose       = False,
-        k_window      = k_window,
-        jobs_per_round = jobs_per_round,
-    )
-    r = cm.run(num_batches)
-    num_nodes = len(cm.nodes)
+    orig_solve = _cm.solve
+    if iterative:
+        import optimizer_iterative as _oi
+        _bj, _bn = batch_jobs, batch_nodes
+        _cm.solve = lambda jobs, nodes, W_t, K, time_limit_ms=10_000: _oi.solve(
+            jobs, nodes, W_t, K, time_limit_ms,
+            batch_jobs=_bj, batch_nodes=_bn,
+        )
+
+    t0 = time.perf_counter()
+    try:
+        cm = ClusterManager(
+            seed           = seed,
+            verbose        = False,
+            k_window       = k_window,
+            jobs_per_round = jobs_per_round,
+            log_file       = None,
+        )
+        r = cm.run(num_batches)
+        num_nodes = len(cm.nodes)
+    finally:
+        _cm.solve = orig_solve
 
     elapsed = time.perf_counter() - t0
 
@@ -123,15 +149,20 @@ def run_one(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def run_sweep(
-    num_batches: int = DEFAULT_NUM_BATCHES,
-    seed:        int = DEFAULT_SEED,
-    output:      str = DEFAULT_OUTPUT,
+    num_batches: int  = DEFAULT_NUM_BATCHES,
+    seed:        int  = DEFAULT_SEED,
+    output:      str  = DEFAULT_OUTPUT,
+    iterative:   bool = True,
+    batch_jobs:  int  = 32,
+    batch_nodes: int  = 32,
 ) -> list[dict[str, Any]]:
     """Run all (k_window × jobs_per_round) combinations."""
+    mode = f"iterative (batch={batch_jobs}×{batch_nodes})" if iterative else "regular"
     configs = list(product(K_WINDOW_VALUES, JOBS_PER_ROUND_VALUES))
     total   = len(configs)
     results: list[dict[str, Any]] = []
 
+    print(f"RT solver mode : {mode}")
     print(f"{'#':>4}  {'K':>4} {'jobs':>5} {'nodes':>5}  {'place%':>7}  {'viols':>5}  {'t(s)':>6}")
     print("─" * 52)
 
@@ -140,7 +171,8 @@ def run_sweep(
         writer.writeheader()
 
         for i, (k, jobs) in enumerate(configs, 1):
-            row = run_one(k, jobs, num_batches, seed)
+            row = run_one(k, jobs, num_batches, seed,
+                          iterative=iterative, batch_jobs=batch_jobs, batch_nodes=batch_nodes)
             writer.writerow(row)
             f.flush()
             results.append(row)
@@ -365,22 +397,30 @@ def main() -> None:
         description="Sensitivity analysis for the multi-tenant cluster scheduler.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--batches",   type=int, default=DEFAULT_NUM_BATCHES,
+    parser.add_argument("--batches",        type=int, default=DEFAULT_NUM_BATCHES,
                         help="Batches per configuration run")
-    parser.add_argument("--seed",      type=int, default=DEFAULT_SEED,
+    parser.add_argument("--seed",           type=int, default=DEFAULT_SEED,
                         help="RNG seed (same seed across all configs for comparability)")
-    parser.add_argument("--output",    type=str, default=DEFAULT_OUTPUT,
+    parser.add_argument("--output",         type=str, default=DEFAULT_OUTPUT,
                         help="CSV output file")
-    parser.add_argument("--plot-only", action="store_true",
+    parser.add_argument("--plot-only",      action="store_true",
                         help="Skip simulation; regenerate plots from existing CSV")
+    parser.add_argument("--iterative", default=True, action=argparse.BooleanOptionalAction,
+                        help="Use iterative RT solver (default: True)")
+    parser.add_argument("--rt-batch-jobs",  type=int, default=32,
+                        help="Jobs per sub-MILP — iterative RT only (default: 32)")
+    parser.add_argument("--rt-batch-nodes", type=int, default=32,
+                        help="Nodes per sub-MILP — iterative RT only (default: 32)")
     args = parser.parse_args()
 
     if not args.plot_only:
         n_configs = len(K_WINDOW_VALUES) * len(JOBS_PER_ROUND_VALUES)
         print(f"Sweep: {n_configs} configs × {args.batches} batches  |  seed={args.seed}")
-
         print(f"Output: {args.output}\n")
-        run_sweep(args.batches, args.seed, args.output)
+        run_sweep(args.batches, args.seed, args.output,
+                  iterative=args.iterative,
+                  batch_jobs=args.rt_batch_jobs,
+                  batch_nodes=args.rt_batch_nodes)
 
     print("Generating plots…")
     plot_results(args.output)

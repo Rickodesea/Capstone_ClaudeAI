@@ -166,18 +166,35 @@ def _plot(x: list, ys: dict[str, list], xlabel: str, title: str, fname: str,
 # § SWEEP 1: Problem Scale
 # ─────────────────────────────────────────────────────────────────────────────
 
-def sweep_scale() -> None:
+def sweep_scale(iterative: bool = True) -> None:
     """
     Sweep (n_tenants × n_nodes × n_periods) and record solve time, sigma, variable count.
 
+    When iterative=True (default): also runs plan_ahead_iterative for each config
+    and adds an iter_elapsed_s column showing the greedy-FFD timing comparison.
+
     LIMITATION REVEALED:
-      Solve time grows super-linearly with problem size. Beyond ~(15 tenants ×
+      MISOCP solve time grows super-linearly with problem size. Beyond ~(15 tenants ×
       25 nodes × 4 periods), the 30-second time limit becomes binding and MIP
-      gap may not reach the 5% target. In production this means the planner
-      must either increase the time limit, coarsen the period grid, or cap the
-      tenant/node count per plan call.
+      gap may not reach the 5% target. The iterative variant avoids this by
+      running many small greedy passes instead of one large MISOCP.
     """
+    import time as _time
     print("\nSweep 1: Problem scale (tenants × nodes × periods)...")
+    if iterative:
+        print("  [iterative=True] Adding plan_ahead_iterative comparison column.")
+
+    # Optional iterative import
+    _pa_iter = None
+    if iterative:
+        try:
+            import sys as _sys, os as _os
+            _sys.path.insert(0, str(Path(__file__).resolve().parent))
+            from plan_ahead_iterative import run_iterative as _run_iter
+            _pa_iter = _run_iter
+        except Exception:
+            pass
+
     configs = [
         (4,  6,  2), (4,  6,  4),
         (6, 10,  2), (6, 10,  4),
@@ -185,7 +202,9 @@ def sweep_scale() -> None:
         (10, 20, 4), (12, 25, 4),
     ]
     headers = ["tenants", "nodes", "periods", "vars", "constrs",
-               "solve_s", "sigma", "avg_mach/tenant", "status"]
+               "misocp_s", "sigma", "avg_mach/tenant", "status"]
+    if _pa_iter:
+        headers.append("iter_s")
     rows = []
     xs, times, sigmas = [], [], []
 
@@ -198,14 +217,19 @@ def sweep_scale() -> None:
         row = [n_t, n_n, n_p, r["n_vars"], r["n_constrs"],
                r["solve_sec"], r.get("sigma", "—"),
                r["avg_machines_per_tenant"], r["status"]]
+        if _pa_iter:
+            t0 = _time.perf_counter()
+            _pa_iter(total_tenants=n_t, seed=42, verbose=False)
+            row.append(round(_time.perf_counter() - t0, 3))
         rows.append(row)
         xs.append(scale)
         times.append(r["solve_sec"])
         sigmas.append(r.get("sigma", 0) if r["status"] == "solved" else 0)
         print(f"    T={n_t:>2} N={n_n:>2} P={n_p}  vars={r['n_vars']:>5}  "
-              f"solve={r['solve_sec']:>6.2f}s  sigma={r.get('sigma','—')}")
+              f"misocp={r['solve_sec']:>6.2f}s  sigma={r.get('sigma','—')}"
+              + (f"  iter={row[-1]:.3f}s" if _pa_iter else ""))
 
-    _print_table("SWEEP 1: Problem Scale", headers, rows)
+    _print_table("SWEEP 1: Problem Scale (MISOCP" + (" vs Iterative)" if _pa_iter else ")"), headers, rows)
     _save_csv("sweep1_scale.csv", headers, rows)
     _plot(xs, {"Solve time (s)": times}, "T×N×P scale", "Solve Time vs Problem Scale",
           "sweep1_scale_time.png", ylabel="seconds")
@@ -411,15 +435,27 @@ def sweep_mip_gap() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    import argparse as _ap
+    _parser = _ap.ArgumentParser(
+        description="Plan-Ahead sensitivity analysis",
+        formatter_class=_ap.ArgumentDefaultsHelpFormatter,
+    )
+    _parser.add_argument("--iterative", default=True, action=_ap.BooleanOptionalAction,
+                         help="Add iterative comparison to scale sweep (default: True)")
+    _pargs = _parser.parse_args()
+
     if not _HAS_GUROBI:
         print("ERROR: gurobipy not installed. Cannot run plan-ahead sensitivity analysis.")
         sys.exit(1)
 
     print("\nPlan-Ahead Sensitivity Analysis")
     print("=" * 72)
+    mode = "iterative comparison enabled" if _pargs.iterative else "MISOCP-only"
+    print(f"Scale sweep mode : {mode}")
+    print("Note: epsilon / fairness / MIP-gap sweeps always use MISOCP (parameter-specific).")
     print("Outputs: CSVs → sensitivity_data/   Plots → sensitivity_plots/")
 
-    sweep_scale()
+    sweep_scale(iterative=_pargs.iterative)
     sweep_exclusive_count()
     sweep_fairness_weight()
     sweep_cantelli_epsilon()

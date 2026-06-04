@@ -57,3 +57,62 @@ For real-time, produce predictions **per collection_id** at submission time (onl
 For plan-ahead, produce predictions **per (tenant_id, period_index)** ahead of each horizon run — the system will call your endpoint before solving. A batch call covering all tenants for the next H periods is preferred.
 
 If fields cannot be predicted for a specific job or tenant, return the appropriate fallback value described above rather than null — the models have no internal fallback logic.
+
+---
+
+## Descriptive Statistics for Borg Simulation Config
+
+The `Prediction/borg_configuration.py` file contains constants used when the simulation dashboard
+loads the Borg dataset configuration. Some values are currently estimated; the ones marked below
+can be replaced with real descriptive statistics from your dataset. Please run these calculations
+from your EDA and share the results so the optimization team can update `borg_configuration.py`.
+
+These replace synthetic defaults in the simulation — they do **not** need to be learned/predicted
+by your models, just computed once as summary statistics from the downloaded trace data.
+
+### From the real-time scheduler dataset (`real_time_scheduler_input.csv`)
+
+| Value needed | How to calculate | Config key |
+|---|---|---|
+| Average memory per job (MB) | `real_time_df['pred_mem_mb'].mean()` — convert to MB if normalized | `req_mem_min_mb`, `req_mem_max_mb` |
+| Memory range per job | `real_time_df.groupby('tenant_id')['pred_mem_mb'].agg(['min','max'])` | Informs job RAM range per tenant |
+| Average CPU per job | `real_time_df['pred_cpu_p95'].mean()` | `req_cpu_min`, `req_cpu_max` |
+| Avg jobs per tenant per interval | Count collections per tenant over a 60-second window in the trace | `jobs_min_per_round`, `jobs_max_per_round` |
+| Unique tenant count | `real_time_df['tenant_id'].nunique()` | `num_tenants` (expected: 9) |
+
+### From the plan-ahead scheduler dataset (`plan_ahead_scheduler_input.csv`)
+
+| Value needed | How to calculate | Config key |
+|---|---|---|
+| Demand range per tenant per period | `plan_ahead_df.groupby('tenant_id')['u'].agg(['min','max'])` | Informs `tenant_usage_min`, `tenant_usage_max` in PA model |
+| Demand variance range | `plan_ahead_df['sigma2'].describe()` | Confirms sigma_frac in Cantelli constraint |
+| Unique tenants | `plan_ahead_df['tenant_id'].nunique()` | `num_tenants` (expected: 9) |
+
+### Machine/node counts (from the Google trace or your download)
+
+| Value needed | Source | Config key |
+|---|---|---|
+| Number of machines in your cluster subset | From the trace `machine_events` table: count distinct `machine_id` values in your subset | `total_nodes` (currently estimated at 50) |
+| Typical machine RAM (normalized 0–1) | From `machine_attributes` or `resource_request` table: max memory across machines | `node_mem_min_gb`, `node_mem_max_gb` after denormalization |
+
+> **Note on normalization:** Google cluster traces store all resources as fractions of machine
+> capacity (0 to 1). If your `pred_mem_mb` values are in this normalized scale, set
+> `PA_NODE_CAPACITY = 1.0` in `borg_configuration.py` (already done). Multiply by the
+> actual machine RAM to get real MB values for the real-time model.
+
+### What to send back
+
+A short table or JSON block with these values is enough. The optimization team will update
+`Prediction/borg_configuration.py` accordingly. Example format:
+
+```json
+{
+  "num_tenants": 9,
+  "total_machines_in_subset": 120,
+  "avg_jobs_per_tenant_per_minute": 2.3,
+  "pred_mem_mb_range": [0.0003, 0.95],
+  "pred_cpu_p95_range": [0.0005, 0.80],
+  "u_range_per_tenant_per_period": [0.001, 0.28],
+  "sigma2_range": [7e-9, 4e-6]
+}
+```

@@ -1,6 +1,6 @@
 # Real-Time Optimization Model — Code Explained Simply
 
-> **Files covered:** `optimizer_google_or.py` and `cluster_manager.py`
+> **Files covered:** `realtime_optimizer.py` and `cluster_manager.py`
 > Files like `test_model.py` and `simulation_data.py` are not covered here — they are for testing and data setup.
 
 ---
@@ -9,16 +9,16 @@
 
 The real-time model runs every scheduling interval to place pending jobs onto cluster nodes. Two files handle this:
 
-- **`optimizer_google_or.py`** = the brain — one function that solves "which job goes to which node right now"
+- **`realtime_optimizer.py`** = the brain — one function that solves "which job goes to which node right now"
 - **`cluster_manager.py`** = the body — manages everything else: the queue, running jobs, expiring jobs, tracking wait times, and calling the brain once per tenant group per interval
 
 Think of it like an airport:
 - `cluster_manager.py` is the air traffic control tower — it tracks all flights, decides which ones are ready to land, and manages the runway state
-- `optimizer_google_or.py` is the algorithm that assigns each flight to a specific runway gate
+- `realtime_optimizer.py` is the algorithm that assigns each flight to a specific runway gate
 
 ---
 
-## File 1: `optimizer_google_or.py`
+## File 1: `realtime_optimizer.py`
 
 This file contains one public function: `solve()`. That's it. Everything else is setup.
 
@@ -368,7 +368,7 @@ ClusterManager.run()
         ├── Generate new jobs (_make_jobs)
         └── Per-group loop:
               ├── Filter jobs + nodes for this group
-              ├── solve() ← optimizer_google_or.py
+              ├── solve() ← realtime_optimizer.py
               ├── _start_job() for each placed job
               ├── _bump_wait_for_unplaced() for unplaced
               └── _update_W_t()

@@ -1,0 +1,2 @@
+tenants,nodes,periods,seed,n_vars,build_s,solve_s,total_s,status,obj_val,mip_gap,sigma
+128,64,4,42,60449,1.4530,43.3537,44.8067,11,,,

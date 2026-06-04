@@ -64,7 +64,7 @@ from simulation_data import (
     SPIKE_PROB, SPIKE_MAX_FRAC, NUM_BATCHES,
     REQUEST_MEM_MIN_MB, REQUEST_MEM_MAX_MB,
 )
-from optimizer_google_or import solve
+from realtime_optimizer import solve
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -195,15 +195,17 @@ class ClusterManager:
 
     def __init__(
         self,
-        seed:           Optional[int] = None,
-        verbose:        bool          = True,
-        jobs_per_round: Optional[int] = None,
-        k_window:       Optional[int] = None,
-        log_file:       Optional[str] = "simulation_log.txt",
+        seed:               Optional[int] = None,
+        verbose:            bool          = True,
+        jobs_per_round:     Optional[int] = None,
+        k_window:           Optional[int] = None,
+        log_file:           Optional[str] = "simulation_log.txt",
+        use_prediction_api: bool          = False,
     ) -> None:
         self.rng     = np.random.default_rng(seed)
         self.verbose = verbose
         self._log_handle = open(log_file, "w", encoding="utf-8") if log_file else None
+        self._use_prediction_api = use_prediction_api
 
         self._jobs_per_round = jobs_per_round if jobs_per_round is not None else JOBS_PER_ROUND
         self._k_window       = k_window       if k_window       is not None else K_WINDOW
@@ -227,6 +229,10 @@ class ClusterManager:
         self,
         num_batches: int,
         plan_output: dict | None = None,
+        solver:      str  = "GUROBI",
+        iterative:   bool = True,
+        batch_jobs:  int  = 32,
+        batch_nodes: int  = 32,
     ) -> SimulationResult:
         """
         Run the simulation for num_batches intervals.
@@ -236,6 +242,10 @@ class ClusterManager:
         num_batches  : number of scheduling intervals
         plan_output  : plan-ahead output dict (from extract_plan_output()).
                        If None, all jobs compete for all nodes (no grouping).
+        solver       : integer backend label (shown in startup banner)
+        iterative    : whether the iterative RT solver is active (shown in banner)
+        batch_jobs   : iterative batch size for jobs (shown in banner)
+        batch_nodes  : iterative batch size for nodes (shown in banner)
 
         Returns SimulationResult with per-interval and aggregate statistics.
         """
@@ -243,7 +253,8 @@ class ClusterManager:
         batch_id = -1
 
         if self.verbose:
-            self._print_startup()
+            self._print_startup(solver=solver, iterative=iterative,
+                                batch_jobs=batch_jobs, batch_nodes=batch_nodes)
             print(
                 f"{'Intvl':>5}  {'New':>6} {'Placed':>6}  {'Queue':>5}  "
                 f"{'Assign':>6}  {'Used':>5}  "
@@ -475,6 +486,24 @@ class ClusterManager:
 
     def _make_jobs(self, batch_id: int) -> list[Job]:
         jobs = generate_jobs(batch_id, num_jobs=self._jobs_per_round, rng=self.rng)
+        if self._use_prediction_api:
+            # Replace synthesised predictions with values from the prediction API.
+            # Falls back to synthesised values if the API is unavailable or the
+            # collection/tenant is not in the dataset.
+            try:
+                import sys as _sys, os as _os
+                _pred_dir = _os.path.join(
+                    _os.path.dirname(_os.path.abspath(__file__)), "..", "Prediction"
+                )
+                if _pred_dir not in _sys.path:
+                    _sys.path.insert(0, _pred_dir)
+                from prediction_api import predict_realtime
+                for j in jobs:
+                    result = predict_realtime(tenant_id=str(j.tenant_id))
+                    j.pred_mem_mb  = float(result["pred_mem_mb"])
+                    j.pred_cpu_p95 = float(result["pred_cpu_p95"])
+            except Exception:
+                pass  # silently fall back to synthesised predictions
         for j in jobs:
             j.arrival_timestamp = self.sim_time
         return jobs
@@ -538,7 +567,8 @@ class ClusterManager:
             self._log_handle.write(line + "\n")
             self._log_handle.flush()
 
-    def _print_startup(self) -> None:
+    def _print_startup(self, solver: str = "GUROBI", iterative: bool = True,
+                       batch_jobs: int = 32, batch_nodes: int = 32) -> None:
         print("=" * 95)
         print("  Cluster Simulation Configuration")
         print("=" * 95)
@@ -549,6 +579,9 @@ class ClusterManager:
         print(f"  Job lifetime       : {MIN_LIFETIME_SEC:.0f}-{MAX_LIFETIME_SEC:.0f} s")
         print(f"  Interval duration  : {BATCH_DURATION_SEC} s")
         print(f"  Spike prob/max     : {SPIKE_PROB:.0%} / {SPIKE_MAX_FRAC:.0%}")
+        rt_mode = f"iterative (batch={batch_jobs}x{batch_nodes})" if iterative else "no-iterative (single-shot)"
+        print(f"  RT solver          : {solver}  [{rt_mode}]")
+        print(f"  Prediction API     : {'ON' if self._use_prediction_api else 'OFF (synthetic data)'}")
         print()
 
     @staticmethod
@@ -567,10 +600,68 @@ class ClusterManager:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    import sys
-    num_batches = int(sys.argv[1]) if len(sys.argv) > 1 else NUM_BATCHES
+    import argparse as _ap
+    import io as _io
+    import sys as _sys
 
-    cm     = ClusterManager(seed=42, verbose=True)
-    result = cm.run(num_batches)
+    if hasattr(_sys.stdout, "reconfigure"):
+        _sys.stdout.reconfigure(encoding="utf-8")
+    else:
+        _sys.stdout = _io.TextIOWrapper(_sys.stdout.buffer, encoding="utf-8")
+
+    parser = _ap.ArgumentParser(
+        description="Multi-tenant cluster scheduling simulation",
+        formatter_class=_ap.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument("--batches",        type=int,   default=NUM_BATCHES,
+                        help="Number of scheduling intervals")
+    parser.add_argument("--seed",           type=int,   default=42,
+                        help="RNG seed")
+    parser.add_argument("--jobs-per-round", type=int,   default=None,
+                        help="Jobs generated per interval (default: from simulation_data)")
+    parser.add_argument("--solver",         default="GUROBI",
+                        help="Integer backend: GUROBI, CBC, SCIP, HIGHS")
+    parser.add_argument("--iterative",      default=True,
+                        action=_ap.BooleanOptionalAction,
+                        help="Use iterative batch-MILP solver (default: True)")
+    parser.add_argument("--rt-batch-jobs",  type=int,   default=32,
+                        help="Jobs per sub-MILP  — iterative only")
+    parser.add_argument("--rt-batch-nodes",    type=int, default=32,
+                        help="Nodes per sub-MILP — iterative only")
+    parser.add_argument("--use-prediction-api", default=False,
+                        action=_ap.BooleanOptionalAction,
+                        help="Use Prediction/prediction_api for job predictions (default: False)")
+    args = parser.parse_args()
+
+    # ── Inject chosen RT solver ────────────────────────────────────────────────
+    import cluster_manager as _cm_mod
+
+    if args.iterative:
+        import optimizer_iterative as _oi
+        _bj, _bn, _sid = args.rt_batch_jobs, args.rt_batch_nodes, args.solver.upper()
+        _cm_mod.solve = lambda jobs, nodes, W_t, K, time_limit_ms=10_000: _oi.solve(
+            jobs, nodes, W_t, K, time_limit_ms,
+            batch_jobs=_bj, batch_nodes=_bn, solver_id=_sid,
+        )
+    else:
+        import realtime_optimizer as _rt
+        _sid = args.solver.upper()
+        _cm_mod.solve = lambda jobs, nodes, W_t, K, time_limit_ms=10_000: _rt.solve(
+            jobs, nodes, W_t, K, time_limit_ms, solver_id=_sid,
+        )
+
+    cm = ClusterManager(
+        seed               = args.seed,
+        verbose            = True,
+        jobs_per_round     = args.jobs_per_round,
+        use_prediction_api = args.use_prediction_api,
+    )
+    result = cm.run(
+        num_batches  = args.batches,
+        solver       = args.solver.upper(),
+        iterative    = args.iterative,
+        batch_jobs   = args.rt_batch_jobs,
+        batch_nodes  = args.rt_batch_nodes,
+    )
     print()
     print(result)

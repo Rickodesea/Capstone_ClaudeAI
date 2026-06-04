@@ -311,6 +311,29 @@ class SimulationManager(ClusterManager):
         cfg = dict(sim_config or DEFAULT_CONFIG)
         self._sim_config  = cfg
         self._num_tenants = int(cfg.get('num_tenants', NUM_TENANTS))
+
+        # ── Inject RT solver based on config ──────────────────────────────────
+        import cluster_manager as _cm
+        solver_id  = str(cfg.get('realtime_solver', 'GUROBI')).upper()
+        use_iter   = bool(int(cfg.get('rt_iterative', 1)))
+        batch_j    = int(cfg.get('rt_batch_jobs',  32))
+        batch_n    = int(cfg.get('rt_batch_nodes', 32))
+        tl_ms      = int(cfg.get('realtime_time_limit_ms', 2000))
+
+        if use_iter:
+            import optimizer_iterative as _oi
+            _bj, _bn, _sid = batch_j, batch_n, solver_id
+            _cm.solve = lambda jobs, nodes, W_t, K, time_limit_ms=tl_ms: _oi.solve(
+                jobs, nodes, W_t, K, time_limit_ms,
+                batch_jobs=_bj, batch_nodes=_bn, solver_id=_sid,
+            )
+        else:
+            import realtime_optimizer as _rt
+            _sid = solver_id
+            _cm.solve = lambda jobs, nodes, W_t, K, time_limit_ms=tl_ms: _rt.solve(
+                jobs, nodes, W_t, K, time_limit_ms, solver_id=_sid,
+            )
+
         # Initialise parent with config-aware k_window; no verbose output, no log file.
         super().__init__(
             seed      = seed,

@@ -24,7 +24,7 @@ from simulation_data import (
     compute_omega,
     MEM_THRESHOLD_FRAC,
 )
-from optimizer_google_or import solve
+from realtime_optimizer import solve
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────

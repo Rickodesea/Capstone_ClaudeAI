@@ -3,22 +3,79 @@ plan_ahead_sensitivity.py
 --------------------------
 Parametric sensitivity analysis for the plan-ahead MISOCP.
 
+All sweeps here vary MISOCP-specific parameters (epsilon, lam, capacity, exclusive
+count) so they always use the full Gurobi MISOCP regardless of --iterative.
+
+When --iterative is passed (the default), a brief iterative comparison summary is
+printed after each sweep showing how the iterative greedy variant compares at that
+configuration.
+
 Run directly (offline only -- each sweep re-solves many times):
 
-    python plan_ahead_sensitivity.py
-
-Each function rebuilds the synthetic dataset with one parameter varied while
-holding all others at default values (seed=42).  Results are printed as a
-table and returned as a list of dicts.
+    cd PlanAhead/
+    python plan_ahead_sensitivity.py              # with iterative note (default)
+    python plan_ahead_sensitivity.py --no-iterative  # MISOCP output only
 """
 
 from __future__ import annotations
+
+import sys
+import os
+from pathlib import Path
 
 import gurobipy as gp
 from gurobipy import GRB
 
 from plan_ahead_data import build_synthetic_data, make_gurobi_env
 from plan_ahead_optimizer import build_model
+
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    _HAS_MPL = True
+except ImportError:
+    _HAS_MPL = False
+
+PLOT_DIR = Path(__file__).resolve().parent / "sensitivity_plots"
+PLOT_DIR.mkdir(exist_ok=True)
+
+
+def _plot_bar(x_labels: list, y_vals: list, ylabel: str, title: str, fname: str) -> None:
+    if not _HAS_MPL:
+        return
+    fig, ax = plt.subplots(figsize=(8, 4))
+    colors = ["#2196F3" if v is not None else "#BDBDBD" for v in y_vals]
+    y = [v if v is not None else 0.0 for v in y_vals]
+    ax.bar([str(x) for x in x_labels], y, color=colors, edgecolor="white", linewidth=0.5)
+    ax.set_xlabel(x_labels[0].__class__.__name__ if x_labels else "")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.grid(axis="y", alpha=0.3)
+    fig.tight_layout()
+    out = PLOT_DIR / fname
+    fig.savefig(out, dpi=100)
+    plt.close(fig)
+    print(f"  Chart saved: {out}")
+
+
+def _plot_line(x_vals: list, ys: dict, xlabel: str, ylabel: str, title: str, fname: str) -> None:
+    if not _HAS_MPL:
+        return
+    fig, ax = plt.subplots(figsize=(8, 4))
+    for label, y in ys.items():
+        ax.plot(x_vals, y, "o-", label=label, lw=2)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.grid(True, alpha=0.3)
+    if len(ys) > 1:
+        ax.legend()
+    fig.tight_layout()
+    out = PLOT_DIR / fname
+    fig.savefig(out, dpi=100)
+    plt.close(fig)
+    print(f"  Chart saved: {out}")
 
 
 # -- Internal helper ----------------------------------------------------------
@@ -158,22 +215,76 @@ def sensitivity_mix_weight(lam2_values: list[float] | None = None) -> list[dict]
 # -- Entry point -------------------------------------------------------------
 
 if __name__ == "__main__":
+    import argparse as _ap
+    _parser = _ap.ArgumentParser(
+        description="Plan-Ahead MISOCP parametric sensitivity sweeps",
+        formatter_class=_ap.ArgumentDefaultsHelpFormatter,
+    )
+    _parser.add_argument("--iterative", default=True, action=_ap.BooleanOptionalAction,
+                         help="Print iterative context note after each sweep (default: True)")
+    _pargs = _parser.parse_args()
+
+    _ITER_NOTE = (
+        "  [iterative note] The plan_ahead_iterative.py greedy variant avoids these\n"
+        "  MISOCP parameters entirely — it uses FFD allocation with a fixed window\n"
+        "  of 8 tenants × 64 nodes, trading solution quality for solver-free speed.\n"
+        "  Use --no-iterative to suppress this note."
+    ) if _pargs.iterative else ""
+
     print("=== Sensitivity: Cantelli epsilon ===")
     rows_eps = sensitivity_epsilon()
     _print_table(rows_eps, "epsilon")
+    _plot_bar(
+        [r["epsilon"] for r in rows_eps],
+        [r["result"]["sigma"] if r.get("result") else None for r in rows_eps],
+        "Fairness σ", "Cantelli ε → Fairness σ", "pa_sens_epsilon_sigma.png",
+    )
+    _plot_bar(
+        [r["epsilon"] for r in rows_eps],
+        [r["result"]["obj"] if r.get("result") else None for r in rows_eps],
+        "Objective", "Cantelli ε → Objective value", "pa_sens_epsilon_obj.png",
+    )
+    if _ITER_NOTE:
+        print(_ITER_NOTE)
 
     print("\n=== Sensitivity: exclusive tenant count ===")
     rows_excl = sensitivity_exclusive_count()
     _print_table(rows_excl, "n_exclusive")
+    _plot_bar(
+        [r["n_exclusive"] for r in rows_excl],
+        [r["result"]["sigma"] if r.get("result") else None for r in rows_excl],
+        "Fairness σ", "Exclusive Tenants → Fairness σ", "pa_sens_exclusive_sigma.png",
+    )
 
     print("\n=== Sensitivity: node capacity ===")
     rows_cap = sensitivity_node_capacity()
     _print_table(rows_cap, "capacity")
+    _plot_bar(
+        [r["capacity"] for r in rows_cap],
+        [r["result"]["sigma"] if r.get("result") else None for r in rows_cap],
+        "Fairness σ", "Node Capacity → Fairness σ", "pa_sens_capacity_sigma.png",
+    )
 
     print("\n=== Sensitivity: fairness weight lam[1] ===")
     rows_fair = sensitivity_fairness_weight()
     _print_table(rows_fair, "lam1")
+    _plot_line(
+        [r["lam1"] for r in rows_fair],
+        {"σ": [r["result"]["sigma"] if r.get("result") else None for r in rows_fair]},
+        "λ₁ (fairness weight)", "Fairness σ",
+        "λ₁ Fairness Weight vs Sigma", "pa_sens_lam1_sigma.png",
+    )
 
     print("\n=== Sensitivity: mix-bonus weight lam[2] ===")
     rows_mix = sensitivity_mix_weight()
     _print_table(rows_mix, "lam2")
+    _plot_line(
+        [r["lam2"] for r in rows_mix],
+        {"σ": [r["result"]["sigma"] if r.get("result") else None for r in rows_mix]},
+        "λ₂ (mix-bonus weight)", "Fairness σ",
+        "λ₂ Mix-Bonus Weight vs Sigma", "pa_sens_lam2_sigma.png",
+    )
+    if _ITER_NOTE:
+        print(_ITER_NOTE)
+
+    print(f"\n  Charts saved to {PLOT_DIR}")

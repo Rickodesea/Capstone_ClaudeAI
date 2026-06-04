@@ -1,20 +1,26 @@
 # Plan-Ahead Optimizer — How To Run
 
 ## Overview
-Periodic cluster planning model (MILP or MISOCP) using Gurobi WLS.
+Periodic cluster planning model. Two execution modes:
 
-Divides the tenant pool into **exclusive tenants** (dedicated machines for the full horizon) and **shared tenants** (per-interval machine assignments).  
-Activates additional machines from a secondary pool to meet demand.  
-Optimizes infrastructure cost, fairness (σ), and workload diversity (mix bonus).
+- **Iterative (default):** `plan_ahead_iterative.py` — greedy first-fit decreasing (FFD) in a sliding window of 8 tenants × 64 nodes. **No Gurobi needed.** Scales to any number of tenants. Recommended for development, testing, and large-scale deployments.
+- **Full MISOCP:** `plan_ahead_optimizer.py` — Gurobi MISOCP. Globally optimal with probabilistic capacity guarantees (Cantelli bound). Limited to ~T=256, N=256 on 16 GB RAM. Requires Gurobi WLS license.
 
-**Output:** Ordered list of planning intervals, each with one or more tenant groups — every tenant is assigned machines every interval.
+Both modes output the same `TenantAccessSchedule` format consumed by the real-time scheduler.
 
 ## Requirements
+
+**Iterative (no Gurobi needed):**
+```bash
+pip install numpy
+```
+
+**Full MISOCP (requires Gurobi license):**
 ```bash
 pip install gurobipy numpy
 ```
 
-## Gurobi credentials
+## Gurobi credentials (MISOCP mode only)
 Create `PlanAhead/.env`:
 ```
 WLSACCESSID=your-access-id
@@ -23,22 +29,41 @@ LICENSEID=your-license-id
 ```
 Never commit `.env`.
 
-## Run the optimizer
+## Run the iterative optimizer (default — no Gurobi needed)
 ```bash
 cd PlanAhead/
-python plan_ahead_optimizer.py
+python plan_ahead_iterative.py                       # default: 128 tenants
+python plan_ahead_iterative.py --tenants 512         # scale up
+python plan_ahead_iterative.py --tenants 64 --seed 7 --csv output.csv
+```
+Prints iteration log: active tenants, active nodes, demand placed, completions, elapsed time.
+
+## Run the full MISOCP optimizer
+```bash
+cd PlanAhead/
+python plan_ahead_optimizer.py                       # default params from plan_ahead_data.py
+python plan_ahead_optimizer.py --tenants 8 --nodes 16 --periods 2
+python plan_ahead_optimizer.py --tenants 32 --nodes 64 --mip-gap 0.05 --time-limit 60
 ```
 Prints:
 - Exclusive tenant machine assignments (fixed for entire horizon)
 - Per-interval shared tenant group assignments
-- Active nodes (always-on + additional activated)
-- Fairness σ and mix bonus score
-- MIP gap and objective value
+- Active nodes, fairness σ, mix bonus score, MIP gap
 
 ## Run tests
 ```bash
 cd PlanAhead/
 pytest test_plan_ahead.py -v
+```
+
+## Run sensitivity analysis
+```bash
+cd PlanAhead/
+python sensitivity_analysis.py              # MISOCP scale sweep + iterative comparison (default)
+python sensitivity_analysis.py --no-iterative   # MISOCP only
+
+python plan_ahead_sensitivity.py            # parametric sweeps: epsilon, fairness, MIP gap
+python plan_ahead_sensitivity.py --no-iterative   # suppress iterative note
 ```
 
 ## Key output: extract_plan_output()
@@ -64,45 +89,37 @@ The Cluster Manager receives this dict and schedules one real-time solver call p
 | n_nodes | 5 | Total machines (M = M_a ∪ M_b) |
 | n_intervals | 2 | Planning horizon length (number of intervals H) |
 | n_always_available | 3 | \|M_a\| — always-on machines; rest are additional (M_b) |
-| n_exclusive | 1 | Number of tenants randomly tagged exclusive (T_e); clamped to [0, n_tenants] |
+| n_exclusive | 1 | Number of tenants randomly tagged exclusive (T_e) |
 | node_capacity | 10.0 | C[n] — resource capacity per machine (uniform) |
 | tenant_usage_min | 0.8 | Lower bound for u[i,h] (capacity units) |
 | tenant_usage_max | 6.0 | Upper bound for u[i,h] (capacity units) |
 | sigma_frac | 0.20 | Demand uncertainty fraction (SOCP mode) |
 | epsilon | 0.10 | Cantelli tail probability ε (SOCP mode; ε=0.10 → 90% guarantee) |
 
-## Machine pool
+## Iterative variant configuration (`plan_ahead_iterative.py`)
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| UNIT_TENANTS | 8 | Active tenant window size per iteration |
+| UNIT_NODES | 64 | Active node pool size per iteration |
+| TOTAL_TENANTS | 128 | Default total tenant population to place |
+| N_PERIODS | 4 | Planning horizon length (number of periods) |
+| NODE_CAPACITY | 10.0 | Capacity per node per period |
+| EVICT_THRESH | 0.05 | Evict node when remaining < 5% of NODE_CAPACITY |
+
+## Machine pool (MISOCP mode)
 | Set | Description |
 |-----|-------------|
 | M_a | Always-available machines — on for every interval, no activation cost |
 | M_b | Additional machines — model decides which to activate via z_on[n] ∈ {0,1} |
 
-## Tenant classification
-| Set | Description |
-|-----|-------------|
-| T_e | Exclusive tenants — assigned dedicated machines for the full horizon (e[i,n] binary) |
-| T_s | Shared tenants — per-interval machine assignments (y[i,n,h] binary) |
-
-## Model modes
+## Model modes (MISOCP)
 | Mode | use_socp | Capacity constraint | Speed |
 |------|----------|-------------------|-------|
 | MILP | False | Plain linear: Σ f ≤ C·z_on | Fast |
 | MISOCP | True | Cantelli cone: Σ f + κ·t ≤ C·z_on, t²≥Σσ²·y | Slower, probabilistically safe |
 
-## Constraints (summary)
-- **C_aa**: Always-available machines always active
-- **C_act**: Additional machine activation (z_on[n])
-- **C_excl1/2**: Exclusive tenant dedicated machine assignment (one machine, full horizon)
-- **C_excl_cap**: Exclusive machines have capacity for their tenant
-- **C_sep**: Exclusive and shared tenants cannot share the same machine
-- **C_share**: Shared tenants assigned at most one machine per interval
-- **C1a/C1b**: Capacity constraint (linear or Cantelli cone)
-- **C2**: Demand satisfaction — every tenant gets their u[i,h] covered every interval
-- **C3**: Node activation — a machine is on if any tenant uses it
-- **C4**: Fairness — σ ≤ min allocation ratio across tenants
-- **Mix**: Linearized AND constraint rewarding heavy+light tenant co-location
-
-## Objective
+## Objective (MISOCP)
 ```
 Minimize: λ₀·infra_cost  −  λ₁·σ  −  λ₂·mix_total
 ```

@@ -4,7 +4,7 @@ test_cluster_manager.py
 Integration tests for the full simulation stack.
 
 Every test exercises the complete call chain:
-    test → ClusterManager → optimizer_google_or.solve → simulation_data helpers
+    test → ClusterManager → realtime_optimizer.solve → simulation_data helpers
 
 The tests verify:
   • Data generation (jobs, nodes, sampling)
@@ -49,7 +49,7 @@ from simulation_data import (
     MIN_LIFETIME_SEC, MAX_LIFETIME_SEC,
     BATCH_DURATION_SEC,
 )
-from optimizer_google_or import solve
+from realtime_optimizer import solve
 from cluster_manager import ClusterManager, RunningJob, BatchResult, SimulationResult
 
 

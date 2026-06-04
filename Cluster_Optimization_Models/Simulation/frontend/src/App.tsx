@@ -68,7 +68,7 @@ function NumericCfgInput({
   min: number
   step?: number
   isFloat?: boolean
-  postConfig: (patch: Record<string, number>) => void
+  postConfig: (patch: Record<string, number | string>) => void
 }) {
   const [local, setLocal] = useState(String(val))
   const focused = useRef(false)
@@ -109,7 +109,7 @@ function CfgSection({
 }: {
   title: string
   rows: CfgRow[]
-  postConfig: (patch: Record<string, number>) => void
+  postConfig: (patch: Record<string, number | string>) => void
 }) {
   return (
     <>
@@ -148,6 +148,12 @@ export default function App() {
   const [loading,       setLoading]       = useState(true)
 
   // ── Backend sim config (applied on next Reset) ─────────────────────────────
+  // Realtime solver
+  const [cfgRealtimeSolver,  setCfgRealtimeSolver]  = useState<string>('GUROBI')
+  const [cfgRtIterative,     setCfgRtIterative]     = useState(1)
+  const [cfgRtBatchJobs,     setCfgRtBatchJobs]     = useState(32)
+  const [cfgRtBatchNodes,    setCfgRtBatchNodes]    = useState(32)
+  const [cfgUsePredictionApi, setCfgUsePredictionApi] = useState(0)
   // Topology
   const [cfgTotalNodes,         setCfgTotalNodes]         = useState(20)
   const [cfgNumTenants,         setCfgNumTenants]         = useState(3)
@@ -251,6 +257,12 @@ export default function App() {
             if (c.feedback_gamma          != null) setCfgFeedbackGamma(c.feedback_gamma)
             if (c.queue_ref               != null) setCfgQueueRef(c.queue_ref)
             if (c.enable_logging          != null) setCfgEnableLogging(c.enable_logging)
+            // Realtime solver
+            if (c.realtime_solver         != null) setCfgRealtimeSolver(String(c.realtime_solver))
+            if (c.rt_iterative            != null) setCfgRtIterative(c.rt_iterative)
+            if (c.rt_batch_jobs           != null) setCfgRtBatchJobs(c.rt_batch_jobs)
+            if (c.rt_batch_nodes          != null) setCfgRtBatchNodes(c.rt_batch_nodes)
+            if (c.use_prediction_api      != null) setCfgUsePredictionApi(c.use_prediction_api)
           }
           if (s.plan_ahead) {
             setPlanAheadData(s.plan_ahead)
@@ -360,7 +372,7 @@ export default function App() {
   }, [isRunning, stepMs, advance])
 
   // ── Config posting ──────────────────────────────────────────────────────────
-  const postConfig = useCallback(async (patch: Record<string, number>) => {
+  const postConfig = useCallback(async (patch: Record<string, number | string>) => {
     try {
       await fetch('http://localhost:8000/api/config', {
         method: 'POST',
@@ -667,6 +679,37 @@ export default function App() {
                 </div>
               )}
 
+              {/* Borg Config — pinned footer (always visible) */}
+              <div className="px-3 py-2 border-t border-slate-700 flex items-center justify-between gap-2 shrink-0">
+                <div>
+                  <span className="text-[11px] text-amber-400 font-bold">Borg Config</span>
+                  <span className="text-[10px] text-slate-500 ml-2">Google cluster dataset settings</span>
+                </div>
+                <button
+                  onClick={async () => {
+                    try {
+                      const res = await fetch('http://localhost:8000/api/load_borg_config', { method: 'POST' })
+                      const data = await res.json()
+                      if (data.ok && data.pending) {
+                        const c = data.pending
+                        if (c.realtime_solver    != null) setCfgRealtimeSolver(String(c.realtime_solver))
+                        if (c.rt_iterative       != null) setCfgRtIterative(c.rt_iterative)
+                        if (c.rt_batch_jobs      != null) setCfgRtBatchJobs(c.rt_batch_jobs)
+                        if (c.rt_batch_nodes     != null) setCfgRtBatchNodes(c.rt_batch_nodes)
+                        if (c.num_tenants        != null) setCfgNumTenants(c.num_tenants)
+                        if (c.total_nodes        != null) setCfgTotalNodes(c.total_nodes)
+                        if (c.use_prediction_api != null) setCfgUsePredictionApi(c.use_prediction_api)
+                        setError(null)
+                        setShowMore(false)
+                      } else {
+                        setError('Borg config load failed: ' + (data?.error ?? 'unknown'))
+                      }
+                    } catch { setError('Could not reach backend to load Borg config') }
+                  }}
+                  className="px-2 py-1 rounded text-[10px] font-bold border border-amber-700 text-amber-400 hover:bg-amber-950 transition-colors shrink-0"
+                >Load</button>
+              </div>
+
               {/* Glossary tab */}
               {moreTab === 'glossary' && (
                 <div className="p-3 overflow-y-auto space-y-2.5 text-[11px]">
@@ -748,6 +791,50 @@ export default function App() {
                 { label: 'Safety Buffer',          val: cfgMemThresholdFrac, set: setCfgMemThresholdFrac, key: 'mem_threshold_frac', min: 0.01, step: 0.01, isFloat: true },
               ]} />
 
+              {/* Realtime solver selector */}
+              <div className="text-[10px] text-slate-500 mb-1 mt-3">Realtime Solver</div>
+              <div className="flex items-center justify-between gap-2 text-[11px]">
+                <span className="text-slate-400 shrink-0">Backend</span>
+                <select
+                  value={cfgRealtimeSolver}
+                  onChange={(e) => {
+                    setCfgRealtimeSolver(e.target.value)
+                    postConfig({ realtime_solver: e.target.value })
+                  }}
+                  className="bg-slate-700 border border-slate-600 rounded px-1.5 py-0.5 text-xs text-white focus:outline-none focus:border-blue-500"
+                >
+                  {['GUROBI', 'CBC', 'SCIP', 'HIGHS'].map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Iterative toggle */}
+              <div className="flex items-center justify-between gap-2 text-[11px] mt-1.5">
+                <span className="text-slate-400 shrink-0">Iterative Mode</span>
+                <button
+                  onClick={() => {
+                    const next = cfgRtIterative === 0 ? 1 : 0
+                    setCfgRtIterative(next)
+                    postConfig({ rt_iterative: next })
+                  }}
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors
+                    ${cfgRtIterative === 1
+                      ? 'border-sky-600 text-sky-300 bg-sky-950'
+                      : 'border-slate-600 text-slate-400 hover:border-slate-500'}`}
+                >
+                  {cfgRtIterative === 1 ? 'Iterative (default)' : 'Single-Shot'}
+                </button>
+              </div>
+
+              {/* Batch size — conditional on iterative */}
+              {cfgRtIterative === 1 && (
+                <CfgSection postConfig={postConfig} title="Batch Config" rows={[
+                  { label: 'Batch Jobs',  val: cfgRtBatchJobs,  set: setCfgRtBatchJobs,  key: 'rt_batch_jobs',  min: 1 },
+                  { label: 'Batch Nodes', val: cfgRtBatchNodes, set: setCfgRtBatchNodes, key: 'rt_batch_nodes', min: 1 },
+                ]} />
+              )}
+
               <CfgSection postConfig={postConfig} title="Plan-Ahead" rows={[
                 { label: 'Horizon (steps)',         val: cfgHorizonSteps,     set: setCfgHorizonSteps,     key: 'horizon_steps',      min: 1                          },
                 { label: 'Period Width (steps)',    val: cfgPeriodSteps,      set: setCfgPeriodSteps,      key: 'period_steps',       min: 1                          },
@@ -787,6 +874,27 @@ export default function App() {
                   { label: 'Realtime Headroom', val: cfgPlanCapacityBuffer, set: setCfgPlanCapacityBuffer, key: 'plan_capacity_buffer', min: 0.0, step: 0.05, isFloat: true },
                 ]} />
               )}
+
+              {/* Prediction API toggle */}
+              <div className="flex items-center justify-between gap-2 text-[11px] mt-1.5">
+                <div>
+                  <span className="text-slate-400 shrink-0">Prediction API</span>
+                  <span className="text-[10px] text-slate-600 ml-1">(Borg sim only)</span>
+                </div>
+                <button
+                  onClick={() => {
+                    const next = cfgUsePredictionApi === 0 ? 1 : 0
+                    setCfgUsePredictionApi(next)
+                    postConfig({ use_prediction_api: next })
+                  }}
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors
+                    ${cfgUsePredictionApi === 1
+                      ? 'border-amber-600 text-amber-300 bg-amber-950'
+                      : 'border-slate-600 text-slate-400 hover:border-slate-500'}`}
+                >
+                  {cfgUsePredictionApi === 1 ? 'ON — live predictions' : 'OFF (synthetic)'}
+                </button>
+              </div>
 
               {/* Logging toggle */}
               <div className="flex items-center justify-between gap-2 text-[11px] mt-1.5">

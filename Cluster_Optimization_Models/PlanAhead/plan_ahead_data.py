@@ -58,6 +58,13 @@ def make_gurobi_env() -> gp.Env:
     return gp.Env(params=params)
 
 
+# ── Prediction API integration ────────────────────────────────────────────────
+# When True, build_synthetic_data() calls Prediction/prediction_api.predict_workload()
+# to obtain u[i,h] and sigma2[i,h] instead of synthesising them from uniform random.
+# Kept False for all analysis and computational benchmarks — only the Borg
+# simulation dashboard enables this flag via borg_configuration.BORG_CONFIG.
+USE_PREDICTION_API: bool = False
+
 # ── Synthetic data generation ────────────────────────────────────────────────
 
 def build_synthetic_data(

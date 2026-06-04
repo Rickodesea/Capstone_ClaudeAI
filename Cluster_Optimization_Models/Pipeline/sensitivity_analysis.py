@@ -1,5 +1,5 @@
 """
-pipeline/sensitivity_analysis.py
+Pipeline/sensitivity_analysis.py
 ──────────────────────────────────
 Sensitivity analysis for the full pipeline.
 
@@ -12,15 +12,21 @@ Exposes limitations and performance characteristics by sweeping:
   5. Exclusive fraction   — impact of exclusive tenants on shared-tenant wait times
   6. Cantelli epsilon     — safety parameter effect on resource utilisation
 
+Solver modes
+------------
+  --iterative (default)   Use optimizer_iterative.solve() — batch MILP, faster at scale.
+  --no-iterative          Use realtime_optimizer.solve()  — single-shot MILP baseline.
+
 Run:
-    python sensitivity_analysis.py
+    cd Pipeline/
+    python sensitivity_analysis.py                    # iterative RT (default)
+    python sensitivity_analysis.py --no-iterative     # single-shot MILP
+    python sensitivity_analysis.py --rt-batch-jobs 16 --rt-batch-nodes 16
 
 Outputs:
   • Console: tabular summaries with insights
   • Graphs:  PNG plots in Pipeline/sensitivity_plots/
   • CSVs:    raw data in Pipeline/sensitivity_data/
-
-The analysis code is complete and correct. Run it to generate data and plots.
 """
 
 from __future__ import annotations
@@ -45,7 +51,7 @@ from simulation_data import (
     BATCH_DURATION_SEC, MIN_LIFETIME_SEC, MAX_LIFETIME_SEC,
     SPIKE_PROB, K_WINDOW,
 )
-import optimizer_google_or as rt_module
+import realtime_optimizer as rt_module
 
 # ── Output directories ─────────────────────────────────────────────────────
 PLOT_DIR = Path(__file__).parent / "sensitivity_plots"
@@ -70,12 +76,13 @@ class SimResult:
 
 
 def _run_simulation(
-    n_nodes:          int,
-    n_tenants:        int,
+    n_nodes:           int,
+    n_tenants:         int,
     jobs_per_interval: int,
-    n_intervals:      int,
-    seed:             int = 42,
-    k_window:         int = K_WINDOW,
+    n_intervals:       int,
+    seed:              int      = 42,
+    k_window:          int      = K_WINDOW,
+    solver_fn                   = None,   # if None, uses realtime_optimizer.solve
 ) -> SimResult:
     """
     Run a lightweight realtime-only simulation (no plan-ahead / Gurobi).
@@ -142,8 +149,9 @@ def _run_simulation(
         total_generated += len(new_jobs)
 
         # Solve (all jobs, all nodes — no grouping)
+        _solve = solver_fn if solver_fn is not None else rt_module.solve
         if job_queue and nodes:
-            placements = rt_module.solve(
+            placements = _solve(
                 jobs          = job_queue,
                 nodes         = nodes,
                 W_t           = W_t,
@@ -213,7 +221,7 @@ def _run_simulation(
 # § SWEEP 1: Interval Frequency
 # ============================================================================
 
-def sweep_interval_frequency() -> list[SimResult]:
+def sweep_interval_frequency(solver_fn=None) -> list[SimResult]:
     """
     Sweep 1: Interval frequency — jobs per interval (equivalent to calling
     the scheduler faster vs slower with proportional workload).
@@ -228,7 +236,8 @@ def sweep_interval_frequency() -> list[SimResult]:
     jobs_options = [5, 10, 20, 40, 80]
     results = []
     for jpi in jobs_options:
-        r = _run_simulation(n_nodes=10, n_tenants=5, jobs_per_interval=jpi, n_intervals=50)
+        r = _run_simulation(n_nodes=10, n_tenants=5, jobs_per_interval=jpi,
+                            n_intervals=50, solver_fn=solver_fn)
         results.append(r)
     return results
 
@@ -237,7 +246,7 @@ def sweep_interval_frequency() -> list[SimResult]:
 # § SWEEP 2: Machine Capacity
 # ============================================================================
 
-def sweep_machine_capacity() -> list[SimResult]:
+def sweep_machine_capacity(solver_fn=None) -> list[SimResult]:
     """
     Sweep 2: Machine count — 5 vs 10 vs 20 vs 30 machines.
 
@@ -251,7 +260,8 @@ def sweep_machine_capacity() -> list[SimResult]:
     node_options = [5, 10, 20, 30]
     results = []
     for n in node_options:
-        r = _run_simulation(n_nodes=n, n_tenants=5, jobs_per_interval=15, n_intervals=50)
+        r = _run_simulation(n_nodes=n, n_tenants=5, jobs_per_interval=15,
+                            n_intervals=50, solver_fn=solver_fn)
         results.append(r)
     return results
 
@@ -260,7 +270,7 @@ def sweep_machine_capacity() -> list[SimResult]:
 # § SWEEP 3: Tenant Count
 # ============================================================================
 
-def sweep_tenant_count() -> list[SimResult]:
+def sweep_tenant_count(solver_fn=None) -> list[SimResult]:
     """
     Sweep 3: Tenant count — 3 vs 5 vs 10 vs 15 vs 20 tenants.
 
@@ -274,7 +284,8 @@ def sweep_tenant_count() -> list[SimResult]:
     tenant_options = [3, 5, 10, 15, 20]
     results = []
     for t in tenant_options:
-        r = _run_simulation(n_nodes=10, n_tenants=t, jobs_per_interval=15, n_intervals=50)
+        r = _run_simulation(n_nodes=10, n_tenants=t, jobs_per_interval=15,
+                            n_intervals=50, solver_fn=solver_fn)
         results.append(r)
     return results
 
@@ -283,7 +294,7 @@ def sweep_tenant_count() -> list[SimResult]:
 # § SWEEP 4: Queue Saturation Cross-Section
 # ============================================================================
 
-def sweep_saturation_grid() -> list[SimResult]:
+def sweep_saturation_grid(solver_fn=None) -> list[SimResult]:
     """
     Sweep 4: Cross-sweep of (n_nodes, jobs_per_interval) to map the
     saturation boundary — where queue_overflow_pct transitions from 0% to 100%.
@@ -298,7 +309,8 @@ def sweep_saturation_grid() -> list[SimResult]:
     ]
     results = []
     for (n, jpi) in grid:
-        r = _run_simulation(n_nodes=n, n_tenants=5, jobs_per_interval=jpi, n_intervals=30)
+        r = _run_simulation(n_nodes=n, n_tenants=5, jobs_per_interval=jpi,
+                            n_intervals=30, solver_fn=solver_fn)
         results.append(r)
     return results
 
@@ -339,13 +351,13 @@ def _try_plot(plot_fn) -> None:
         print("  (matplotlib not installed — skipping plots; data CSVs saved)")
 
 
-def run_all() -> None:
+def run_all(solver_fn=None) -> None:
     print("\nRunning pipeline sensitivity analysis...")
     print("This may take a few minutes.\n")
 
     # ── Sweep 1: Interval Frequency ────────────────────────────────────────
     print("Sweep 1: Interval frequency (jobs per interval)...")
-    s1 = sweep_interval_frequency()
+    s1 = sweep_interval_frequency(solver_fn=solver_fn)
     headers1 = ["Jobs/interval", "PlaceRate%", "AvgQueue", "AvgWait(s)", "QueueOverflow%", "EffMem%"]
     rows1 = [
         [5*(i+1), f"{r.placement_rate*100:.1f}", f"{r.avg_queue_size:.1f}",
@@ -399,7 +411,7 @@ def run_all() -> None:
 
     # ── Sweep 2: Machine Capacity ──────────────────────────────────────────
     print("\nSweep 2: Machine capacity (number of nodes)...")
-    s2 = sweep_machine_capacity()
+    s2 = sweep_machine_capacity(solver_fn=solver_fn)
     headers2 = ["Nodes", "PlaceRate%", "AvgQueue", "AvgWait(s)", "QueueOverflow%", "EffMem%"]
     rows2 = [
         [n, f"{r.placement_rate*100:.1f}", f"{r.avg_queue_size:.1f}",
@@ -445,7 +457,7 @@ def run_all() -> None:
 
     # ── Sweep 3: Tenant Count ──────────────────────────────────────────────
     print("\nSweep 3: Tenant count...")
-    s3 = sweep_tenant_count()
+    s3 = sweep_tenant_count(solver_fn=solver_fn)
     headers3 = ["Tenants", "PlaceRate%", "AvgQueue", "AvgWait(s)", "QueueOverflow%", "EffMem%"]
     rows3 = [
         [t, f"{r.placement_rate*100:.1f}", f"{r.avg_queue_size:.1f}",
@@ -490,7 +502,7 @@ def run_all() -> None:
 
     # ── Sweep 4: Saturation Grid ───────────────────────────────────────────
     print("\nSweep 4: Saturation grid (nodes × jobs/interval)...")
-    s4 = sweep_saturation_grid()
+    s4 = sweep_saturation_grid(solver_fn=solver_fn)
     print("\n  Queue overflow % — rows=nodes, cols=jobs/interval")
     nodes_list = [5, 10, 20]
     jpi_list   = [5, 10, 20, 40]
@@ -550,4 +562,28 @@ def run_all() -> None:
 
 
 if __name__ == "__main__":
-    run_all()
+    import argparse as _ap
+    _parser = _ap.ArgumentParser(
+        description="Pipeline sensitivity analysis — RT solver sweep",
+        formatter_class=_ap.ArgumentDefaultsHelpFormatter,
+    )
+    _parser.add_argument("--iterative", default=True, action=_ap.BooleanOptionalAction,
+                         help="Use iterative RT solver (default: True)")
+    _parser.add_argument("--rt-batch-jobs",  type=int, default=32,
+                         help="Jobs per sub-MILP — iterative RT only")
+    _parser.add_argument("--rt-batch-nodes", type=int, default=32,
+                         help="Nodes per sub-MILP — iterative RT only")
+    _args = _parser.parse_args()
+
+    _solver_fn = None
+    if _args.iterative:
+        import optimizer_iterative as _oi
+        _bj, _bn = _args.rt_batch_jobs, _args.rt_batch_nodes
+        _solver_fn = lambda jobs, nodes, W_t, K, time_limit_ms=5_000: _oi.solve(
+            jobs, nodes, W_t, K, time_limit_ms, batch_jobs=_bj, batch_nodes=_bn,
+        )
+        print(f"RT solver : iterative (batch={_bj}×{_bn})")
+    else:
+        print("RT solver : regular (single-shot MILP)")
+
+    run_all(solver_fn=_solver_fn)

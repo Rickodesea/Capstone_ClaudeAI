@@ -67,7 +67,7 @@ from simulation_data import (
     sample_spike_fraction,
     K_WINDOW,
 )
-import optimizer_google_or as rt_solver
+import realtime_optimizer as rt_solver
 
 try:
     import matplotlib
@@ -203,7 +203,8 @@ def run_simulation(
     n_tenants:   int,
     n_exclusive: int,
     n_intervals: int,
-    seed:        int = SEED,
+    seed:        int  = SEED,
+    solver_fn         = None,   # if None, uses realtime_optimizer.solve
 ) -> RunResult:
     rng   = np.random.default_rng(seed)
     nodes = _build_nodes(n_nodes)
@@ -276,8 +277,9 @@ def run_simulation(
 
         # ── Real-time solver ──────────────────────────────────────────────────
         if queue and nodes:
+            _solve = solver_fn if solver_fn is not None else rt_solver.solve
             t0 = time.perf_counter()
-            placements = rt_solver.solve(
+            placements = _solve(
                 jobs          = queue,
                 nodes         = nodes,
                 W_t           = W_t,
@@ -481,7 +483,7 @@ def _plot_pa_complexity(results: list[RunResult]) -> None:
 # § MAIN SWEEP
 # ═════════════════════════════════════════════════════════════════════════════
 
-def run_grid(n_intervals: int) -> list[RunResult]:
+def run_grid(n_intervals: int, solver_fn=None) -> list[RunResult]:
     _hdr(
         f"Nodes × Tenants Grid  "
         f"(excl={N_EXCL} fixed, J=16–40/interval, "
@@ -503,7 +505,7 @@ def run_grid(n_intervals: int) -> list[RunResult]:
         for n_tenants in TENANTS_LIST:
             n_excl = min(N_EXCL, n_tenants)
             t0 = time.perf_counter()
-            r  = run_simulation(n_nodes, n_tenants, n_excl, n_intervals)
+            r  = run_simulation(n_nodes, n_tenants, n_excl, n_intervals, solver_fn=solver_fn)
             elapsed = (time.perf_counter() - t0)
 
             tag = f"N={n_nodes:>3}, T={n_tenants:>2}, excl={n_excl}"
@@ -676,11 +678,28 @@ def main() -> None:
         description="Large-scale pipeline sensitivity analysis",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--quick", action="store_true",
+    parser.add_argument("--quick",          action="store_true",
                         help="20-interval runs (quick preview)")
+    parser.add_argument("--iterative", default=True, action=argparse.BooleanOptionalAction,
+                        help="Use iterative RT solver (default: True)")
+    parser.add_argument("--rt-batch-jobs",  type=int, default=32,
+                        help="Jobs per sub-MILP — iterative RT only (default: 32)")
+    parser.add_argument("--rt-batch-nodes", type=int, default=32,
+                        help="Nodes per sub-MILP — iterative RT only (default: 32)")
     args = parser.parse_args()
 
     n_intervals = 20 if args.quick else N_INTERVALS
+
+    solver_fn = None
+    if args.iterative:
+        import optimizer_iterative as _oi
+        _bj, _bn = args.rt_batch_jobs, args.rt_batch_nodes
+        solver_fn = lambda jobs, nodes, W_t, K, time_limit_ms=SOLVER_MS: _oi.solve(
+            jobs, nodes, W_t, K, time_limit_ms, batch_jobs=_bj, batch_nodes=_bn,
+        )
+        print(f"  RT solver : iterative (batch={_bj}×{_bn})")
+    else:
+        print("  RT solver : regular (single-shot MILP)")
 
     print("\nLarge-Scale Pipeline Sensitivity Analysis")
     print(f"Grid: Nodes {NODES_LIST} × Tenants {TENANTS_LIST}  (exclusive={N_EXCL} fixed)")
@@ -691,7 +710,7 @@ def main() -> None:
     print(f"Outputs → {PLOT_DIR.name}/  {DATA_DIR.name}/")
 
     t_total = time.perf_counter()
-    results = run_grid(n_intervals)
+    results = run_grid(n_intervals, solver_fn=solver_fn)
 
     print_table(results)
     print_insights(results)

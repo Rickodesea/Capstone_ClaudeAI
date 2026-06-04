@@ -230,6 +230,29 @@ def update_config(body: dict) -> dict:
     return {"ok": True, "pending": dict(_SIM_CONFIG)}
 
 
+@app.post("/api/load_borg_config")
+def load_borg_config() -> dict:
+    """
+    Stage the Borg dataset configuration (from Prediction/borg_configuration.py).
+    Also sets use_prediction_api=1 so the simulation uses the prediction API.
+    Changes apply on the next POST /api/reset.
+    """
+    import sys, os
+    _pred_dir = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "..", "Prediction"
+    )
+    if _pred_dir not in sys.path:
+        sys.path.insert(0, _pred_dir)
+    try:
+        from borg_configuration import BORG_CONFIG
+        for k, v in BORG_CONFIG.items():
+            if k in _SIM_CONFIG:
+                _SIM_CONFIG[k] = v
+        return {"ok": True, "loaded": "borg_configuration", "pending": dict(_SIM_CONFIG)}
+    except ImportError as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 @app.get("/api/state")
 def get_state() -> dict:
     return _serialize(_state)

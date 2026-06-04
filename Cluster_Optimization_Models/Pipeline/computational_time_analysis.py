@@ -17,7 +17,7 @@ Terminology
 
   SOLVER_CAP_S       Maximum wall-clock seconds the solver is allowed per
                      combination before it is cut off and marked ">cap".
-                     Both models share the same cap (15 min = 900 s).
+                     Both models share the same cap (5 min = 900 s).
 
 Infeasibility filters (combinations skipped before launch)
 ───────────────────────────────────────────────────────────
@@ -38,9 +38,10 @@ Real-world note on job queuing
   the Real-Time model. The Plan-Ahead model is triggered at the start of
   each horizon to rebalance machine assignments and reduce congestion.
 
-TABLE 1 — Real-Time MILP (OR-Tools / CBC)
+TABLE 1 — Real-Time MILP — Solver Comparison (CBC / SCIP / Gurobi)
   Rows: pending jobs J   |   Cols: machines N
-  One solve call per valid (J, N) pair.
+  One solve call per valid (J, N, solver) triple.
+  All solvers use integer variables x[j,n] ∈ {0,1} — no LP relaxation.
 
 TABLE 2 — Plan-Ahead MISOCP (Gurobi)
   Rows: tenants T   |   Cols: machines N   |   Fixed planning periods P
@@ -96,7 +97,7 @@ sys.path.insert(0, str(_ROOT / "Realtime"))
 sys.path.insert(0, str(_ROOT / "PlanAhead"))
 
 from simulation_data import Job, NodeState, K_WINDOW
-import optimizer_google_or as rt_solver
+from solver_backends  import precompute, get_backend
 from plan_ahead_data      import build_synthetic_data, make_gurobi_env
 from plan_ahead_optimizer import build_model
 from gurobipy import GRB
@@ -121,7 +122,7 @@ def _pr(*args, **kwargs) -> None:
 SEED = 42   # master seed — controls job data, PA workload samples
 
 # ── Shared solver cap ──────────────────────────────────────────────────────────
-SOLVER_CAP_S = 900   # 15 minutes — max wall-clock seconds per combination
+SOLVER_CAP_S = 5 * 60 # 5 minutes — max wall-clock seconds per combination
                       # Applies to both RT (in ms: SOLVER_CAP_S × 1000)
                       # and PA (in seconds: SOLVER_CAP_S).
 
@@ -141,6 +142,11 @@ RT_NODES_LIST      = [4, 16, 64, 256, 512, 1024]  # machines (N) per solve call
 # A ratio of 4 allows moderate overload stress tests while excluding extreme
 # imbalances (e.g. 1024 jobs on 4 machines) that are operationally impossible.
 RT_MAX_LOAD_RATIO  = 4
+
+# Integer solvers to compare for Real-Time model.
+# All produce certified integer x[j,n] ∈ {0,1} assignments.
+# GLOP is excluded — it is an LP relaxation (professor's requirement).
+RT_SOLVERS = ["CBC", "SCIP", "GUROBI", "HIGHS"]
 
 # ── Plan-Ahead grid ────────────────────────────────────────────────────────────
 PA_TENANTS_LIST    = [2, 8, 128, 256, 512]          # tenants T
@@ -175,7 +181,7 @@ class RTResult:
     n_jobs:    int
     n_nodes:   int
     n_vars:    int
-    solver:    str     # "CBC" or "GLOP"
+    solver:    str     # "CBC" | "SCIP" | "GUROBI"
     solve_ms:  float   # actual elapsed ms (= cap if cut off)
     placed:    float   # fraction of jobs placed (0–1)
     capped:    bool    # True if solve_ms hit SOLVER_CAP_S
@@ -262,48 +268,43 @@ def _build_rt_jobs(n_jobs: int) -> list[Job]:
     return jobs
 
 
-RT_GLOP_THRESHOLD = 500     # switch to GLOP when J×N exceeds this (configurable)
-# Note: rt_solver.SOLVER_ID is module-level. Setting it per-thread is a benign
-# race in this analysis script — assignment + CreateSolver() are nanoseconds
-# apart and threads rarely collide at that exact instant. Do NOT copy this
-# pattern into production code; keep Realtime/ unchanged.
+def time_rt(n_jobs: int, n_nodes: int, solver_name: str) -> RTResult:
+    """
+    Time one (J, N, solver) combination using an integer MILP backend.
 
-
-def time_rt(n_jobs: int, n_nodes: int) -> RTResult:
+    Each call is independent — safe to run concurrently across all (J, N, solver)
+    triples.  solver_name must be one of RT_SOLVERS (CBC, SCIP, GUROBI).
+    """
     nodes  = _build_rt_nodes(n_nodes, n_jobs)
     jobs   = _build_rt_jobs(n_jobs)
     W_t    = {j.tenant_id: 0.0 for j in jobs}
     cap_ms = int(SOLVER_CAP_S * 1000)
-
-    n_vars     = n_jobs * n_nodes
-    solver_id  = "GLOP" if n_vars > RT_GLOP_THRESHOLD else "CBC"
-    prev_id    = rt_solver.SOLVER_ID
-    rt_solver.SOLVER_ID = solver_id
+    n_vars = n_jobs * n_nodes
 
     try:
+        backend = get_backend(solver_name)
+        data    = precompute(jobs, nodes, W_t, K_WINDOW)
         t0 = time.perf_counter()
-        result = rt_solver.solve(
-            jobs=jobs, nodes=nodes, W_t=W_t,
-            K=K_WINDOW, time_limit_ms=cap_ms,
-        )
+        result = backend.solve(data, cap_ms)
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
-    finally:
-        rt_solver.SOLVER_ID = prev_id
+    except Exception as exc:
+        _pr(f"RT  J={n_jobs:<5} N={n_nodes:<5} [{solver_name:<6}] ERR: {exc}")
+        return RTResult(
+            n_jobs=n_jobs, n_nodes=n_nodes, n_vars=n_vars,
+            solver=solver_name, solve_ms=float(cap_ms), placed=0.0, capped=True,
+        )
 
     placed = sum(1 for v in result.values() if v is not None)
     capped = elapsed_ms >= cap_ms * 0.95
 
     tag = "CAPPED" if capped else "done"
-    _pr(f"RT  J={n_jobs:<5} N={n_nodes:<5} [{solver_id:<4}] → "
+    _pr(f"RT  J={n_jobs:<5} N={n_nodes:<5} [{solver_name:<6}] → "
         f"{elapsed_ms:>10.1f} ms   placed={placed}/{n_jobs}  [{tag}]")
 
     return RTResult(
-        n_jobs=n_jobs, n_nodes=n_nodes,
-        n_vars=n_vars,
-        solver=solver_id,
-        solve_ms=elapsed_ms,
-        placed=placed / max(1, n_jobs),
-        capped=capped,
+        n_jobs=n_jobs, n_nodes=n_nodes, n_vars=n_vars,
+        solver=solver_name, solve_ms=elapsed_ms,
+        placed=placed / max(1, n_jobs), capped=capped,
     )
 
 
@@ -481,9 +482,8 @@ def _fmt_vars(n: int) -> str:
 
 def _cell_rt(r, rt_model) -> str:
     if r is None: return "SKIP"
-    tag = f" [{r.solver}]"
     if not r.capped:
-        return f"{_fmt_ms(r.solve_ms)}{tag}"
+        return _fmt_ms(r.solve_ms)
     est = ""
     if rt_model:
         try:
@@ -491,7 +491,7 @@ def _cell_rt(r, rt_model) -> str:
             est = f" ({_human(e_s)})"
         except Exception:
             pass
-    return f">cap{est}{tag}"
+    return f">cap{est}"
 
 
 def _cell_pa(r, pa_model) -> str:
@@ -528,50 +528,49 @@ def _save_csv(filename: str, headers: list, rows: list) -> None:
 # § INSIGHTS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _insights_rt(rt: dict) -> None:
-    solved = [r for r in rt.values() if r is not None and not r.capped]
-    capped = [r for r in rt.values() if r is not None and r.capped]
-    skipped = [k for k, v in rt.items() if v is None]
+def _insights_rt(rt_by_solver: dict[str, dict]) -> None:
+    print(f"\n  Real-Time MILP — Solver Comparison Insights")
+    print(f"  {'─'*60}")
+    print(f"  All solvers produce certified integer x[j,n] ∈ {{0,1}} assignments.")
 
-    print(f"\n  Real-Time MILP — Insights")
-    print(f"  {'─'*52}")
-    print(f"  Valid combinations : {len(rt)}")
-    print(f"  Solved within cap  : {len(solved)}")
-    print(f"  Hit solver cap     : {len(capped)}")
-    print(f"  Skipped (J > {RT_MAX_LOAD_RATIO}×N): {len(skipped)}")
+    for solver_name, rt in rt_by_solver.items():
+        solved  = [r for r in rt.values() if r is not None and not r.capped]
+        capped  = [r for r in rt.values() if r is not None and r.capped]
+        print(f"\n  [{solver_name}]")
+        print(f"    Solved within cap  : {len(solved)}")
+        print(f"    Hit solver cap     : {len(capped)}")
+        if solved:
+            f = min(solved, key=lambda r: r.solve_ms)
+            s = max(solved, key=lambda r: r.solve_ms)
+            print(f"    Fastest : J={f.n_jobs}, N={f.n_nodes} → {_fmt_ms(f.solve_ms)}")
+            print(f"    Slowest : J={s.n_jobs}, N={s.n_nodes} → {_fmt_ms(s.solve_ms)}")
 
-    if solved:
-        fastest = min(solved, key=lambda r: r.solve_ms)
-        slowest = max(solved, key=lambda r: r.solve_ms)
-        print(f"\n  Fastest : J={fastest.n_jobs}, N={fastest.n_nodes} "
-              f"→ {_fmt_ms(fastest.solve_ms)}  (vars={fastest.n_vars:,})")
-        print(f"  Slowest : J={slowest.n_jobs}, N={slowest.n_nodes} "
-              f"→ {_fmt_ms(slowest.solve_ms)}  (vars={slowest.n_vars:,})")
+    # Winner comparison — which solver is fastest per (J,N)?
+    all_cells = set()
+    for rt in rt_by_solver.values():
+        all_cells |= {k for k, v in rt.items() if v is not None and not v.capped}
 
-    if solved:
-        print(f"\n  Scaling — solve time vs J (for each N):")
-        for n in RT_NODES_LIST:
-            pts = sorted(
-                [(r.n_jobs, r.solve_ms) for r in solved if r.n_nodes == n],
-                key=lambda x: x[0],
-            )
-            if len(pts) >= 2:
-                ratio = pts[-1][1] / max(1e-9, pts[0][1])
-                print(f"    N={n:<5}  J {pts[0][0]}→{pts[-1][0]}  "
-                      f"×{ratio:.1f}  "
-                      f"({_fmt_ms(pts[0][1])} → {_fmt_ms(pts[-1][1])})")
-
-    if capped:
-        print(f"\n  Capped combinations:")
-        for r in sorted(capped, key=lambda r: r.n_vars):
-            print(f"    J={r.n_jobs}, N={r.n_nodes}  vars={r.n_vars:,}")
+    if all_cells and len(rt_by_solver) > 1:
+        wins: dict[str, int] = {s: 0 for s in rt_by_solver}
+        for cell in all_cells:
+            times = {
+                s: rt_by_solver[s][cell].solve_ms
+                for s in rt_by_solver
+                if cell in rt_by_solver[s] and rt_by_solver[s][cell] is not None
+                   and not rt_by_solver[s][cell].capped
+            }
+            if times:
+                winner = min(times, key=times.get)
+                wins[winner] += 1
+        print(f"\n  Fastest solver per cell (of {len(all_cells)} cells where all solved):")
+        for s, w in sorted(wins.items(), key=lambda x: -x[1]):
+            print(f"    {s:<8}: {w} cells")
 
     print(f"\n  Note: In production each RT call handles one tenant group "
           f"(J=5–20, N=5–50).\n"
-          f"  Those combinations are typically in the <200 ms range.\n"
-          f"  CBC proves OPTIMALITY; capped cells still return a valid "
-          f"feasible placement —\n"
-          f"  only the optimality certificate is cut short.")
+          f"  Those combinations are typically in the <500 ms range for all solvers.\n"
+          f"  Capped cells still return a valid feasible placement — only the\n"
+          f"  optimality certificate is cut short.")
 
 
 def _insights_pa(pa: dict) -> None:
@@ -628,15 +627,16 @@ def _save_fig(fig, name: str) -> None:
     print(f"  Plot → {out}")
 
 
-# ── RT Plot 1: Heatmap of solve time (J × N) ───────────────────────────────────
+# ── RT Plot 1: Per-solver heatmap — one PNG file per solver ───────────────────
 
-def _plot_rt_heatmap(rt: dict) -> None:
-    if not _MPL:
-        return
+def _plot_rt_heatmap_one(solver_name: str, rt: dict,
+                          j_vals: list | None = None,
+                          n_vals: list | None = None) -> None:
+    """Save one heatmap PNG for a single RT solver."""
+    J = j_vals if j_vals is not None else RT_JOBS_LIST
+    N = n_vals if n_vals is not None else RT_NODES_LIST
 
-    J = RT_JOBS_LIST
-    N = RT_NODES_LIST
-    vals = np.full((len(J), len(N)), np.nan)
+    vals   = np.full((len(J), len(N)), np.nan)
     labels = [["" for _ in N] for _ in J]
 
     for ri, j in enumerate(J):
@@ -645,31 +645,29 @@ def _plot_rt_heatmap(rt: dict) -> None:
             if r is None:
                 labels[ri][ci] = "SKIP"
             elif r.capped:
-                labels[ri][ci] = f">cap\n[{r.solver}]"
+                labels[ri][ci] = ">cap"
             else:
                 vals[ri, ci] = r.solve_ms
                 ms = r.solve_ms
-                txt = f"{ms/1000:.1f}s" if ms >= 1000 else f"{ms:.0f}ms"
-                labels[ri][ci] = f"{txt}\n[{r.solver}]"
+                labels[ri][ci] = f"{ms/1000:.1f}s" if ms >= 1000 else f"{ms:.0f}ms"
 
-    fig, ax = plt.subplots(figsize=(10, 5))
-    # log-scale normalisation so fast and slow cells are both visible
+    fig, ax = plt.subplots(figsize=(max(8, len(N) * 1.4), max(4, len(J) * 0.9)))
+
     valid = vals[~np.isnan(vals)]
     if valid.size > 0:
         norm = mcolors.LogNorm(vmin=max(1, valid.min()), vmax=valid.max())
         im = ax.imshow(vals, aspect="auto", cmap="RdYlGn_r", norm=norm)
         cbar = fig.colorbar(im, ax=ax, pad=0.02)
-        cbar.set_label("Solve time (ms, log scale)", fontsize=9)
+        cbar.set_label("ms (log scale)", fontsize=9)
 
-    # Annotate every cell
     for ri in range(len(J)):
         for ci in range(len(N)):
             txt = labels[ri][ci]
-            color = "white" if not np.isnan(vals[ri, ci]) and vals[ri, ci] > valid.mean() else "black"
+            color = "white" if (not np.isnan(vals[ri, ci]) and valid.size > 0
+                                and vals[ri, ci] > valid.mean()) else "black"
             if "SKIP" in txt or ">cap" in txt:
                 color = "#555555"
-            ax.text(ci, ri, txt, ha="center", va="center", fontsize=7.5,
-                    color=color, fontweight="bold" if "SKIP" not in txt else "normal")
+            ax.text(ci, ri, txt, ha="center", va="center", fontsize=9, color=color)
 
     ax.set_xticks(range(len(N)))
     ax.set_xticklabels([f"N={n}" for n in N], fontsize=9)
@@ -677,54 +675,64 @@ def _plot_rt_heatmap(rt: dict) -> None:
     ax.set_yticklabels([f"J={j}" for j in J], fontsize=9)
     ax.set_xlabel("Machines (N)", fontsize=11)
     ax.set_ylabel("Pending Jobs (J)", fontsize=11)
-    ax.set_title("Real-Time MILP — Solve Time per Call  [CBC / GLOP auto-switch]",
+    ax.set_title(f"Real-Time MILP — {solver_name}  |  Solve Time (J × N grid)",
                  fontsize=12, fontweight="bold")
     fig.tight_layout()
-    _save_fig(fig, "rt_heatmap_solve_time.png")
+    _save_fig(fig, f"rt_heatmap_{solver_name}.png")
 
 
-# ── RT Plot 2: Log-log scaling — solve time vs variable count ──────────────────
+def _plot_rt_heatmap(rt_by_solver: dict[str, dict],
+                     j_vals: list | None = None,
+                     n_vals: list | None = None) -> None:
+    if not _MPL:
+        return
+    for solver_name in [s for s in RT_SOLVERS if s in rt_by_solver]:
+        _plot_rt_heatmap_one(solver_name, rt_by_solver[solver_name], j_vals, n_vals)
+    # Also save unknown solvers not in RT_SOLVERS (e.g. from older CSV)
+    for solver_name in rt_by_solver:
+        if solver_name not in RT_SOLVERS:
+            _plot_rt_heatmap_one(solver_name, rt_by_solver[solver_name], j_vals, n_vals)
 
-def _plot_rt_scaling(rt: dict) -> None:
+
+# ── RT Plot 2: Log-log scaling — solve time vs variable count (all solvers) ────
+
+def _plot_rt_scaling(rt_by_solver: dict[str, dict]) -> None:
     if not _MPL:
         return
 
-    cbc_pts  = [(r.n_vars, r.solve_ms, r.n_jobs, r.n_nodes)
-                for r in rt.values() if r and not r.capped and r.solver == "CBC"]
-    glop_pts = [(r.n_vars, r.solve_ms, r.n_jobs, r.n_nodes)
-                for r in rt.values() if r and not r.capped and r.solver == "GLOP"]
+    colors  = {"CBC": "#3b82f6", "SCIP": "#22c55e", "GUROBI": "#ef4444", "HIGHS": "#a855f7"}
+    markers = {"CBC": "o",       "SCIP": "s",        "GUROBI": "^",       "HIGHS": "D"}
 
-    fig, ax = plt.subplots(figsize=(9, 5))
+    fig, ax = plt.subplots(figsize=(10, 6))
 
-    for pts, color, label, marker in [
-        (cbc_pts,  "#3b82f6", "CBC (exact MILP)", "o"),
-        (glop_pts, "#f59e0b", "GLOP (LP relaxation)", "s"),
-    ]:
-        if pts:
-            xs = [p[0] for p in pts]
-            ys = [p[1] for p in pts]
-            ax.scatter(xs, ys, color=color, label=label, s=80, marker=marker,
-                       zorder=5, edgecolors="white", linewidths=0.6)
-            for v, ms, j, n in pts:
-                ax.annotate(f"J={j}\nN={n}", (v, ms),
-                            textcoords="offset points", xytext=(5, 3),
-                            fontsize=6.5, color=color, alpha=0.85)
-
-    # Fit a trend line through GLOP points (log-log linear)
-    if len(glop_pts) >= 3:
-        log_x = np.log([p[0] for p in glop_pts])
-        log_y = np.log([p[1] for p in glop_pts])
-        b, a = np.polyfit(log_x, log_y, 1)
-        x_line = np.logspace(np.log10(min(p[0] for p in glop_pts)),
-                              np.log10(max(p[0] for p in glop_pts)), 80)
-        ax.plot(x_line, np.exp(a) * x_line ** b, "--", color="#f59e0b",
-                alpha=0.5, lw=1.5, label=f"GLOP trend  (slope={b:.2f})")
+    for solver_name, rt in rt_by_solver.items():
+        pts = [(r.n_vars, r.solve_ms, r.n_jobs, r.n_nodes)
+               for r in rt.values() if r and not r.capped and r.solve_ms > 0]
+        if not pts:
+            continue
+        c = colors.get(solver_name, "#888888")
+        m = markers.get(solver_name, "o")
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        ax.scatter(xs, ys, color=c, label=solver_name, s=90, marker=m,
+                   zorder=5, edgecolors="white", linewidths=0.6)
+        if len(pts) >= 3:
+            log_x = np.log([p[0] for p in pts])
+            log_y = np.log([p[1] for p in pts])
+            b, a = np.polyfit(log_x, log_y, 1)
+            x_line = np.logspace(np.log10(min(xs)), np.log10(max(xs)), 60)
+            ax.plot(x_line, np.exp(a) * x_line ** b, "--", color=c,
+                    alpha=0.45, lw=1.4, label=f"{solver_name} trend (slope={b:.2f})")
+        for v, ms, j, n in pts:
+            ax.annotate(f"J={j}\nN={n}", (v, ms),
+                        textcoords="offset points", xytext=(5, 3),
+                        fontsize=6.5, color=c, alpha=0.85)
 
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_xlabel("Variable count  J × N  (log scale)", fontsize=11)
     ax.set_ylabel("Solve time (ms, log scale)", fontsize=11)
-    ax.set_title("Real-Time MILP — Solve Time vs Variable Count",
+    ax.set_title("Real-Time MILP — Solve Time vs Variable Count  (integer solvers only)",
                  fontsize=12, fontweight="bold")
     ax.legend(fontsize=9)
     ax.grid(True, which="both", alpha=0.2)
@@ -859,7 +867,7 @@ def _plot_pa_vars_vs_time(pa: dict) -> None:
 
     # Cap reference line
     ax.axhline(SOLVER_CAP_S, color="#94a3b8", linestyle="--", lw=1.2,
-               label=f"15-min cap ({SOLVER_CAP_S}s)")
+               label=f"5-min cap ({SOLVER_CAP_S}s)")
 
     ax.set_xscale("log")
     ax.set_yscale("log")
@@ -874,17 +882,67 @@ def _plot_pa_vars_vs_time(pa: dict) -> None:
     _save_fig(fig, "pa_vars_vs_solve_time.png")
 
 
-def _generate_plots(rt: dict, pa: dict) -> None:
+def _generate_plots(rt_by_solver: dict[str, dict], pa: dict) -> None:
     if not _MPL:
         print("\n  [INFO] matplotlib not available — skipping plots")
         return
     print()
     _subhdr("Plots")
-    _plot_rt_heatmap(rt)
-    _plot_rt_scaling(rt)
+    _plot_rt_heatmap(rt_by_solver)
+    _plot_rt_scaling(rt_by_solver)
     _plot_pa_heatmap(pa)
     _plot_pa_build_vs_solve(pa)
     _plot_pa_vars_vs_time(pa)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# § CSV LOADER  (for --graphs-only and generate_graphs.py)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def load_results_from_csv() -> tuple[dict, dict]:
+    """
+    Read rt_timing.csv and pa_timing_grid.csv and reconstruct result dicts.
+
+    Returns
+    -------
+    (rt_by_solver, pa)
+      rt_by_solver : dict[solver_name, dict[(j,n), RTResult]]
+      pa           : dict[(t,n), PAResult]
+    """
+    rt_by_solver: dict[str, dict] = {}
+    rt_path = DATA_DIR / "rt_timing.csv"
+    if rt_path.exists():
+        with open(rt_path, newline="", encoding="utf-8") as fh:
+            for row in csv.DictReader(fh):
+                s = row["solver"]
+                j, n = int(row["n_jobs"]), int(row["n_nodes"])
+                rt_by_solver.setdefault(s, {})[(j, n)] = RTResult(
+                    n_jobs=j, n_nodes=n, n_vars=int(row["n_vars"]),
+                    solver=s, solve_ms=float(row["solve_ms"]),
+                    placed=float(row["placed_frac"]),
+                    capped=row["capped"] == "Y",
+                )
+    else:
+        print(f"  [WARN] {rt_path} not found — skipping RT graphs")
+
+    pa: dict = {}
+    pa_path = DATA_DIR / "pa_timing_grid.csv"
+    if pa_path.exists():
+        with open(pa_path, newline="", encoding="utf-8") as fh:
+            for row in csv.DictReader(fh):
+                t, n = int(row["n_tenants"]), int(row["n_nodes"])
+                pa[(t, n)] = PAResult(
+                    n_tenants=t, n_nodes=n, n_periods=int(row["n_periods"]),
+                    n_vars=int(row["n_vars"]), n_constrs=int(row["n_constrs"]),
+                    build_s=float(row["build_s"]), solve_s=float(row["solve_s"]),
+                    total_s=float(row["total_s"]),
+                    mip_gap=float(row["mip_gap"]) if row.get("mip_gap") else None,
+                    status=row["status"],
+                )
+    else:
+        print(f"  [WARN] {pa_path} not found — skipping PA graphs")
+
+    return rt_by_solver, pa
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -900,55 +958,93 @@ def main() -> None:
     rt_all_cells   = [(j, n) for j in RT_JOBS_LIST for n in RT_NODES_LIST]
     rt_valid_cells = [(j, n) for j, n in rt_all_cells if _rt_is_valid(j, n)]
     rt_skip_cells  = [(j, n) for j, n in rt_all_cells if not _rt_is_valid(j, n)]
+    n_rt_threads   = len(rt_valid_cells) * len(RT_SOLVERS)
 
-    _hdr("TABLE 1 — Real-Time MILP  (OR-Tools / CBC)")
+    _hdr("TABLE 1 — Real-Time MILP  (Integer Solver Comparison)")
+    print(f"  Solvers : {RT_SOLVERS}  (all produce integer x[j,n] ∈ {{0,1}})")
     print(f"  Grid    : J = {RT_JOBS_LIST}")
     print(f"            N = {RT_NODES_LIST}")
     print(f"  Filter  : skip if J > N × {RT_MAX_LOAD_RATIO}  "
-          f"({len(rt_skip_cells)} skipped, {len(rt_valid_cells)} active)")
+          f"({len(rt_skip_cells)} skipped, {len(rt_valid_cells)} valid cells)")
     print(f"  Cap     : {SOLVER_CAP_S} s = {SOLVER_CAP_S//60} min per combination")
-    print(f"  Threads : {len(rt_valid_cells)}  (one per combination, all concurrent)")
+    print(f"  Threads : {n_rt_threads}  (one per (J, N, solver) triple, all concurrent)")
     print(f"  Job lifetime : fixed {JOB_LIFETIME_MIN_S} s  "
           f"(used to estimate cluster background load)")
     print()
     print("  Progress (elapsed from start):")
 
-    rt: dict[tuple[int, int], RTResult | None] = {
-        (j, n): None for j, n in rt_skip_cells
-    }
+    # Build all (J, N, solver) work items
+    rt_work = [(j, n, s) for j, n in rt_valid_cells for s in RT_SOLVERS]
 
-    with ThreadPoolExecutor(max_workers=max(1, len(rt_valid_cells))) as pool:
-        futures = {pool.submit(time_rt, j, n): (j, n) for j, n in rt_valid_cells}
+    # rt_by_solver[solver][(j,n)] = RTResult | None(SKIP)
+    rt_by_solver: dict[str, dict] = {}
+    for s in RT_SOLVERS:
+        rt_by_solver[s] = {(j, n): None for j, n in rt_skip_cells}
+
+    with ThreadPoolExecutor(max_workers=max(1, n_rt_threads)) as pool:
+        futures = {pool.submit(time_rt, j, n, s): (j, n, s) for j, n, s in rt_work}
         for fut in as_completed(futures):
-            j, n = futures[fut]
-            rt[(j, n)] = fut.result()
+            j, n, s = futures[fut]
+            rt_by_solver[s][(j, n)] = fut.result()
 
-    rt_pts    = [(r.n_jobs, r.n_nodes, r.solve_ms)
-                 for r in rt.values() if r is not None and not r.capped and r.solve_ms > 0]
-    rt_model  = _fit_2d(rt_pts)
+    # One solve-time table per solver
+    for solver_name in RT_SOLVERS:
+        rt = rt_by_solver[solver_name]
+        rt_pts   = [(r.n_jobs, r.n_nodes, r.solve_ms)
+                    for r in rt.values() if r is not None and not r.capped and r.solve_ms > 0]
+        rt_model = _fit_2d(rt_pts)
+        _subhdr(f"[{solver_name}]  Solve time per call  "
+                f"(>cap = hit 5-min limit  |  SKIP = filtered out)")
+        _grid(
+            corner="J \\ N", col_label="Nodes",
+            row_vals=RT_JOBS_LIST, col_vals=RT_NODES_LIST,
+            cells=[[_cell_rt(rt.get((j, n)), rt_model) for n in RT_NODES_LIST]
+                   for j in RT_JOBS_LIST],
+        )
 
-    _subhdr("Solve time per call  (>cap = hit 15-min limit, estimate in parentheses  |  SKIP = filtered)")
+    # Variable count (same for all solvers — show once)
+    rt_first = rt_by_solver[RT_SOLVERS[0]]
+    _subhdr("Variable count  J × N  (binary x[j,n])  — same for all solvers")
     _grid(
         corner="J \\ N", col_label="Nodes",
         row_vals=RT_JOBS_LIST, col_vals=RT_NODES_LIST,
-        cells=[[_cell_rt(rt.get((j, n)), rt_model) for n in RT_NODES_LIST]
-               for j in RT_JOBS_LIST],
-    )
-
-    _subhdr("Variable count  J × N  (binary x[j,n])")
-    _grid(
-        corner="J \\ N", col_label="Nodes",
-        row_vals=RT_JOBS_LIST, col_vals=RT_NODES_LIST,
-        cells=[[_fmt_vars(rt[(j,n)].n_vars) if rt.get((j,n)) else "—"
+        cells=[[_fmt_vars(rt_first[(j,n)].n_vars) if rt_first.get((j,n)) else "—"
                 for n in RT_NODES_LIST]
                for j in RT_JOBS_LIST],
     )
 
+    # Fastest solver per cell
+    _subhdr("Fastest solver per (J, N) cell")
+    def _winner_cell(j, n):
+        times = {
+            s: rt_by_solver[s][(j,n)].solve_ms
+            for s in RT_SOLVERS
+            if rt_by_solver[s].get((j,n)) is not None
+               and not rt_by_solver[s][(j,n)].capped
+        }
+        if not times:
+            return "—"
+        w = min(times, key=times.get)
+        return f"{w}  {_fmt_ms(times[w])}"
+    _grid(
+        corner="J \\ N", col_label="Nodes",
+        row_vals=RT_JOBS_LIST, col_vals=RT_NODES_LIST,
+        cells=[[_winner_cell(j, n) for n in RT_NODES_LIST] for j in RT_JOBS_LIST],
+        cw=22,
+    )
+
+    # Save CSV — one row per (J, N, solver)
+    all_rt_rows = []
+    for s, rt in rt_by_solver.items():
+        for r in rt.values():
+            if r is not None:
+                all_rt_rows.append([
+                    r.n_jobs, r.n_nodes, r.n_vars, r.solver,
+                    round(r.solve_ms, 3), round(r.placed, 4), "Y" if r.capped else "N",
+                ])
     _save_csv("rt_timing.csv",
               ["n_jobs", "n_nodes", "n_vars", "solver", "solve_ms", "placed_frac", "capped"],
-              [[r.n_jobs, r.n_nodes, r.n_vars, r.solver,
-                round(r.solve_ms, 3), round(r.placed, 4), "Y" if r.capped else "N"]
-               for r in rt.values() if r is not None])
+              all_rt_rows)
 
     # ── Plan-Ahead ─────────────────────────────────────────────────────────────
 
@@ -993,7 +1089,7 @@ def main() -> None:
                 for r in pa.values() if r is not None and r.status == "OPT" and r.total_s > 0]
     pa_model = _fit_2d(pa_pts)
 
-    _subhdr(f"Total solve time  (P={PA_FIXED_PERIODS})    >cap = hit 15-min limit    SKIP = N < T")
+    _subhdr(f"Total solve time  (P={PA_FIXED_PERIODS})    >cap = hit 5-min limit    SKIP = N < T")
     _grid(
         corner="T \\ N", col_label="Nodes",
         row_vals=PA_TENANTS_LIST, col_vals=PA_NODES_LIST,
@@ -1034,12 +1130,29 @@ def main() -> None:
 
     wall = time.perf_counter() - _T0
     _hdr(f"SUMMARY  (total wall time: {wall:.1f} s  =  {wall/60:.1f} min)")
-    _insights_rt(rt)
+    _insights_rt(rt_by_solver)
     _insights_pa(pa)
     print(f"\n  CSV output: {DATA_DIR}")
-    _generate_plots(rt, pa)
+    _generate_plots(rt_by_solver, pa)
     print()
 
 
 if __name__ == "__main__":
-    main()
+    import argparse as _ap
+    _parser = _ap.ArgumentParser(description="Computational time analysis")
+    _parser.add_argument(
+        "--graphs-only", action="store_true",
+        help="Skip timing; regenerate all plots from saved rt_timing.csv / pa_timing_grid.csv",
+    )
+    _args = _parser.parse_args()
+
+    if _args.graphs_only:
+        print("  Regenerating plots from saved CSVs ...")
+        _rt, _pa = load_results_from_csv()
+        if not _rt and not _pa:
+            print("  No saved data found. Run without --graphs-only first.")
+        else:
+            _generate_plots(_rt, _pa)
+            print("  Done.")
+    else:
+        main()

@@ -100,6 +100,13 @@ def _make_node_cpu(n: int, lo: float, hi: float) -> list[float]:
 
 NODE_CPU_CORES: list[float] = _make_node_cpu(NUM_NODES, NODE_CPU_MIN, NODE_CPU_MAX)
 
+# ── Prediction API integration ────────────────────────────────────────────────
+# When True, generate_jobs() calls Prediction/prediction_api.predict_realtime()
+# to obtain pred_mem_mb and pred_cpu_p95 instead of using simulate_max_mem().
+# Kept False for all analysis and computational benchmarks — only the Borg
+# simulation dashboard enables this flag via borg_configuration.BORG_CONFIG.
+USE_PREDICTION_API: bool = False
+
 # ── Model hyper-parameters (§3, §6) ──────────────────────────────────────────
 K_WINDOW: int = 10   # K — rolling window length for v̄_n^SLA and ω_delay,t
 

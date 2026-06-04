@@ -37,7 +37,7 @@ from plan_ahead_data      import build_synthetic_data, make_gurobi_env
 from plan_ahead_optimizer import build_model, extract_plan_output
 from gurobipy             import GRB
 
-import optimizer_google_or as rt_module
+import realtime_optimizer as rt_module
 from simulation_data import Job, NodeState
 
 rt_module.SOLVER_ID = "CBC"

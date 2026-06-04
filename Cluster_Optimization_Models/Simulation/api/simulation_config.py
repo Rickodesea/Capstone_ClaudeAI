@@ -52,6 +52,11 @@ DEFAULT_CONFIG: dict = {
     'request_per':           0.60,    # actual usage lower bound as fraction of request
     # ── Scheduler internals ───────────────────────────────────────────────────
     'realtime_time_limit_ms': 2000,   # ms — solver time limit per realtime call (keep UI responsive)
+    'realtime_solver':     'GUROBI',  # backend: GUROBI, CBC, SCIP, HIGHS
+    'rt_iterative':              1,   # 1 = iterative batch-MILP (default), 0 = single-shot
+    'rt_batch_jobs':            32,   # iterative: max jobs per sub-MILP
+    'rt_batch_nodes':           32,   # iterative: max nodes per sub-MILP
+    'use_prediction_api':        0,   # 1 = use Prediction/prediction_api; 0 = synthesise data
     # ── Plan-ahead parameters ─────────────────────────────────────────────────
     'horizon_steps':              24,   # intervals in the planning horizon (plan-ahead refresh frequency)
     'period_steps':                6,   # intervals per planning period (slot)
