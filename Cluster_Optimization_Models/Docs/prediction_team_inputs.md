@@ -62,57 +62,66 @@ If fields cannot be predicted for a specific job or tenant, return the appropria
 
 ## Descriptive Statistics for Borg Simulation Config
 
-The `Prediction/borg_configuration.py` file contains constants used when the simulation dashboard
-loads the Borg dataset configuration. Some values are currently estimated; the ones marked below
-can be replaced with real descriptive statistics from your dataset. Please run these calculations
-from your EDA and share the results so the optimization team can update `borg_configuration.py`.
+These are summary statistics over the **raw Google cluster-usage traces v3 data** (not your
+prediction output CSVs). They feed simulation config values in `borg_configuration.py`.
 
-These replace synthetic defaults in the simulation — they do **not** need to be learned/predicted
-by your models, just computed once as summary statistics from the downloaded trace data.
+- Only calculate what is clearly in your data. Skip anything that is not — we synthesize the rest.
+- Subset everything to your 9 tenants (`user` field on collections).
+- All resources are normalized to [0, 1] (Google's format) — send them normalized, we scale on our side. `time` is in microseconds.
+- Do not provide machine/cluster topology (node count, machine sizes) — we set those.
 
-### From the real-time scheduler dataset (`real_time_scheduler_input.csv`)
+Tables used: `collection_events` (`collection_id`, `user`, `time`, `type`), `instance_events`
+(`collection_id`, `resource_request`), `instance_usage` (`collection_id`, `start_time`,
+`average_usage`, `maximum_usage`).
 
-| Value needed | How to calculate | Config key |
-|---|---|---|
-| Average memory per job (MB) | `real_time_df['pred_mem_mb'].mean()` — convert to MB if normalized | `req_mem_min_mb`, `req_mem_max_mb` |
-| Memory range per job | `real_time_df.groupby('tenant_id')['pred_mem_mb'].agg(['min','max'])` | Informs job RAM range per tenant |
-| Average CPU per job | `real_time_df['pred_cpu_p95'].mean()` | `req_cpu_min`, `req_cpu_max` |
-| Avg jobs per tenant per interval | Count collections per tenant over a 60-second window in the trace | `jobs_min_per_round`, `jobs_max_per_round` |
-| Unique tenant count | `real_time_df['tenant_id'].nunique()` | `num_tenants` (expected: 9) |
+**Send a mean and a standard deviation per metric.** For each item below, compute the **mean**
+(`.mean()`) and **std** (`.std()`) over the per-job (or per-window) values.
 
-### From the plan-ahead scheduler dataset (`plan_ahead_scheduler_input.csv`)
+### Job memory (mean, std)
+- Per `collection_id`: peak = max of `maximum_usage.memory`.
+- Send the **mean** and **std** of those per-collection peaks.
 
-| Value needed | How to calculate | Config key |
-|---|---|---|
-| Demand range per tenant per period | `plan_ahead_df.groupby('tenant_id')['u'].agg(['min','max'])` | Informs `tenant_usage_min`, `tenant_usage_max` in PA model |
-| Demand variance range | `plan_ahead_df['sigma2'].describe()` | Confirms sigma_frac in Cantelli constraint |
-| Unique tenants | `plan_ahead_df['tenant_id'].nunique()` | `num_tenants` (expected: 9) |
+### Job CPU (mean, std)
+- Per `collection_id`: peak = max of `maximum_usage.cpus`.
+- Send the **mean** and **std** of those per-collection peaks.
 
-### Machine/node counts (from the Google trace or your download)
+### Jobs per tenant per minute (mean, std)
+- Filter `collection_events` to `type = 0` (SUBMIT).
+- Bucket `time` into 60-second windows; count distinct `collection_id` per (tenant, window).
+- Send the **mean** and **std** of those per-window counts.
 
-| Value needed | Source | Config key |
-|---|---|---|
-| Number of machines in your cluster subset | From the trace `machine_events` table: count distinct `machine_id` values in your subset | `total_nodes` (currently estimated at 50) |
-| Typical machine RAM (normalized 0–1) | From `machine_attributes` or `resource_request` table: max memory across machines | `node_mem_min_gb`, `node_mem_max_gb` after denormalization |
+### Job lifetime (mean, std — seconds)
+- Per `collection_id`: lifetime = (first terminal event time, `type >= 4`) − (SCHEDULE time, `type = 1`), divided by 1e6.
+- Send the **mean** and **std** of lifetime in seconds (trace caps at 1800 s).
 
-> **Note on normalization:** Google cluster traces store all resources as fractions of machine
-> capacity (0 to 1). If your `pred_mem_mb` values are in this normalized scale, set
-> `PA_NODE_CAPACITY = 1.0` in `borg_configuration.py` (already done). Multiply by the
-> actual machine RAM to get real MB values for the real-time model.
+### Spike probability (%)
+- Per `collection_id`: spiking if peak memory (from Job memory above) > `resource_request.memory`.
+- Send `100 * spiking_collections / total_collections` (single value).
 
-### What to send back
+### Overcommit ratio (mean, std)
+- Per `collection_id`: ratio = mean(`average_usage.memory`) / `resource_request.memory`.
+- Send the **mean** and **std** of that ratio across collections.
 
-A short table or JSON block with these values is enough. The optimization team will update
-`Prediction/borg_configuration.py` accordingly. Example format:
+### Tenant demand per 6-hour period (mean, std)
+- You already produce this as `u` (24h horizon, 6h periods). Reuse it.
+- Per (tenant, 6h period): sum `average_usage.memory` across that tenant's collections in the period.
+- Send the **mean** and **std** of those values across all tenants and periods.
+
+### Tenant count
+- Distinct `user` values (should be 9).
+
+### Send back
+A short JSON with whatever you computed (omit anything you skipped):
 
 ```json
 {
   "num_tenants": 9,
-  "total_machines_in_subset": 120,
-  "avg_jobs_per_tenant_per_minute": 2.3,
-  "pred_mem_mb_range": [0.0003, 0.95],
-  "pred_cpu_p95_range": [0.0005, 0.80],
-  "u_range_per_tenant_per_period": [0.001, 0.28],
-  "sigma2_range": [7e-9, 4e-6]
+  "job_mem_mean": 0.012,        "job_mem_std": 0.03,
+  "job_cpu_mean": 0.02,         "job_cpu_std": 0.04,
+  "jobs_per_tenant_per_minute_mean": 2.0,  "jobs_per_tenant_per_minute_std": 1.2,
+  "job_lifetime_sec_mean": 240, "job_lifetime_sec_std": 180,
+  "spike_prob_pct": 8.5,
+  "overcommit_ratio_mean": 0.60, "overcommit_ratio_std": 0.15,
+  "tenant_demand_per_period_mean": 0.05, "tenant_demand_per_period_std": 0.04
 }
 ```
