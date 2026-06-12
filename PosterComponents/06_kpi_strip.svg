@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 200" font-family="Segoe UI, Arial, sans-serif">
+  <!-- ============================================================
+       COMPONENT 06 — KPI STAT STRIP (key performance indicators)
+       5 big-number cards. EDIT the numbers/labels to your results.
+       ============================================================ -->
+  <text x="20" y="34" fill="#14233F" font-size="22" font-weight="700">Key Performance Indicators</text>
+  <rect x="20" y="44" width="110" height="5" rx="2" fill="#14B8A6"/>
+
+  <!-- card 1 -->
+  <g>
+    <rect x="20" y="70" width="220" height="110" rx="12" fill="#EAF1FB" stroke="#A9C6EE"/>
+    <rect x="20" y="70" width="8" height="110" rx="4" fill="#2C6EBD"/>
+    <text x="130" y="128" fill="#2C6EBD" font-size="40" font-weight="800" text-anchor="middle">98%</text>
+    <text x="130" y="158" fill="#1B2A4A" font-size="14" text-anchor="middle">Job placement rate</text>
+  </g>
+  <!-- card 2 -->
+  <g>
+    <rect x="258" y="70" width="220" height="110" rx="12" fill="#EAF6F4" stroke="#A7E0D6"/>
+    <rect x="258" y="70" width="8" height="110" rx="4" fill="#0E9384"/>
+    <text x="368" y="128" fill="#0E9384" font-size="40" font-weight="800" text-anchor="middle">&lt;10s</text>
+    <text x="368" y="158" fill="#1B2A4A" font-size="14" text-anchor="middle">Real-time solve / interval</text>
+  </g>
+  <!-- card 3 -->
+  <g>
+    <rect x="496" y="70" width="220" height="110" rx="12" fill="#FEF4E6" stroke="#F6CE8E"/>
+    <rect x="496" y="70" width="8" height="110" rx="4" fill="#F59E0B"/>
+    <text x="606" y="128" fill="#B5740A" font-size="40" font-weight="800" text-anchor="middle">≤10%</text>
+    <text x="606" y="158" fill="#1B2A4A" font-size="14" text-anchor="middle">SLA violation bound (ε)</text>
+  </g>
+  <!-- card 4 -->
+  <g>
+    <rect x="734" y="70" width="220" height="110" rx="12" fill="#EAF1FB" stroke="#A9C6EE"/>
+    <rect x="734" y="70" width="8" height="110" rx="4" fill="#2C6EBD"/>
+    <text x="844" y="128" fill="#2C6EBD" font-size="40" font-weight="800" text-anchor="middle">2.4×</text>
+    <text x="844" y="158" fill="#1B2A4A" font-size="14" text-anchor="middle">Effective memory packed</text>
+  </g>
+  <!-- card 5 -->
+  <g>
+    <rect x="972" y="70" width="208" height="110" rx="12" fill="#EAF6F4" stroke="#A7E0D6"/>
+    <rect x="972" y="70" width="8" height="110" rx="4" fill="#0E9384"/>
+    <text x="1076" y="128" fill="#0E9384" font-size="40" font-weight="800" text-anchor="middle">9</text>
+    <text x="1076" y="158" fill="#1B2A4A" font-size="14" text-anchor="middle">Tenants co-scheduled</text>
+  </g>
+</svg>

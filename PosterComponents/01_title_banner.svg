@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 200" font-family="Segoe UI, Arial, sans-serif">
+  <!-- ============================================================
+       COMPONENT 01 — TITLE BANNER
+       Header strip: title, subtitle, authors, course, logo slot.
+       Palette: navy #14233F / accent blue #2C6EBD / teal #14B8A6
+       ============================================================ -->
+  <defs>
+    <linearGradient id="bnrGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0"   stop-color="#14233F"/>
+      <stop offset="0.7" stop-color="#1C3461"/>
+      <stop offset="1"   stop-color="#2C6EBD"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1400" height="200" rx="10" fill="url(#bnrGrad)"/>
+  <!-- accent underline -->
+  <rect x="0" y="186" width="1400" height="14" rx="0" fill="#14B8A6"/>
+  <rect x="0" y="186" width="700" height="14" rx="0" fill="#F59E0B"/>
+
+  <!-- University logo slot (left) -->
+  <g transform="translate(40,40)">
+    <rect x="0" y="0" width="160" height="120" rx="8" fill="#FFFFFF" opacity="0.10"/>
+    <rect x="0" y="0" width="160" height="120" rx="8" fill="none" stroke="#FFFFFF" stroke-opacity="0.4" stroke-dasharray="5 5"/>
+    <text x="80" y="58" fill="#CBD8EE" font-size="13" text-anchor="middle">UNIVERSITY</text>
+    <text x="80" y="76" fill="#CBD8EE" font-size="13" text-anchor="middle">LOGO</text>
+  </g>
+
+  <!-- Title block (center) -->
+  <text x="700" y="62" fill="#FFFFFF" font-size="34" font-weight="700" text-anchor="middle">A Unified Framework for Multi-Tenant Cluster Management</text>
+  <text x="700" y="100" fill="#9FE7DA" font-size="24" font-weight="600" text-anchor="middle">with Overcommit and Guaranteed Service Level Agreement</text>
+  <text x="700" y="138" fill="#CBD8EE" font-size="16" text-anchor="middle">Alrick Grandison  •  Optimization Layer</text>
+  <text x="700" y="162" fill="#9FB4D6" font-size="14" text-anchor="middle">DAMO 699 Capstone Project  •  June 2026</text>
+
+  <!-- QR / course code slot (right) -->
+  <g transform="translate(1200,40)">
+    <rect x="0" y="0" width="120" height="120" rx="8" fill="#FFFFFF"/>
+    <g fill="#14233F">
+      <rect x="14" y="14" width="28" height="28"/><rect x="78" y="14" width="28" height="28"/>
+      <rect x="14" y="78" width="28" height="28"/>
+      <rect x="52" y="14" width="10" height="10"/><rect x="52" y="40" width="10" height="10"/>
+      <rect x="52" y="66" width="10" height="10"/><rect x="52" y="92" width="10" height="10"/>
+      <rect x="66" y="52" width="10" height="10"/><rect x="92" y="66" width="10" height="10"/>
+      <rect x="78" y="92" width="28" height="14"/>
+    </g>
+    <text x="60" y="116" fill="#5A6B85" font-size="0"></text>
+  </g>
+</svg>

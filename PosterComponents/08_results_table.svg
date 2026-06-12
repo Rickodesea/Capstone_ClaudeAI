@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 360" font-family="Segoe UI, Arial, sans-serif">
+  <!-- ============================================================
+       COMPONENT 08 — RESULTS TABLE (APA-style: title ABOVE)
+       Swap headers/rows for your timing or sensitivity data.
+       ============================================================ -->
+  <!-- APA label above the table -->
+  <text x="20" y="34" fill="#14233F" font-size="18" font-weight="700">Table 5</text>
+  <text x="20" y="58" fill="#14233F" font-size="16" font-style="italic">Real-Time MILP Solve Time by Problem Size</text>
+
+  <!-- Header row -->
+  <rect x="20" y="76" width="660" height="44" fill="#14233F"/>
+  <g fill="#FFFFFF" font-size="15" font-weight="600">
+    <text x="120" y="104" text-anchor="middle">Jobs × Nodes</text>
+    <text x="300" y="104" text-anchor="middle">Solver</text>
+    <text x="450" y="104" text-anchor="middle">Solve time (s)</text>
+    <text x="600" y="104" text-anchor="middle">Placed (%)</text>
+  </g>
+
+  <!-- Rows -->
+  <g font-size="15" fill="#1B2A4A">
+    <rect x="20" y="120" width="660" height="40" fill="#F4F7FB"/>
+    <text x="120" y="146" text-anchor="middle">8 × 8</text>
+    <text x="300" y="146" text-anchor="middle">Gurobi</text>
+    <text x="450" y="146" text-anchor="middle">0.04</text>
+    <text x="600" y="146" text-anchor="middle">100</text>
+
+    <rect x="20" y="160" width="660" height="40" fill="#FFFFFF"/>
+    <text x="120" y="186" text-anchor="middle">16 × 16</text>
+    <text x="300" y="186" text-anchor="middle">Gurobi</text>
+    <text x="450" y="186" text-anchor="middle">0.21</text>
+    <text x="600" y="186" text-anchor="middle">100</text>
+
+    <rect x="20" y="200" width="660" height="40" fill="#F4F7FB"/>
+    <text x="120" y="226" text-anchor="middle">32 × 32</text>
+    <text x="300" y="226" text-anchor="middle">Gurobi</text>
+    <text x="450" y="226" text-anchor="middle">1.8</text>
+    <text x="600" y="226" text-anchor="middle">99</text>
+
+    <rect x="20" y="240" width="660" height="40" fill="#FFFFFF"/>
+    <text x="120" y="266" text-anchor="middle">64 × 64</text>
+    <text x="300" y="266" text-anchor="middle">Iterative</text>
+    <text x="450" y="266" text-anchor="middle">6.5</text>
+    <text x="600" y="266" text-anchor="middle">98</text>
+
+    <rect x="20" y="280" width="660" height="40" fill="#F4F7FB"/>
+    <text x="120" y="306" text-anchor="middle">128 × 128</text>
+    <text x="300" y="306" text-anchor="middle">Iterative</text>
+    <text x="450" y="306" text-anchor="middle">9.2</text>
+    <text x="600" y="306" text-anchor="middle">97</text>
+  </g>
+
+  <!-- grid lines -->
+  <g stroke="#D6E0EE" stroke-width="1">
+    <line x1="20" y1="320" x2="680" y2="320"/>
+    <line x1="220" y1="76" x2="220" y2="320"/>
+    <line x1="380" y1="76" x2="380" y2="320"/>
+    <line x1="520" y1="76" x2="520" y2="320"/>
+  </g>
+  <rect x="20" y="76" width="660" height="244" fill="none" stroke="#B7C6DE"/>
+
+  <text x="20" y="344" fill="#5A6B85" font-size="12" font-style="italic">Note. Iterative = fix-and-optimize decomposition. Illustrative values; replace with your runs.</text>
+</svg>

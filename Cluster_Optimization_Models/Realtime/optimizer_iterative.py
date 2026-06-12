@@ -57,8 +57,8 @@ from simulation_data import (
     K_WINDOW,
 )
 
-BATCH_JOBS:  int   = 32
-BATCH_NODES: int   = 32
+BATCH_JOBS:  int   = 16   # chosen default — see Pipeline timing analysis (16-job batch)
+BATCH_NODES: int   = 16
 FULL_THRESH: float = 0.05
 SOLVER_ID:   str   = "CBC"
 
@@ -75,6 +75,7 @@ def solve(
     batch_nodes:    int   = BATCH_NODES,
     full_thresh:    float = FULL_THRESH,
     solver_id:      str   = SOLVER_ID,
+    stats:          dict | None = None,
 ) -> dict[str, int | None]:
     """
     Iterative batch placement.
@@ -93,6 +94,8 @@ def solve(
     dict  job_id -> node_id (int) if placed, None if still pending.
     """
     if not jobs or not nodes:
+        if stats is not None:
+            stats["iterations"] = 0
         return {j.job_id: None for j in jobs}
 
     # Track extra memory added to each node by placements in this call
@@ -119,6 +122,7 @@ def solve(
     n_batches_est  = max(1, math.ceil(len(jobs) / batch_jobs))
     per_batch_ms   = max(500, time_limit_ms // n_batches_est)
 
+    iterations = 0   # number of sub-MILP solves actually performed
     while unplaced:
         # ── Select batch ──────────────────────────────────────────────────────
         available_ids.sort(key=_remaining, reverse=True)
@@ -135,6 +139,7 @@ def solve(
         batch_j = unplaced[:batch_jobs]
 
         # ── Solve sub-MILP via realtime_optimizer core ────────────────────────
+        iterations += 1
         sub_result = _rt.solve(
             batch_j, batch_nodes_updated, W_t, K,
             per_batch_ms, solver_id=solver_id,
@@ -168,6 +173,9 @@ def solve(
     # Jobs still unplaced → None (ClusterManager re-queues them)
     for j in unplaced:
         result[j.job_id] = None
+
+    if stats is not None:
+        stats["iterations"] = iterations
 
     return result
 

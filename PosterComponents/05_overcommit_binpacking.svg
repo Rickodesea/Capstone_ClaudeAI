@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 520" font-family="Segoe UI, Arial, sans-serif">
+  <!-- ============================================================
+       COMPONENT 05 — OVERCOMMIT + SLA CONCEPT (bin-packing visual)
+       Shows tenants packed onto a machine: requested vs actual,
+       the overcommit headroom, and the SLA safety band.
+       ============================================================ -->
+  <text x="30" y="40" fill="#14233F" font-size="26" font-weight="700">Safe Overcommit with an SLA Guarantee</text>
+  <rect x="30" y="52" width="120" height="5" rx="2" fill="#14B8A6"/>
+  <text x="30" y="84" fill="#5A6B85" font-size="15">Tenants reserve more than they use, so we pack more jobs per machine — bounded by a safety margin.</text>
+
+  <!-- Machine 1: naive (no overcommit) - underutilized -->
+  <text x="170" y="130" fill="#5A6B85" font-size="15" font-weight="700" text-anchor="middle">No overcommit</text>
+  <rect x="90" y="150" width="160" height="320" rx="10" fill="#F4F7FB" stroke="#D6E0EE"/>
+  <!-- capacity line -->
+  <line x1="90" y1="150" x2="250" y2="150" stroke="#14233F" stroke-width="2"/>
+  <text x="258" y="155" fill="#14233F" font-size="11" text-anchor="start">capacity</text>
+  <!-- requested blocks (reserved, mostly idle) -->
+  <rect x="106" y="380" width="128" height="80" rx="4" fill="#A9C6EE"/>
+  <text x="170" y="426" fill="#14233F" font-size="12" text-anchor="middle">used 35%</text>
+  <rect x="106" y="170" width="128" height="200" rx="4" fill="none" stroke="#A9C6EE" stroke-dasharray="5 4"/>
+  <text x="170" y="270" fill="#5A6B85" font-size="12" text-anchor="middle">reserved</text>
+  <text x="170" y="288" fill="#5A6B85" font-size="12" text-anchor="middle">but idle</text>
+
+  <!-- Machine 2: overcommit + SLA band - well packed -->
+  <text x="560" y="130" fill="#0E9384" font-size="15" font-weight="700" text-anchor="middle">Overcommit + SLA safety band</text>
+  <rect x="420" y="150" width="280" height="320" rx="10" fill="#F4F7FB" stroke="#D6E0EE"/>
+  <line x1="420" y1="150" x2="700" y2="150" stroke="#14233F" stroke-width="2"/>
+  <text x="708" y="155" fill="#14233F" font-size="11" text-anchor="start">capacity</text>
+
+  <!-- SLA safety band near the top -->
+  <rect x="420" y="150" width="280" height="48" fill="#FDE7DE" opacity="0.8"/>
+  <line x1="420" y1="198" x2="700" y2="198" stroke="#E1714B" stroke-width="2" stroke-dasharray="6 4"/>
+  <text x="560" y="180" fill="#C2410C" font-size="12" text-anchor="middle" font-weight="600">SLA safety margin (kept free)</text>
+
+  <!-- packed tenant jobs (actual usage stacked) -->
+  <g>
+    <rect x="436" y="392" width="248" height="68" rx="4" fill="#14B8A6"/><text x="560" y="430" fill="#FFFFFF" font-size="12" text-anchor="middle">Tenant A</text>
+    <rect x="436" y="320" width="248" height="68" rx="4" fill="#2C6EBD"/><text x="560" y="358" fill="#FFFFFF" font-size="12" text-anchor="middle">Tenant B</text>
+    <rect x="436" y="262" width="248" height="54" rx="4" fill="#7C9FD6"/><text x="560" y="293" fill="#FFFFFF" font-size="12" text-anchor="middle">Tenant C</text>
+    <rect x="436" y="206" width="248" height="52" rx="4" fill="#9FE0D6"/><text x="560" y="236" fill="#14233F" font-size="12" text-anchor="middle">Tenant D</text>
+  </g>
+  <text x="560" y="500" fill="#0E9384" font-size="13" text-anchor="middle" font-weight="600">~85% packed, violations bounded by ε</text>
+
+  <!-- Legend / key idea -->
+  <g font-size="14" fill="#1B2A4A">
+    <rect x="760" y="180" width="310" height="240" rx="12" fill="#FFFFFF" stroke="#D6E0EE"/>
+    <text x="780" y="212" fill="#14233F" font-size="16" font-weight="700">The trade-off we optimize</text>
+
+    <rect x="780" y="232" width="20" height="20" rx="3" fill="#2C6EBD"/>
+    <text x="810" y="248" >Pack more jobs per machine</text>
+
+    <rect x="780" y="266" width="20" height="20" rx="3" fill="#E1714B"/>
+    <text x="810" y="282" >Keep an SLA safety margin</text>
+
+    <rect x="780" y="300" width="20" height="20" rx="3" fill="#14B8A6"/>
+    <text x="810" y="316" >Bound violation risk to ε = 10%</text>
+
+    <line x1="780" y1="338" x2="1050" y2="338" stroke="#D6E0EE"/>
+    <text x="780" y="366" fill="#5A6B85" font-size="13">Chance constraint (Cantelli):</text>
+    <text x="780" y="392" fill="#14233F" font-size="15" font-weight="600">mean usage + κ·σ  ≤  capacity</text>
+    <text x="780" y="412" fill="#5A6B85" font-size="12">κ ≈ 3.0 controls the safety margin width</text>
+  </g>
+</svg>

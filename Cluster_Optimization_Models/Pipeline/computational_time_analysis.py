@@ -137,6 +137,12 @@ JOB_LIFETIME_MAX_S = 1    # seconds — maximum job lifetime (= min for fixed)
 RT_JOBS_LIST       = [16, 64, 256, 1024]          # pending jobs (J) per solve call
 RT_NODES_LIST      = [4, 16, 64, 256, 512, 1024]  # machines (N) per solve call
 
+# Small-node study — one-shot baseline for the job-bottleneck test (few nodes).
+# The iterative companion (same grid) lives in computational_time_analysis_iterative.py.
+RT_SMALL_JOBS      = [8, 16]
+RT_SMALL_NODES     = [1, 2, 4, 8, 16, 32]
+RT_SMALL_SOLVER    = "GUROBI"
+
 # Skip (J, N) if J > N × RT_MAX_LOAD_RATIO.
 # In practice the scheduler sees J ≤ ~N (most intervals clear the queue).
 # A ratio of 4 allows moderate overload stress tests while excluding extreme
@@ -152,6 +158,10 @@ RT_SOLVERS = ["CBC", "SCIP", "GUROBI", "HIGHS"]
 PA_TENANTS_LIST    = [2, 8, 128, 256, 512]          # tenants T
 PA_NODES_LIST      = [4, 16, 64, 256, 512, 1024]   # machines N
 PA_FIXED_PERIODS   = 4                              # planning slots per horizon (fixed)
+
+# Small grid — one-shot MISOCP baseline, no skips (every cell run).
+PA_SMALL_TENANTS   = [8, 16, 32, 64]
+PA_SMALL_NODES     = [8, 16, 32, 64]
 
 # Tenant memory demand u[i,h]: drawn uniformly from [PA_USAGE_MIN, PA_USAGE_MAX]
 # in abstract capacity units, where one machine holds PA_NODE_CAPACITY units.
@@ -675,8 +685,8 @@ def _plot_rt_heatmap_one(solver_name: str, rt: dict,
     ax.set_yticklabels([f"J={j}" for j in J], fontsize=9)
     ax.set_xlabel("Machines (N)", fontsize=11)
     ax.set_ylabel("Pending Jobs (J)", fontsize=11)
-    ax.set_title(f"Real-Time MILP — {solver_name}  |  Solve Time (J × N grid)",
-                 fontsize=12, fontweight="bold")
+    # ax.set_title(f"Real-Time MILP — {solver_name}  |  Solve Time",
+    #              fontsize=12, fontweight="bold")
     fig.tight_layout()
     _save_fig(fig, f"rt_heatmap_{solver_name}.png")
 
@@ -732,8 +742,8 @@ def _plot_rt_scaling(rt_by_solver: dict[str, dict]) -> None:
     ax.set_yscale("log")
     ax.set_xlabel("Variable count  J × N  (log scale)", fontsize=11)
     ax.set_ylabel("Solve time (ms, log scale)", fontsize=11)
-    ax.set_title("Real-Time MILP — Solve Time vs Variable Count  (integer solvers only)",
-                 fontsize=12, fontweight="bold")
+    # ax.set_title("Real-Time MILP — Solve Time vs Variable Count  (integer solvers only)",
+    #              fontsize=12, fontweight="bold")
     ax.legend(fontsize=9)
     ax.grid(True, which="both", alpha=0.2)
     fig.tight_layout()
@@ -790,9 +800,8 @@ def _plot_pa_heatmap(pa: dict) -> None:
     ax.set_yticklabels([f"T={t}" for t in T], fontsize=9)
     ax.set_xlabel("Machines (N)", fontsize=11)
     ax.set_ylabel("Tenants (T)", fontsize=11)
-    ax.set_title(f"Plan-Ahead MISOCP — Total Solve Time  (P={PA_FIXED_PERIODS} periods)\n"
-                 f"OOM = out of memory   SKIP = N < T",
-                 fontsize=12, fontweight="bold")
+    # ax.set_title(f"Plan-Ahead MISOCP — Total Solve Time  (P={PA_FIXED_PERIODS} periods)",
+    #              fontsize=12, fontweight="bold")
     fig.tight_layout()
     _save_fig(fig, "pa_heatmap_solve_time.png")
 
@@ -827,8 +836,8 @@ def _plot_pa_build_vs_solve(pa: dict) -> None:
     ax.set_xticks(list(xs))
     ax.set_xticklabels(labels_bar, fontsize=8)
     ax.set_ylabel("Time (s)", fontsize=11)
-    ax.set_title(f"Plan-Ahead MISOCP — Build vs Solve Time Breakdown  (P={PA_FIXED_PERIODS})",
-                 fontsize=12, fontweight="bold")
+    # ax.set_title(f"Plan-Ahead MISOCP — Build vs Solve Time Breakdown  (P={PA_FIXED_PERIODS})",
+    #              fontsize=12, fontweight="bold")
     ax.legend(fontsize=9)
     ax.grid(axis="y", alpha=0.25)
     fig.tight_layout()
@@ -873,9 +882,8 @@ def _plot_pa_vars_vs_time(pa: dict) -> None:
     ax.set_yscale("log")
     ax.set_xlabel("Variable count  (log scale)", fontsize=11)
     ax.set_ylabel("Total solve time (s, log scale)", fontsize=11)
-    ax.set_title(f"Plan-Ahead MISOCP — Variable Count vs Solve Time  (P={PA_FIXED_PERIODS})\n"
-                 f"ERR points plotted at cap line (OOM before timer expired)",
-                 fontsize=12, fontweight="bold")
+    # ax.set_title(f"Plan-Ahead MISOCP — Variable Count vs Solve Time  (P={PA_FIXED_PERIODS})",
+    #              fontsize=12, fontweight="bold")
     ax.legend(fontsize=9)
     ax.grid(True, which="both", alpha=0.2)
     fig.tight_layout()
@@ -948,6 +956,52 @@ def load_results_from_csv() -> tuple[dict, dict]:
 # ═══════════════════════════════════════════════════════════════════════════════
 # § MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
+
+def run_rt_small_oneshot(jobs_list=None, nodes_list=None, solver=None) -> None:
+    """
+    One-shot (single-shot MILP) timing on the small-node grid (J in RT_SMALL_JOBS,
+    N in RT_SMALL_NODES). This is the non-iterative baseline for the job-bottleneck
+    study; the iterative companion lives in computational_time_analysis_iterative.py.
+    Runs sequentially for clean timings and writes rt_small_oneshot.csv.
+    """
+    jobs_list  = jobs_list  or RT_SMALL_JOBS
+    nodes_list = nodes_list or RT_SMALL_NODES
+    solver     = solver     or RT_SMALL_SOLVER
+    _hdr(f"RT SMALL-NODE GRID — One-Shot Baseline ({solver})")
+    print(f"  Grid : J={jobs_list}  N={nodes_list}")
+    rows = []
+    for j in jobs_list:
+        for n in nodes_list:
+            r = time_rt(j, n, solver)
+            rows.append([r.n_jobs, r.n_nodes, r.solver, round(r.solve_ms, 3),
+                         round(r.placed, 4), "Y" if r.capped else "N"])
+    _save_csv("rt_small_oneshot.csv",
+              ["n_jobs", "n_nodes", "solver", "solve_ms", "placed_frac", "capped"],
+              rows)
+
+
+def run_pa_small_oneshot(tenants_list=None, nodes_list=None, periods=None) -> None:
+    """
+    One-shot MISOCP timing on the small PA grid (T,N in PA_SMALL_*), NO skips — every
+    cell is run. time_pa() scales node capacity to keep each cell feasible, so even
+    N < T cells solve. Companion to the iterative small grid in the iterative file.
+    """
+    tenants_list = tenants_list or PA_SMALL_TENANTS
+    nodes_list   = nodes_list   or PA_SMALL_NODES
+    periods      = periods      or PA_FIXED_PERIODS
+    _hdr("PA SMALL GRID — One-Shot MISOCP Baseline (no skips)")
+    print(f"  Grid : T={tenants_list}  N={nodes_list}  P={periods}")
+    rows = []
+    for t in tenants_list:
+        for n in nodes_list:
+            r = time_pa(t, n, periods)
+            rows.append([r.n_tenants, r.n_nodes, r.n_periods, r.n_vars,
+                         round(r.build_s, 4), round(r.solve_s, 4), round(r.total_s, 4),
+                         round(r.mip_gap, 6) if r.mip_gap is not None else "", r.status])
+    _save_csv("pa_small_oneshot.csv",
+              ["n_tenants", "n_nodes", "n_periods", "n_vars",
+               "build_s", "solve_s", "total_s", "mip_gap", "status"], rows)
+
 
 def main() -> None:
     global _T0
@@ -1125,6 +1179,10 @@ def main() -> None:
                 round(r.mip_gap, 6) if r.mip_gap is not None else "",
                 r.status]
                for r in pa.values() if r is not None])
+
+    # ── Small-grid one-shot baselines (job-bottleneck + small PA study) ─────────
+    run_rt_small_oneshot()
+    run_pa_small_oneshot()
 
     # ── Summary & Insights ─────────────────────────────────────────────────────
 

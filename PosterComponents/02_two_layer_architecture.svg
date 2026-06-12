@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 560" font-family="Segoe UI, Arial, sans-serif">
+  <!-- ============================================================
+       COMPONENT 02 — TWO-LAYER SYSTEM ARCHITECTURE (flow chart)
+       Data -> Prediction Layer -> Optimization Layer -> Cluster
+       ============================================================ -->
+  <defs>
+    <marker id="arr02" markerWidth="12" markerHeight="12" refX="9" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5A6B85"/>
+    </marker>
+    <filter id="sh02" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#14233F" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+
+  <!-- Card title -->
+  <text x="30" y="40" fill="#14233F" font-size="26" font-weight="700">System Architecture</text>
+  <rect x="30" y="52" width="120" height="5" rx="2" fill="#14B8A6"/>
+
+  <!-- ===== Stage 1: Data Source ===== -->
+  <g filter="url(#sh02)">
+    <rect x="30" y="120" width="200" height="320" rx="12" fill="#F4F7FB" stroke="#D6E0EE"/>
+  </g>
+  <rect x="30" y="120" width="200" height="46" rx="12" fill="#5A6B85"/>
+  <rect x="30" y="150" width="200" height="16" fill="#5A6B85"/>
+  <text x="130" y="150" fill="#FFFFFF" font-size="17" font-weight="600" text-anchor="middle">Data Source</text>
+  <g font-size="14" fill="#1B2A4A">
+    <rect x="50" y="190" width="160" height="50" rx="8" fill="#FFFFFF" stroke="#D6E0EE"/>
+    <text x="130" y="212" text-anchor="middle" font-weight="600">Google Borg</text>
+    <text x="130" y="230" text-anchor="middle" fill="#5A6B85" font-size="12">cluster traces v3</text>
+
+    <rect x="50" y="256" width="160" height="50" rx="8" fill="#FFFFFF" stroke="#D6E0EE"/>
+    <text x="130" y="278" text-anchor="middle" font-weight="600">Tenant jobs</text>
+    <text x="130" y="296" text-anchor="middle" fill="#5A6B85" font-size="12">CPU / memory / lifetime</text>
+
+    <rect x="50" y="322" width="160" height="50" rx="8" fill="#FFFFFF" stroke="#D6E0EE"/>
+    <text x="130" y="344" text-anchor="middle" font-weight="600">Node pool</text>
+    <text x="130" y="362" text-anchor="middle" fill="#5A6B85" font-size="12">heterogeneous machines</text>
+  </g>
+
+  <!-- ===== Stage 2: Prediction Layer (teammates) ===== -->
+  <g filter="url(#sh02)">
+    <rect x="300" y="120" width="230" height="320" rx="12" fill="#EAF6F4" stroke="#A7E0D6"/>
+  </g>
+  <rect x="300" y="120" width="230" height="46" rx="12" fill="#0E9384"/>
+  <rect x="300" y="150" width="230" height="16" fill="#0E9384"/>
+  <text x="415" y="150" fill="#FFFFFF" font-size="17" font-weight="600" text-anchor="middle">Prediction Layer</text>
+  <text x="415" y="186" fill="#5A6B85" font-size="12" text-anchor="middle" font-style="italic">team-owned</text>
+  <g font-size="14" fill="#1B2A4A">
+    <rect x="320" y="200" width="190" height="48" rx="8" fill="#FFFFFF" stroke="#A7E0D6"/>
+    <text x="415" y="229" text-anchor="middle">Demand forecasting</text>
+    <rect x="320" y="262" width="190" height="48" rx="8" fill="#FFFFFF" stroke="#A7E0D6"/>
+    <text x="415" y="291" text-anchor="middle">Real-time job estimate</text>
+    <rect x="320" y="324" width="190" height="48" rx="8" fill="#FFFFFF" stroke="#A7E0D6"/>
+    <text x="415" y="346" text-anchor="middle">Plan-ahead workload</text>
+    <text x="415" y="364" text-anchor="middle" fill="#5A6B85" font-size="12">u[i,h] per period</text>
+  </g>
+
+  <!-- ===== Stage 3: Optimization Layer (mine) ===== -->
+  <g filter="url(#sh02)">
+    <rect x="600" y="120" width="260" height="320" rx="12" fill="#EAF1FB" stroke="#A9C6EE"/>
+  </g>
+  <rect x="600" y="120" width="260" height="46" rx="12" fill="#2C6EBD"/>
+  <rect x="600" y="150" width="260" height="16" fill="#2C6EBD"/>
+  <text x="730" y="150" fill="#FFFFFF" font-size="17" font-weight="600" text-anchor="middle">Optimization Layer</text>
+  <text x="730" y="186" fill="#2C6EBD" font-size="12" text-anchor="middle" font-weight="700">my contribution</text>
+  <g font-size="14" fill="#1B2A4A">
+    <rect x="620" y="200" width="220" height="58" rx="8" fill="#FFFFFF" stroke="#A9C6EE"/>
+    <text x="730" y="224" text-anchor="middle" font-weight="600">Real-Time Scheduler</text>
+    <text x="730" y="244" text-anchor="middle" fill="#5A6B85" font-size="12">MILP placement, per interval</text>
+
+    <rect x="620" y="270" width="220" height="58" rx="8" fill="#FFFFFF" stroke="#A9C6EE"/>
+    <text x="730" y="294" text-anchor="middle" font-weight="600">Plan-Ahead Allocator</text>
+    <text x="730" y="314" text-anchor="middle" fill="#5A6B85" font-size="12">MISOCP, SLA-aware horizon</text>
+
+    <rect x="620" y="340" width="220" height="58" rx="8" fill="#FFFFFF" stroke="#A9C6EE"/>
+    <text x="730" y="364" text-anchor="middle" font-weight="600">Decomposition Heuristic</text>
+    <text x="730" y="384" text-anchor="middle" fill="#5A6B85" font-size="12">scales to large instances</text>
+  </g>
+
+  <!-- ===== Stage 4: Cluster / Outcome ===== -->
+  <g filter="url(#sh02)">
+    <rect x="930" y="120" width="240" height="320" rx="12" fill="#FEF4E6" stroke="#F6CE8E"/>
+  </g>
+  <rect x="930" y="120" width="240" height="46" rx="12" fill="#F59E0B"/>
+  <rect x="930" y="150" width="240" height="16" fill="#F59E0B"/>
+  <text x="1050" y="150" fill="#FFFFFF" font-size="17" font-weight="600" text-anchor="middle">Managed Cluster</text>
+  <g font-size="14" fill="#1B2A4A">
+    <rect x="950" y="200" width="200" height="48" rx="8" fill="#FFFFFF" stroke="#F6CE8E"/>
+    <text x="1050" y="229" text-anchor="middle">Jobs placed on nodes</text>
+    <rect x="950" y="262" width="200" height="48" rx="8" fill="#FFFFFF" stroke="#F6CE8E"/>
+    <text x="1050" y="291" text-anchor="middle">Safe overcommit</text>
+    <rect x="950" y="324" width="200" height="48" rx="8" fill="#FFFFFF" stroke="#F6CE8E"/>
+    <text x="1050" y="346" text-anchor="middle">SLA upheld</text>
+    <text x="1050" y="364" text-anchor="middle" fill="#5A6B85" font-size="12">violations minimized</text>
+  </g>
+
+  <!-- Flow arrows between stages -->
+  <g stroke="#5A6B85" stroke-width="3" fill="none">
+    <line x1="232" y1="280" x2="296" y2="280" marker-end="url(#arr02)"/>
+    <line x1="532" y1="280" x2="596" y2="280" marker-end="url(#arr02)"/>
+    <line x1="862" y1="280" x2="926" y2="280" marker-end="url(#arr02)"/>
+  </g>
+
+  <!-- Feedback loop (cluster state -> optimization) -->
+  <path d="M1050 444 L1050 500 L730 500 L730 444" stroke="#F59E0B" stroke-width="2.5" stroke-dasharray="7 5" fill="none" marker-end="url(#arr02)"/>
+  <text x="890" y="524" fill="#B5740A" font-size="13" text-anchor="middle" font-style="italic">live cluster state feedback (memory pressure, queue)</text>
+</svg>

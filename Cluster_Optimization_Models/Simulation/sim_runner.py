@@ -37,14 +37,15 @@ All flags
   --pa {none,mock,gurobi}     PA grouping mode (default: none)
   --batches N                 scheduling intervals to run (default: 20)
   --seed N                    RNG seed (default: 42)
-  --solver SOLVER             integer backend: CBC, SCIP, HIGHS, GUROBI (default: CBC)
-  --rt-batch-jobs N           jobs per sub-MILP — iterative RT only (default: 32)
-  --rt-batch-nodes N          nodes per sub-MILP — iterative RT only (default: 32)
+  --solver SOLVER             integer backend: CBC, SCIP, HIGHS, GUROBI (default: GUROBI)
+  --rt-batch-jobs N           jobs per sub-MILP — iterative RT only (default: 16)
+  --rt-batch-nodes N          nodes per sub-MILP — iterative RT only (default: 16)
   --time-limit MS             per-call solver wall-clock limit ms (default: 10000)
   --jobs-per-round N          jobs generated per interval (default: simulation_data default)
   --csv PATH                  save per-batch stats to CSV (compare mode: two files)
   --quiet                     suppress ClusterManager per-batch output
   --compare                   run both RT modes with same seed, print comparison table
+  --use-borg-config           load Prediction/borg_configuration.BORG_CONFIG values
 """
 
 from __future__ import annotations
@@ -73,8 +74,11 @@ for _p in [str(_REALTIME), str(_PLANAHEAD)]:
         sys.path.insert(0, _p)
 
 # ── Core imports ───────────────────────────────────────────────────────────────
+import numpy as np
+
 import cluster_manager as _cm
 from cluster_manager import SimulationResult
+import simulation_data as _sd
 from simulation_data import NUM_NODES, NUM_TENANTS
 
 import realtime_optimizer as _rt_reg
@@ -191,6 +195,87 @@ def _build_plan_output(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# § BORG CONFIG  (load Prediction/borg_configuration.BORG_CONFIG into the run)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _load_borg_config() -> dict:
+    """
+    Import BORG_CONFIG and resolve every value the standalone runner needs,
+    falling back to simulation_data defaults for keys BORG_CONFIG does not set
+    (e.g. req_cpu range and mem_threshold_frac, which are intentionally left
+    to the synthetic defaults).
+    """
+    _PRED = _ROOT / "Prediction"
+    if str(_PRED) not in sys.path:
+        sys.path.insert(0, str(_PRED))
+    from borg_configuration import BORG_CONFIG as _BC
+    g = _BC.get
+    return {
+        "total_nodes":        int(g("total_nodes", NUM_NODES)),
+        "num_tenants":        int(g("num_tenants", NUM_TENANTS)),
+        "node_mem_min_gb":    float(g("node_mem_min_gb", _sd.NODE_MEM_MIN_MB / 1024.0)),
+        "node_mem_max_gb":    float(g("node_mem_max_gb", _sd.NODE_MEM_MAX_MB / 1024.0)),
+        "node_cpu_min":       float(g("node_cpu_min", _sd.NODE_CPU_MIN)),
+        "node_cpu_max":       float(g("node_cpu_max", _sd.NODE_CPU_MAX)),
+        "mem_threshold_frac": float(g("mem_threshold_frac", _sd.MEM_THRESHOLD_FRAC)),
+        "req_mem_min_mb":     float(g("req_mem_min_mb", _sd.REQUEST_MEM_MIN_MB)),
+        "req_mem_max_mb":     float(g("req_mem_max_mb", _sd.REQUEST_MEM_MAX_MB)),
+        "req_cpu_min":        float(g("req_cpu_min", _sd.REQ_CPU_MIN)),
+        "req_cpu_max":        float(g("req_cpu_max", _sd.REQ_CPU_MAX)),
+        "request_per":        float(g("request_per", _sd.REQUEST_PER)),
+        "jobs_per_round":     int(g("jobs_per_round", _sd.JOBS_PER_ROUND)),
+        "min_lifetime_sec":   float(g("min_lifetime_sec", _sd.MIN_LIFETIME_SEC)),
+        "max_lifetime_sec":   float(g("max_lifetime_sec", _sd.MAX_LIFETIME_SEC)),
+        "spike_prob_pct":     float(g("spike_prob_pct", _sd.SPIKE_PROB * 100.0)),
+    }
+
+
+def _make_borg_generators(cfg: dict):
+    """
+    Build node/job generators bound to the borg config, reusing the Realtime
+    simulation_data building blocks so the produced objects are the exact same
+    Job / NodeState dataclasses the rest of the pipeline expects.
+    """
+    n     = cfg["total_nodes"]
+    mems  = _sd._make_node_mems(n, cfg["node_mem_min_gb"] * 1024.0, cfg["node_mem_max_gb"] * 1024.0)
+    taxes = [round(m * _sd.OS_TAX_FRAC / 1024.0) * 1024.0 for m in mems]
+    cores = _sd._make_node_cpu(n, cfg["node_cpu_min"], cfg["node_cpu_max"])
+    tfrac = cfg["mem_threshold_frac"]
+
+    def gen_nodes(rng=None):
+        return [
+            _sd.NodeState(node_id=i, capacity_mb=mems[i], os_tax_mb=taxes[i],
+                          cpu_cores=cores[i], used_mb=0.0, threshold_frac=tfrac)
+            for i in range(n)
+        ]
+
+    def _trunc(rng, lo, hi):
+        mean = (lo + hi) / 2.0
+        std  = (hi - lo) / 6.0
+        return float(np.clip(rng.normal(mean, std), lo, hi))
+
+    def gen_jobs(round_num, num_jobs=None, num_tenants=None, rng=None):
+        rng = rng or np.random.default_rng()
+        nj  = num_jobs if num_jobs is not None else cfg["jobs_per_round"]
+        out = []
+        for i in range(nj):
+            t   = int(rng.integers(0, cfg["num_tenants"]))
+            req = _trunc(rng, cfg["req_mem_min_mb"], cfg["req_mem_max_mb"])
+            cpu = _trunc(rng, cfg["req_cpu_min"], cfg["req_cpu_max"])
+            pm  = _sd.simulate_max_mem(req, lower_frac=cfg["request_per"], rng=rng)
+            pc  = _sd.simulate_p95_cpu(cpu, lower_frac=cfg["request_per"], rng=rng)
+            out.append(_sd.Job(
+                job_id=f"r{round_num}_j{i}", tenant_id=t,
+                req_mem_mb=round(req, 2), req_cpu=round(cpu, 3),
+                pred_mem_mb=round(pm, 2), pred_cpu_p95=round(pc, 3),
+                arrival_round=round_num,
+            ))
+        return out
+
+    return gen_nodes, gen_jobs
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # § SIMULATION RUNNER
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -207,13 +292,14 @@ def run_simulation(
     pa_mode:        str      = "none",
     num_batches:    int      = 20,
     seed:           int      = 42,
-    solver:         str      = "CBC",
-    batch_jobs:     int      = 32,
-    batch_nodes:    int      = 32,
+    solver:         str      = "GUROBI",
+    batch_jobs:     int      = 16,
+    batch_nodes:    int      = 16,
     time_limit_ms:  int      = 10_000,
     jobs_per_round: int | None = None,
     verbose:        bool     = True,
     csv_path:       str | None = None,
+    borg_config:    dict | None = None,
 ) -> SimRun:
     """
     Run one simulation sequence and return a SimRun.
@@ -241,12 +327,42 @@ def run_simulation(
     else:
         rt_fn = _no_iterative_solver(solver, time_limit_ms)
 
-    # ── Build plan-ahead output ────────────────────────────────────────────────
-    plan_output = _build_plan_output(pa_mode, NUM_NODES, NUM_TENANTS)
+    # ── Resolve topology (borg config overrides the synthetic defaults) ────────
+    use_borg = borg_config is not None
+    if use_borg:
+        eff_nodes   = borg_config["total_nodes"]
+        eff_tenants = borg_config["num_tenants"]
+        if jobs_per_round is None:
+            jobs_per_round = borg_config["jobs_per_round"]
+    else:
+        eff_nodes, eff_tenants = NUM_NODES, NUM_TENANTS
 
-    # ── Inject solver, run, restore ────────────────────────────────────────────
-    orig_solve = _cm.solve
-    _cm.solve  = rt_fn
+    # ── Build plan-ahead output ────────────────────────────────────────────────
+    plan_output = _build_plan_output(pa_mode, eff_nodes, eff_tenants)
+
+    # ── Inject solver (+ borg generators/constants), run, restore ──────────────
+    orig_solve  = _cm.solve
+    _cm.solve   = rt_fn
+    borg_saved  = None
+    if use_borg:
+        gen_nodes, gen_jobs = _make_borg_generators(borg_config)
+        borg_saved = (
+            _cm.generate_nodes, _cm.generate_jobs,
+            _cm.MIN_LIFETIME_SEC, _cm.MAX_LIFETIME_SEC,
+            _cm.NUM_NODES, _cm.NUM_TENANTS, _cm.SPIKE_PROB,
+            _sd.NUM_NODES, _sd.NUM_TENANTS, _sd.SPIKE_PROB,
+        )
+        spike = borg_config["spike_prob_pct"] / 100.0
+        _cm.generate_nodes   = gen_nodes
+        _cm.generate_jobs    = gen_jobs
+        _cm.MIN_LIFETIME_SEC = borg_config["min_lifetime_sec"]
+        _cm.MAX_LIFETIME_SEC = borg_config["max_lifetime_sec"]
+        _cm.NUM_NODES        = eff_nodes
+        _cm.NUM_TENANTS      = eff_tenants
+        _cm.SPIKE_PROB       = spike
+        _sd.NUM_NODES        = eff_nodes
+        _sd.NUM_TENANTS      = eff_tenants
+        _sd.SPIKE_PROB       = spike
     t0 = time.perf_counter()
     try:
         cm = _cm.ClusterManager(
@@ -258,9 +374,14 @@ def run_simulation(
         result = cm.run(num_batches=num_batches, plan_output=plan_output)
     finally:
         _cm.solve = orig_solve   # always restore, even on exception
+        if borg_saved is not None:
+            (_cm.generate_nodes, _cm.generate_jobs,
+             _cm.MIN_LIFETIME_SEC, _cm.MAX_LIFETIME_SEC,
+             _cm.NUM_NODES, _cm.NUM_TENANTS, _cm.SPIKE_PROB,
+             _sd.NUM_NODES, _sd.NUM_TENANTS, _sd.SPIKE_PROB) = borg_saved
     wall_time = time.perf_counter() - t0
 
-    label = f"RT={rt_mode}  PA={pa_mode}  solver={solver}"
+    label = f"RT={rt_mode}  PA={pa_mode}  solver={solver}" + ("  [borg]" if use_borg else "")
 
     if csv_path:
         _save_csv(result, csv_path, rt_mode, pa_mode)
@@ -369,9 +490,9 @@ def _print_comparison(no_iterative: SimRun, iterative: SimRun, seed: int = 42) -
          _int_delta(ra.final_queue_size, ri.final_queue_size))
 
     _print_separator()
-    print(f"  {'Wall-clock time':<28}{regular.wall_time_s:>{COL-1}.2f}s"
+    print(f"  {'Wall-clock time':<28}{no_iterative.wall_time_s:>{COL-1}.2f}s"
           f"{iterative.wall_time_s:>{COL-1}.2f}s"
-          f"{_time_delta(regular.wall_time_s, iterative.wall_time_s):>12}")
+          f"{_time_delta(no_iterative.wall_time_s, iterative.wall_time_s):>12}")
     _print_separator("═")
     print()
 
@@ -411,10 +532,10 @@ if __name__ == "__main__":
                     help="RNG seed — same seed → identical job arrivals (default: 42)")
     ap.add_argument("--solver",         default="GUROBI",
                     help="Integer backend: CBC, SCIP, HIGHS, GUROBI (default: GUROBI)")
-    ap.add_argument("--rt-batch-jobs",  type=int, default=32,
-                    help="Jobs per sub-MILP — iterative RT only (default: 32)")
-    ap.add_argument("--rt-batch-nodes", type=int, default=32,
-                    help="Nodes per sub-MILP — iterative RT only (default: 32)")
+    ap.add_argument("--rt-batch-jobs",  type=int, default=16,
+                    help="Jobs per sub-MILP — iterative RT only (default: 16)")
+    ap.add_argument("--rt-batch-nodes", type=int, default=16,
+                    help="Nodes per sub-MILP — iterative RT only (default: 16)")
     ap.add_argument("--time-limit",     type=int, default=10_000,
                     help="Per-call solver wall-clock limit ms (default: 10000)")
     ap.add_argument("--jobs-per-round", type=int, default=None,
@@ -425,11 +546,24 @@ if __name__ == "__main__":
                     help="Suppress ClusterManager per-batch output")
     ap.add_argument("--compare",        action="store_true",
                     help="Run both RT modes with the same seed and print comparison table")
+    ap.add_argument("--use-borg-config", action="store_true",
+                    help="Load Prediction/borg_configuration.BORG_CONFIG (topology + workload)")
     args = ap.parse_args()
 
     verbose = not args.quiet
 
     _print_header(args)
+
+    borg_cfg = None
+    if args.use_borg_config:
+        borg_cfg = _load_borg_config()
+        print("  ── Borg config applied ──")
+        print(f"  Nodes={borg_cfg['total_nodes']}  Tenants={borg_cfg['num_tenants']}  "
+              f"Jobs/round={borg_cfg['jobs_per_round']}")
+        print(f"  ReqMem={borg_cfg['req_mem_min_mb']:.0f}-{borg_cfg['req_mem_max_mb']:.0f}MB  "
+              f"Lifetime={borg_cfg['min_lifetime_sec']:.0f}-{borg_cfg['max_lifetime_sec']:.0f}s  "
+              f"Spike={borg_cfg['spike_prob_pct']:.2f}%  RequestPer={borg_cfg['request_per']:.3f}")
+        print()
 
     common = dict(
         pa_mode        = args.pa,
@@ -441,6 +575,7 @@ if __name__ == "__main__":
         time_limit_ms  = args.time_limit,
         jobs_per_round = args.jobs_per_round,
         verbose        = verbose,
+        borg_config    = borg_cfg,
     )
 
     if args.compare:

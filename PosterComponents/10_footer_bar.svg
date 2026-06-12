@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 120" font-family="Segoe UI, Arial, sans-serif">
+  <!-- ============================================================
+       COMPONENT 10 — FOOTER BAR (acknowledgement / references / contact)
+       ============================================================ -->
+  <rect x="0" y="0" width="1400" height="120" rx="10" fill="#14233F"/>
+  <rect x="0" y="0" width="700" height="6" fill="#F59E0B"/>
+  <rect x="700" y="0" width="700" height="6" fill="#14B8A6"/>
+
+  <!-- References -->
+  <text x="30" y="40" fill="#9FE7DA" font-size="15" font-weight="700">Selected References</text>
+  <text x="30" y="62" fill="#CBD8EE" font-size="12">Verma et al. (2015) Large-scale cluster management at Google with Borg.</text>
+  <text x="30" y="80" fill="#CBD8EE" font-size="12">Maniezzo, Boschetti &amp; Stuetzle (2021) Decomposition-based heuristics. Matheuristics.</text>
+  <text x="30" y="98" fill="#CBD8EE" font-size="12">Google Cluster Usage Traces v3 (ClusterData 2019).</text>
+
+  <!-- Acknowledgement -->
+  <text x="560" y="40" fill="#9FE7DA" font-size="15" font-weight="700">Acknowledgement</text>
+  <text x="560" y="62" fill="#CBD8EE" font-size="12">Thanks to the prediction-layer team and the course</text>
+  <text x="560" y="80" fill="#CBD8EE" font-size="12">instructor for guidance throughout the capstone.</text>
+
+  <!-- Contact -->
+  <text x="980" y="40" fill="#9FE7DA" font-size="15" font-weight="700">Contact</text>
+  <text x="980" y="62" fill="#CBD8EE" font-size="12">Alrick Grandison — Optimization Layer</text>
+  <text x="980" y="80" fill="#CBD8EE" font-size="12">DAMO 699 Capstone Project, June 2026</text>
+
+  <!-- small QR -->
+  <g transform="translate(1300,30)">
+    <rect x="0" y="0" width="64" height="64" rx="6" fill="#FFFFFF"/>
+    <g fill="#14233F">
+      <rect x="8" y="8" width="16" height="16"/><rect x="40" y="8" width="16" height="16"/>
+      <rect x="8" y="40" width="16" height="16"/><rect x="30" y="30" width="8" height="8"/>
+      <rect x="40" y="44" width="8" height="8"/><rect x="44" y="34" width="8" height="6"/>
+    </g>
+  </g>
+</svg>

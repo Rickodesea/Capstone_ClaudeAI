@@ -48,11 +48,11 @@ HORIZON_HOURS:    int  = 24    # total planning horizon (hours)
 PA_NODE_CAPACITY: float = 1.0  # normalised: 1.0 = full machine capacity
 
 # ── Cluster topology (representative estimates) ────────────────────────────────
-# These are synthetic estimates based on the Borg cluster paper (Verma et al. 2015).
-# Exact node counts are not released in the public trace; use these as reasonable
-# proxies for a small cluster cell.
-NUM_NODES:    int   = 50        # representative cluster size for simulation
-ALWAYS_ON:    int   = 40        # always-available machines (M_a)
+# Exact node counts are not released in the public trace. The Borg cluster paper
+# (Verma et al. 2015) suggests an estimate of around 50 machines for a cell, but we
+# chose smaller values because we are working with only a subset of the tenants.
+NUM_NODES:    int   = 15        # representative cluster size for simulation
+ALWAYS_ON:    int   =  5        # always-available machines (M_a)
 N_EXCLUSIVE:  int   = 2         # exclusive tenants (≈ 22% of 9 tenants)
 
 # Node RAM range (GB). Borg cells use heterogeneous machines; we approximate with
@@ -78,6 +78,78 @@ RT_BATCH_NODES: int  = 32
 RT_TIME_LIMIT_MS: int = 10_000
 
 
+# ── Borg dataset statistics (from the prediction team) ─────────────────────────
+# Mean + standard deviation per metric over the 9-tenant subset of the raw Google
+# cluster-usage traces v3. Memory and CPU are normalized to fractions of the
+# largest machine (Google's native format).
+#
+# Two reported values were out of range and were adjusted (originals kept for
+# traceability):
+#   • job_cpu_std = 11.90 is impossible for a normalized [0, 1] metric (most likely
+#     un-normalized cores, or driven by a few outliers). It is capped so that
+#     mean + 3·std stays within one machine (≤ 1.0).
+#   • tenant_demand_per_period (19.44 ± 48.02) is a sum of normalized per-row usage
+#     and far exceeds a single machine's capacity. It is kept for reference only
+#     and is NOT used as a capacity bound. If it is ever fed to the plan-ahead
+#     model as u[i,h] with PA_NODE_CAPACITY = 1.0, it must be rescaled first.
+_CPU_MEAN    = 0.123887
+_CPU_STD_RAW = 11.903688
+
+BORG_STATS: dict = {
+    "num_tenants":                     NUM_TENANTS,
+    "job_mem_mean":                    0.000549,   # normalized (fraction of largest machine RAM)
+    "job_mem_std":                     0.00309,
+    "job_cpu_mean":                    _CPU_MEAN,   # normalized (fraction of largest machine CPU)
+    "job_cpu_std":                     round(min(_CPU_STD_RAW, (1.0 - _CPU_MEAN) / 3.0), 4),  # 11.90 -> 0.2920
+    "job_cpu_std_reported":            _CPU_STD_RAW,  # original team value, retained
+    "jobs_per_tenant_per_minute_mean": 1.8655,
+    "jobs_per_tenant_per_minute_std":  0.6338,
+    "job_lifetime_sec_mean":           89.0,
+    "job_lifetime_sec_std":            341.07,
+    "spike_prob_pct":                  2.45,
+    "overcommit_ratio_mean":           0.0887,
+    "overcommit_ratio_std":            0.1955,
+    "tenant_demand_per_period_mean":   19.444506,   # see note: reference only, not a capacity bound
+    "tenant_demand_per_period_std":    48.020514,
+}
+
+
+def _range(mean: float, std: float, lo_floor: float, hi_cap: float) -> tuple[float, float]:
+    """Build a [min, max] config range as mean ± 3·std, clamped to [lo_floor, hi_cap]."""
+    lo = max(lo_floor, mean - 3.0 * std)
+    hi = min(hi_cap,   mean + 3.0 * std)
+    return (round(lo, 4), round(hi, 4))
+
+
+# Scale normalized job memory to MB against the largest machine in the pool.
+_LARGEST_MACHINE_MB = NODE_MEM_MAX_GB * 1024.0
+_mem_lo_n, _mem_hi_n = _range(BORG_STATS["job_mem_mean"], BORG_STATS["job_mem_std"], 0.0, 1.0)
+REQ_MEM_MIN_MB: float = max(32.0, round(_mem_lo_n * _LARGEST_MACHINE_MB, 1))
+REQ_MEM_MAX_MB: float = round(_mem_hi_n * _LARGEST_MACHINE_MB, 1)
+
+# Jobs per scheduling interval (~60 s) = per-tenant rate × tenant count.
+# Aggregate std scales by sqrt(n) assuming tenants arrive independently.
+_JOBS_MEAN = BORG_STATS["jobs_per_tenant_per_minute_mean"] * NUM_TENANTS
+_JOBS_STD  = BORG_STATS["jobs_per_tenant_per_minute_std"]  * (NUM_TENANTS ** 0.5)
+JOBS_PER_ROUND:     int = int(round(_JOBS_MEAN))
+JOBS_MIN_PER_ROUND: int = int(round(max(0.0, _JOBS_MEAN - 3.0 * _JOBS_STD)))
+JOBS_MAX_PER_ROUND: int = int(round(_JOBS_MEAN + 3.0 * _JOBS_STD))
+
+# Job lifetime range (s), floored at 1 s and capped at the 1800 s trace limit.
+LIFETIME_MIN_SEC, LIFETIME_MAX_SEC = _range(
+    BORG_STATS["job_lifetime_sec_mean"], BORG_STATS["job_lifetime_sec_std"], 1.0, 1800.0)
+
+# Overcommit ratio = mean(actual usage) / request -> usage lower-bound fraction.
+REQUEST_PER_BORG: float = round(BORG_STATS["overcommit_ratio_mean"], 3)
+
+SPIKE_PROB_PCT_BORG: float = BORG_STATS["spike_prob_pct"]
+
+# Note: job CPU range is intentionally NOT mapped into the simulation config. The
+# trace CPU is collection-level and normalized to a full machine (mean ≈ 0.124 of
+# a machine), which is not comparable to the simulation's per-job core requests
+# (0.25–1.0 cores). The default req_cpu range is left in place.
+
+
 # ── Simulation config override dict ────────────────────────────────────────────
 # Passed to POST /api/config or merged into simulation_config.DEFAULT_CONFIG.
 # Values here override the defaults in simulation_config.py on Reset.
@@ -91,6 +163,16 @@ BORG_CONFIG: dict = {
     "node_mem_max_gb":        NODE_MEM_MAX_GB,
     "node_cpu_min":           NODE_CPU_MIN,
     "node_cpu_max":           NODE_CPU_MAX,
+    # Workload (derived from BORG_STATS — see derivation above)
+    "jobs_per_round":         JOBS_PER_ROUND,
+    "jobs_min_per_round":     JOBS_MIN_PER_ROUND,
+    "jobs_max_per_round":     JOBS_MAX_PER_ROUND,
+    "req_mem_min_mb":         REQ_MEM_MIN_MB,
+    "req_mem_max_mb":         REQ_MEM_MAX_MB,
+    "spike_prob_pct":         SPIKE_PROB_PCT_BORG,
+    "min_lifetime_sec":       LIFETIME_MIN_SEC,
+    "max_lifetime_sec":       LIFETIME_MAX_SEC,
+    "request_per":            REQUEST_PER_BORG,
     # Plan-ahead
     "horizon_steps":          N_PLAN_PERIODS * 6,   # 24 steps (1 per hour, then PA reruns)
     "period_steps":           6,                     # 6-step slots matching 6-hour periods

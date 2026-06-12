@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 420" font-family="Segoe UI, Arial, sans-serif">
+  <!-- ============================================================
+       COMPONENT 07 — REUSABLE SECTION CARD (template)
+       A numbered, colored-header content box like the samples use.
+       Duplicate this and change number, title, color, bullets.
+       Header color swap: change every #2C6EBD below.
+       ============================================================ -->
+  <defs>
+    <filter id="sh07" x="-8%" y="-8%" width="116%" height="120%">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#14233F" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#sh07)">
+    <rect x="10" y="10" width="540" height="400" rx="14" fill="#FFFFFF" stroke="#D6E0EE"/>
+  </g>
+
+  <!-- Header bar -->
+  <path d="M10 24 a14 14 0 0 1 14 -14 h512 a14 14 0 0 1 14 14 v44 h-540 z" fill="#2C6EBD"/>
+  <!-- number chip -->
+  <circle cx="44" cy="46" r="22" fill="#FFFFFF"/>
+  <text x="44" y="54" fill="#2C6EBD" font-size="24" font-weight="800" text-anchor="middle">1</text>
+  <text x="80" y="55" fill="#FFFFFF" font-size="22" font-weight="700">Section Title</text>
+
+  <!-- Body bullets -->
+  <g font-size="16" fill="#1B2A4A">
+    <circle cx="40" cy="108" r="5" fill="#14B8A6"/>
+    <text x="58" y="114">First key point goes here, kept short.</text>
+
+    <circle cx="40" cy="150" r="5" fill="#14B8A6"/>
+    <text x="58" y="156">Second supporting bullet for the reader.</text>
+
+    <circle cx="40" cy="192" r="5" fill="#14B8A6"/>
+    <text x="58" y="198">Third bullet, one line is ideal on a poster.</text>
+
+    <circle cx="40" cy="234" r="5" fill="#14B8A6"/>
+    <text x="58" y="240">Keep text large and scannable from afar.</text>
+  </g>
+
+  <!-- Optional highlight callout -->
+  <rect x="30" y="280" width="500" height="100" rx="10" fill="#EAF1FB" stroke="#A9C6EE"/>
+  <text x="48" y="312" fill="#2C6EBD" font-size="15" font-weight="700">Takeaway</text>
+  <text x="48" y="340" fill="#1B2A4A" font-size="15">One sentence the audience should remember</text>
+  <text x="48" y="362" fill="#1B2A4A" font-size="15">after walking past your poster.</text>
+</svg>

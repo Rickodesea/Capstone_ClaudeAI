@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 480" font-family="Segoe UI, Arial, sans-serif">
+  <!-- ============================================================
+       COMPONENT 03 — OPTIMIZATION MODELS PIPELINE (flow chart)
+       Two parallel tracks: Real-Time MILP  +  Plan-Ahead MISOCP
+       ============================================================ -->
+  <defs>
+    <marker id="arr03" markerWidth="12" markerHeight="12" refX="9" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2C6EBD"/>
+    </marker>
+    <marker id="arr03b" markerWidth="12" markerHeight="12" refX="9" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0E9384"/>
+    </marker>
+  </defs>
+
+  <text x="30" y="40" fill="#14233F" font-size="26" font-weight="700">How the Optimization Layer Works</text>
+  <rect x="30" y="52" width="120" height="5" rx="2" fill="#14B8A6"/>
+
+  <!-- Shared input -->
+  <rect x="30" y="200" width="160" height="80" rx="10" fill="#14233F"/>
+  <text x="110" y="234" fill="#FFFFFF" font-size="15" font-weight="600" text-anchor="middle">Predicted</text>
+  <text x="110" y="256" fill="#FFFFFF" font-size="15" font-weight="600" text-anchor="middle">demand</text>
+
+  <!-- ===== Track A: Real-time ===== -->
+  <text x="300" y="100" fill="#2C6EBD" font-size="18" font-weight="700">Track A · Real-Time Scheduling (per ~60s interval)</text>
+  <g font-size="14" fill="#1B2A4A">
+    <rect x="300" y="120" width="150" height="70" rx="10" fill="#EAF1FB" stroke="#A9C6EE"/>
+    <text x="375" y="150" text-anchor="middle" font-weight="600">Build MILP</text>
+    <text x="375" y="170" text-anchor="middle" fill="#5A6B85" font-size="12">jobs × nodes</text>
+
+    <rect x="500" y="120" width="160" height="70" rx="10" fill="#EAF1FB" stroke="#A9C6EE"/>
+    <text x="580" y="150" text-anchor="middle" font-weight="600">Solve placement</text>
+    <text x="580" y="170" text-anchor="middle" fill="#5A6B85" font-size="12">Gurobi / CBC / HiGHS</text>
+
+    <rect x="710" y="120" width="160" height="70" rx="10" fill="#EAF1FB" stroke="#A9C6EE"/>
+    <text x="790" y="146" text-anchor="middle" font-weight="600">Iterative batch</text>
+    <text x="790" y="164" text-anchor="middle" fill="#5A6B85" font-size="12">fix-and-optimize</text>
+    <text x="790" y="180" text-anchor="middle" fill="#5A6B85" font-size="12">when large</text>
+
+    <rect x="920" y="120" width="160" height="70" rx="10" fill="#2C6EBD"/>
+    <text x="1000" y="150" text-anchor="middle" fill="#FFFFFF" font-weight="600">Placements</text>
+    <text x="1000" y="170" text-anchor="middle" fill="#CBD8EE" font-size="12">live decisions</text>
+  </g>
+  <g stroke="#2C6EBD" stroke-width="2.5" fill="none">
+    <line x1="450" y1="155" x2="496" y2="155" marker-end="url(#arr03)"/>
+    <line x1="660" y1="155" x2="706" y2="155" marker-end="url(#arr03)"/>
+    <line x1="870" y1="155" x2="916" y2="155" marker-end="url(#arr03)"/>
+    <path d="M190 220 L245 220 L245 155 L296 155" marker-end="url(#arr03)"/>
+  </g>
+
+  <!-- ===== Track B: Plan-ahead ===== -->
+  <text x="300" y="320" fill="#0E9384" font-size="18" font-weight="700">Track B · Plan-Ahead Allocation (24h horizon)</text>
+  <g font-size="14" fill="#1B2A4A">
+    <rect x="300" y="340" width="150" height="70" rx="10" fill="#EAF6F4" stroke="#A7E0D6"/>
+    <text x="375" y="370" text-anchor="middle" font-weight="600">Build MISOCP</text>
+    <text x="375" y="390" text-anchor="middle" fill="#5A6B85" font-size="12">chance constraint</text>
+
+    <rect x="500" y="340" width="160" height="70" rx="10" fill="#EAF6F4" stroke="#A7E0D6"/>
+    <text x="580" y="366" text-anchor="middle" font-weight="600">Cantelli cone</text>
+    <text x="580" y="384" text-anchor="middle" fill="#5A6B85" font-size="12">κ≈3.0, ε=0.10</text>
+
+    <rect x="710" y="340" width="160" height="70" rx="10" fill="#EAF6F4" stroke="#A7E0D6"/>
+    <text x="790" y="366" text-anchor="middle" font-weight="600">Greedy FFD</text>
+    <text x="790" y="384" text-anchor="middle" fill="#5A6B85" font-size="12">iterative fallback</text>
+
+    <rect x="920" y="340" width="160" height="70" rx="10" fill="#0E9384"/>
+    <text x="1000" y="370" text-anchor="middle" fill="#FFFFFF" font-weight="600">Reservations</text>
+    <text x="1000" y="390" text-anchor="middle" fill="#CFEFE9" font-size="12">capacity plan</text>
+  </g>
+  <g stroke="#0E9384" stroke-width="2.5" fill="none">
+    <line x1="450" y1="375" x2="496" y2="375" marker-end="url(#arr03b)"/>
+    <line x1="660" y1="375" x2="706" y2="375" marker-end="url(#arr03b)"/>
+    <line x1="870" y1="375" x2="916" y2="375" marker-end="url(#arr03b)"/>
+    <path d="M190 260 L245 260 L245 375 L296 375" marker-end="url(#arr03b)"/>
+  </g>
+</svg>
